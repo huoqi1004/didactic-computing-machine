@@ -1,0 +1,39 @@
+# ============================================================
+# Agent-Native ERP - Git 忽略规则
+# ============================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.env
+.env.local
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Docker
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+*.sqlite3
+postgres-data/
+redis-data/

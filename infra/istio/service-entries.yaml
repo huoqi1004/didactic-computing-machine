@@ -1,0 +1,172 @@
+# ============================================================
+# Istio ServiceEntry - 外部服务入口
+# 定义网格外部服务的访问入口（由于 MeshConfig 配置了 REGISTRY_ONLY 模式）
+# 文档: https://istio.io/latest/docs/reference/config/networking/service-entry/
+# ============================================================
+# REGISTRY_ONLY 模式下，应用无法直接访问外部服务
+# 必须通过 ServiceEntry 将外部服务注册到网格中
+# 网格会为这些外部服务创建 Envoy 代理，实现 mTLS 和策略控制
+# ============================================================
+
+---
+# ============================================================
+# 1. LLM API 服务入口
+# ============================================================
+# 后端通过 ERP_LLM_BASE_URL 访问外部 LLM API（如 Qwen-72B、DeepSeek）
+# 将 LLM API 注册为网格内的外部服务
+# 部署在 agent-execution 命名空间（backend 所在域）
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: llm-api-external
+  namespace: agent-execution
+  labels:
+    domain: agent-execution
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "LLM API 外部服务入口 - 允许 backend 访问外部大模型 API"
+spec:
+  # 外部服务的主机名（网格内通过此名称访问）
+  hosts:
+    - "llm-api.external"    # 网格内部别名
+    - "api.llm-provider.com"  # 实际外部主机
+
+  # 服务端口
+  ports:
+    # HTTPS 443 端口 - LLM API 通常使用 HTTPS
+    - number: 443
+      name: https
+      protocol: HTTPS
+      targetPort: 443
+    # HTTP 80 端口（部分私有化 LLM 使用 HTTP）
+    - number: 80
+      name: http
+      protocol: HTTP
+      targetPort: 80
+
+  # 解析模式
+  # NONE: 不解析 DNS（使用 hosts 中指定的 IP）
+  # DNS: 通过 DNS 解析主机名
+  resolution: DNS
+
+  # 位置：网格外部
+  location: MESH_EXTERNAL
+
+  # 外部端点地址（实际 LLM API 服务器）
+  endpoints:
+    - address: "api.llm-provider.com"
+      ports:
+        https: 443
+        http: 80
+
+---
+# ============================================================
+# 2. Docker Hub 镜像仓库入口（如需要拉取镜像）
+# ============================================================
+# 允许从外部拉取容器镜像（k3d/minikube 环境）
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: docker-registry
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Docker 镜像仓库入口 - 允许拉取容器镜像"
+spec:
+  hosts:
+    - "registry-1.docker.io"
+    - "auth.docker.io"
+    - "production.cloudflare.docker.com"
+  ports:
+    - number: 443
+      name: https
+      protocol: HTTPS
+  resolution: DNS
+  location: MESH_EXTERNAL
+
+---
+# ============================================================
+# 3. DNS 配置 - 外部服务 DNS 解析
+# ============================================================
+# 为外部服务配置 DNS 解析策略
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: external-dns-services
+  namespace: agent-execution
+  labels:
+    domain: agent-execution
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "外部 DNS 服务入口 - NTP、OAuth 提供者等基础服务"
+spec:
+  hosts:
+    # OAuth/JWT 提供者（用于 RequestAuthentication 中的 jwksUri）
+    - "erp.example.com"
+    # NTP 时间同步服务（可选）
+    - "pool.ntp.org"
+  ports:
+    - number: 443
+      name: https
+      protocol: HTTPS
+    - number: 80
+      name: http
+      protocol: HTTP
+  resolution: DNS
+  location: MESH_EXTERNAL
+
+---
+# ============================================================
+# 4. DestinationRule - LLM API TLS 配置
+# ============================================================
+# 为 LLM API 外部服务配置 TLS 简化模式
+# 简化模式：Istio 发起 TLS 连接，不验证客户端证书
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: llm-api-tls
+  namespace: agent-execution
+  labels:
+    domain: agent-execution
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "LLM API TLS 配置 - 简化 TLS 模式"
+spec:
+  host: "llm-api.external"
+  trafficPolicy:
+    # TLS 配置 - SIMPLE 模式
+    # SIMPLE: 客户端发起 TLS，验证服务器证书
+    tls:
+      mode: SIMPLE
+      # SNI 主机名
+      sni: "api.llm-provider.com"
+      # 允许的最小 TLS 版本
+      minProtocolVersion: TLSV1_2
+      # 允许的最大 TLS 版本
+      maxProtocolVersion: TLSV1_3
+      # 加密套件
+      cipherSuites:
+        - ECDHE-ECDSA-AES256-GCM-SHA384
+        - ECDHE-RSA-AES256-GCM-SHA384
+        - ECDHE-ECDSA-AES128-GCM-SHA256
+        - ECDHE-RSA-AES128-GCM-SHA256
+
+    # 连接池配置 - LLM API 需要长连接和较大超时
+    connectionPool:
+      tcp:
+        maxConnections: 20
+        connectTimeout: 30s
+      http:
+        http2MaxRequests: 20
+        maxRequestsPerConnection: 5
+        maxRetries: 3
+        idleTimeout: 120s
+
+    # 异常检测 - LLM API 可能偶发超时，容忍度较高
+    outlierDetection:
+      consecutive5xxErrors: 10        # 连续 10 次错误才驱逐
+      consecutiveGatewayErrors: 5
+      interval: 60s                   # 检测间隔较长
+      baseEjectionTime: 60s           # 驱逐时间 60 秒
+      maxEjectionPercent: 50

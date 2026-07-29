@@ -1,0 +1,230 @@
+# ============================================================
+# PostgreSQL StatefulSet (data-knowledge 域)
+# 有状态数据库部署 - 持久化存储
+# 对应 Docker Compose 中的 postgres 服务
+# ============================================================
+# 使用 StatefulSet 而非 Deployment 的原因：
+#   1. 稳定的网络标识（pod-name-0, pod-name-1...）
+#   2. 稳定的持久化存储（PVC 不随 Pod 删除而删除）
+#   3. 有序的部署、扩展、滚动更新和删除
+#   4. 适合数据库等有状态应用
+# ============================================================
+
+---
+# ============================================================
+# 1. PostgreSQL Headless Service
+# ============================================================
+# Headless Service 用于 StatefulSet 的稳定网络标识
+# 不分配 ClusterIP，直接通过 Pod IP 解析
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-headless
+  namespace: data-knowledge
+  labels:
+    domain: data-knowledge
+    app: postgres
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "PostgreSQL Headless Service - 用于 StatefulSet 稳定标识"
+spec:
+  type: ClusterIP
+  clusterIP: None    # Headless Service
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+
+---
+# ============================================================
+# 2. PostgreSQL ClusterIP Service
+# ============================================================
+# 常规 ClusterIP Service - 供 backend 服务访问
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: data-knowledge
+  labels:
+    domain: data-knowledge
+    app: postgres
+    app.kubernetes.io/part-of: agent-native-erp
+    service: postgres
+  annotations:
+    description: "PostgreSQL ClusterIP Service - 端口5432"
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+
+---
+# ============================================================
+# 3. PostgreSQL ServiceAccount
+# ============================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-sa
+  namespace: data-knowledge
+  labels:
+    domain: data-knowledge
+    app: postgres
+    app.kubernetes.io/part-of: agent-native-erp
+
+---
+# ============================================================
+# 4. PostgreSQL StatefulSet
+# ============================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: data-knowledge
+  labels:
+    domain: data-knowledge
+    app: postgres
+    version: v1
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "PostgreSQL 有状态部署 - 1副本, 10Gi持久化"
+spec:
+  serviceName: postgres-headless    # 关联 Headless Service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+        version: v1
+        domain: data-knowledge
+        app.kubernetes.io/part-of: agent-native-erp
+      annotations:
+        # Istio sidecar 注入
+        sidecar.istio.io/inject: "true"
+        # 数据库的 sidecar 资源配置
+        sidecar.istio.io/proxyCPU: "50m"
+        sidecar.istio.io/proxyMemory: "64Mi"
+        sidecar.istio.io/proxyCPULimit: "200m"
+        sidecar.istio.io/proxyMemoryLimit: "128Mi"
+    spec:
+      serviceAccountName: postgres-sa
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          # 环境变量从 Secret 引用
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+            - name: TZ
+              value: "Asia/Shanghai"
+            # PostgreSQL 性能优化参数
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          # 资源限制
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          # 健康检查
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+                - -d
+                - erp_db
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+                - -d
+                - erp_db
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # 安全上下文
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999      # PostgreSQL Alpine 镜像默认用户
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          # 卷挂载
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          # 启动参数
+          args:
+            - postgres
+            - -c
+            - max_connections=100
+            - -c
+            - shared_buffers=128MB
+            - -c
+            - effective_cache_size=384MB
+            - -c
+            - log_min_duration_statement=1000    # 记录超过1秒的慢查询
+      # 安全上下文
+      securityContext:
+        fsGroup: 999
+      terminationGracePeriodSeconds: 60    # 数据库需要更多时间优雅关闭
+
+  # ============================================================
+  # 5. 持久化卷声明模板 (PVC)
+  # ============================================================
+  # 每个 Pod 自动创建独立的 PVC
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+        labels:
+          app: postgres
+          domain: data-knowledge
+      spec:
+        accessModes:
+          - ReadWriteOnce    # 单节点读写（PostgreSQL 不支持多节点写入）
+        resources:
+          requests:
+            storage: 10Gi    # 10Gi 持久化存储
+        # 存储类（如集群有多个 StorageClass，需指定）
+        # storageClassName: fast-ssd

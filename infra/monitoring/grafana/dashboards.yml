@@ -1,0 +1,20 @@
+# ============================================================
+# Agent-Native ERP - Grafana 仪表板提供者配置
+# 自动从文件系统加载仪表板JSON
+# ============================================================
+
+apiVersion: 1
+
+# 仪表板提供者
+providers:
+  - name: 'ERP Dashboards'
+    orgId: 1
+    folder: 'Agent-Native ERP'
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

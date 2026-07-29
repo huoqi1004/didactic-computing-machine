@@ -1,0 +1,61 @@
+# ============================================================
+# Agent-Native ERP Backend - Python 依赖
+# ============================================================
+
+# Web 框架
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# 数据库（PostgreSQL 持久化层 - app/core/database.py, migrations.py）
+asyncpg==0.30.0
+sqlalchemy[asyncio]==2.0.36
+alembic==1.14.0
+psycopg2-binary==2.9.10
+
+# Redis（分布式缓存层 - app/core/database.py）
+redis[hiredis]==5.2.1
+
+# 认证
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+PyJWT==2.10.1
+
+# 数据验证
+pydantic==2.10.4
+pydantic-settings==2.7.0
+
+# HTTP 客户端
+httpx==0.28.1
+aiohttp==3.11.11
+
+# 模板渲染（LLM Prompt管理）
+jinja2==3.1.4
+
+# 监控
+prometheus-client==0.21.1
+prometheus-fastapi-instrumentator==7.0.0
+
+# 日志
+structlog==24.4.0
+python-json-logger==3.2.1
+loguru==0.7.3
+
+# 重试机制
+tenacity==9.0.0
+
+# 工具库
+python-dotenv==1.0.1
+orjson==3.10.12
+celery==5.4.0
+numpy==2.2.1
+
+# ============================================================
+# 区块链审计链（可选依赖）
+# ============================================================
+# Hyperledger Fabric Python SDK - 仅在生产环境部署 Fabric 网络时需要安装
+# 未安装时系统自动降级到内存 SHA-256 哈希链（HashChainFallbackClient）
+# 安装方法：pip install fabric-sdk-py
+# 详见 infra/blockchain/README.md
+#
+# fabric-sdk-py==0.7.0  # 可选：启用 Hyperledger Fabric 审计存证

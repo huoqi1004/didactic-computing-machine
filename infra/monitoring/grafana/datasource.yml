@@ -1,0 +1,30 @@
+# ============================================================
+# Agent-Native ERP - Grafana 数据源配置
+# 自动配置 Prometheus 数据源
+# ============================================================
+
+apiVersion: 1
+
+# 数据源列表
+datasources:
+  # ----------------------------------------------------------
+  # Prometheus 数据源 (主数据源)
+  # ----------------------------------------------------------
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      httpMethod: POST
+      manageAlerts: true
+      prometheusType: Prometheus
+      prometheusVersion: 2.45.0
+      timeInterval: 15s
+      tlsAuth: false
+      tlsAuthWithCACert: false
+    # 基本认证 (如果Prometheus配置了认证)
+    # basicAuth: false
+    # basicAuthUser: admin
+    # basicAuthPassword: admin

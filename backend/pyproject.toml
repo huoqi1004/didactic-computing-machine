@@ -1,0 +1,112 @@
+# ============================================================
+# Agent-Native ERP Backend - Python 代码质量工具配置
+# 覆盖: ruff / black / isort / bandit / mypy
+# ============================================================
+
+[tool.ruff]
+# 行长度限制 (与 black 保持一致)
+line-length = 120
+# 目标 Python 版本
+target-version = "py310"
+# 排除目录 (不检查这些路径)
+extend-exclude = [
+    "__pycache__",
+    ".pytest_cache",
+    "migrations",
+    ".venv",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+# 启用的规则集:
+#   E   - pycodestyle 错误
+#   F   - Pyflakes (未使用变量/导入等)
+#   W   - pycodestyle 警告
+#   I   - isort (导入排序)
+#   N   - pep8-naming (命名规范)
+#   B   - flake8-bugbear (常见 bug 模式)
+#   C4  - flake8-comprehensions (推导式优化)
+#   UP  - pyupgrade (现代化语法升级)
+#   SIM - flake8-simplify (代码简化)
+select = ["E", "F", "W", "I", "N", "B", "C4", "UP", "SIM"]
+# 忽略的规则 (与项目风格冲突或不适用的)
+ignore = [
+    "E501",   # 行过长由 black 处理, ruff 不重复检查
+    "B008",   # 函数默认参数中使用函数调用 (FastAPI Depends 常用模式)
+    "B904",   # raise from 链式异常 (部分场景不需要)
+    "SIM108", # 三元表达式替代 if-else (可读性优先)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试文件允许使用 assert 和魔法值
+"tests/**" = ["S101", "PLR2004", "N802", "N803"]
+# migrations 目录忽略所有规则
+"migrations/**" = ["ALL"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# ============================================================
+# Black - 代码格式化
+# ============================================================
+[tool.black]
+line-length = 120
+target-version = ["py310"]
+extend-exclude = '''
+/(
+    __pycache__
+  | \.pytest_cache
+  | migrations
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# ============================================================
+# isort - 导入排序 (与 black 配合)
+# ============================================================
+[tool.isort]
+profile = "black"
+line_length = 120
+known_first_party = ["app"]
+extend_skip = [
+    "__pycache__",
+    ".pytest_cache",
+    "migrations",
+    ".venv",
+]
+
+# ============================================================
+# Bandit - 安全扫描配置
+# CI 中运行: bandit -r backend/ -ll
+# ============================================================
+[tool.bandit]
+# 安全基线: MEDIUM 及以上严重级别
+severity = "medium"
+confidence = "medium"
+exclude_dirs = [
+    "tests",
+    "__pycache__",
+    ".pytest_cache",
+    "migrations",
+    ".venv",
+]
+# 允许的测试断言 (测试目录中)
+[tool.bandit.assert_used]
+skips = ["tests/**"]
+
+# ============================================================
+# Mypy - 类型检查 (可选, 渐进式启用)
+# ============================================================
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = false
+warn_unused_configs = true
+ignore_missing_imports = true
+exclude = [
+    "migrations/",
+    "__pycache__/",
+    ".pytest_cache/",
+]

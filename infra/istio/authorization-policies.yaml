@@ -1,0 +1,266 @@
+# ============================================================
+# Istio AuthorizationPolicy & RequestAuthentication - 授权策略
+# 实现设计方案的"身份感知路由" - 基于工作负载身份和 JWT 的访问控制
+# 文档: https://istio.io/latest/docs/concepts/security/#authorization-policies
+# ============================================================
+# 授权策略层级：
+#   1. RequestAuthentication - 定义 JWT 验证规则（请求级认证）
+#   2. AuthorizationPolicy - 定义访问控制规则（基于身份的授权）
+#
+# 身份感知路由核心原则：
+#   - 每个工作负载有唯一的 SPIFFE 身份（spiffe://cluster.local/ns/<ns>/sa/<sa>）
+#   - 授权策略基于源身份（source.principals）控制访问
+#   - 数据库仅允许后端服务访问，前端不可直连
+# ============================================================
+
+---
+# ============================================================
+# 1. RequestAuthentication - JWT 请求级认证 (agent-execution 域)
+# ============================================================
+# 对 backend 服务的 API 请求进行 JWT 验证
+# 验证通过后，JWT claims 可用于 AuthorizationPolicy 的授权决策
+apiVersion: security.istio.io/v1
+kind: RequestAuthentication
+metadata:
+  name: backend-jwt
+  namespace: agent-execution
+  labels:
+    domain: agent-execution
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Backend JWT 请求认证 - 验证 API 请求的 JWT Token"
+spec:
+  selector:
+    matchLabels:
+      app: backend
+  jwtRules:
+    - issuer: "https://erp.example.com/auth"   # JWT 签发者
+      # JWT 受众 - 限制 Token 仅用于 ERP API
+      audiences:
+        - "erp-api"
+        - "erp-backend"
+      # 从 Authorization header 提取 JWT
+      fromHeaders:
+        - name: Authorization
+          prefix: "Bearer "
+      # 前向 JWT claims 到上游服务（供应用层使用）
+      forwardOriginalToken: true
+      # 将 JWT claims 映射到请求头
+      outputPayloadToHeader: "x-jwt-payload"
+      # JWKs 来源 - 从 OAuth2 提供者获取公钥验证签名
+      jwksUri: "https://erp.example.com/.well-known/jwks.json"
+      # 本地 JWKs 配置（开发环境使用静态密钥）
+      # jwks: |
+      #   {"keys": [...]}
+      # Token 过期容忍时间
+      clockSkewSeconds: 60
+
+---
+# ============================================================
+# 2. AuthorizationPolicy - Backend 服务授权 (agent-execution 域)
+# ============================================================
+# 仅允许来自 frontend 命名空间和 istio-system 的流量访问 backend
+# 实现身份感知路由：基于源工作负载身份进行授权
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: backend-authz
+  namespace: agent-execution
+  labels:
+    domain: agent-execution
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Backend 授权策略 - 仅允许 frontend 和 istio-system 命名空间流量"
+spec:
+  selector:
+    matchLabels:
+      app: backend
+  # ALLOW 策略：仅允许满足条件的请求，拒绝其他所有请求
+  action: ALLOW
+  rules:
+    # 规则 1: 允许来自 frontend 命名空间的流量
+    # SPIFFE 身份格式: spiffe://cluster.local/ns/user-interaction/sa/<service-account>
+    - from:
+        - source:
+            # 基于命名空间的身份匹配（使用前缀匹配）
+            principals:
+              - "cluster.local/ns/user-interaction/sa/frontend-sa"
+              - "cluster.local/ns/user-interaction/sa/default"
+            # 同时使用命名空间标签作为备份匹配条件
+            namespaces:
+              - "user-interaction"
+            # 确保请求来自网格内（通过 mTLS 身份）
+            notPrincipals:
+              - "*"
+
+    # 规则 2: 允许来自 istio-system 命名空间的流量（Ingress Gateway、健康检查）
+    - from:
+        - source:
+            namespaces:
+              - "istio-system"
+
+    # 规则 3: 允许网格内部健康检查（istio-system 的 istio-ingressgateway）
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account"
+      to:
+        - operation:
+            paths:
+              - "/health"
+              - "/health/*"
+            methods:
+              - GET
+
+    # 规则 4: 允许 Prometheus 从 istio-system 采集指标
+    - from:
+        - source:
+            namespaces:
+              - "istio-system"
+            principals:
+              - "cluster.local/ns/istio-system/sa/prometheus"
+      to:
+        - operation:
+            paths:
+              - "/metrics"
+            methods:
+              - GET
+
+---
+# ============================================================
+# 3. AuthorizationPolicy - PostgreSQL 授权 (data-knowledge 域)
+# ============================================================
+# 仅允许来自 backend 命名空间（agent-execution）的流量访问 PostgreSQL
+# 前端服务和其他命名空间无法直连数据库
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: postgres-authz
+  namespace: data-knowledge
+  labels:
+    domain: data-knowledge
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "PostgreSQL 授权策略 - 仅允许 agent-execution 命名空间（backend）访问"
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  action: ALLOW
+  rules:
+    # 仅允许来自 agent-execution 命名空间的流量
+    # 即只有 backend 服务可以访问 PostgreSQL
+    - from:
+        - source:
+            # 基于工作负载身份的精确匹配
+            principals:
+              - "cluster.local/ns/agent-execution/sa/backend-sa"
+              - "cluster.local/ns/agent-execution/sa/default"
+            # 命名空间级别的匹配（备份条件）
+            namespaces:
+              - "agent-execution"
+
+---
+# ============================================================
+# 4. AuthorizationPolicy - Redis 授权 (data-knowledge 域)
+# ============================================================
+# 仅允许来自 backend 命名空间（agent-execution）的流量访问 Redis
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: redis-authz
+  namespace: data-knowledge
+  labels:
+    domain: data-knowledge
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Redis 授权策略 - 仅允许 agent-execution 命名空间（backend）访问"
+spec:
+  selector:
+    matchLabels:
+      app: redis
+  action: ALLOW
+  rules:
+    # 仅允许来自 agent-execution 命名空间的流量
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/agent-execution/sa/backend-sa"
+              - "cluster.local/ns/agent-execution/sa/default"
+            namespaces:
+              - "agent-execution"
+
+---
+# ============================================================
+# 5. AuthorizationPolicy - Frontend 授权 (user-interaction 域)
+# ============================================================
+# Frontend 服务允许来自 Ingress Gateway 和外部的流量
+# 同时允许网格内其他服务访问前端（如需要）
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: frontend-authz
+  namespace: user-interaction
+  labels:
+    domain: user-interaction
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Frontend 授权策略 - 允许 Ingress Gateway 和网格内访问"
+spec:
+  selector:
+    matchLabels:
+      app: frontend
+  action: ALLOW
+  rules:
+    # 规则 1: 允许来自 istio-system 的流量（Ingress Gateway 转发的外部请求）
+    - from:
+        - source:
+            namespaces:
+              - "istio-system"
+
+    # 规则 2: 允许网格内其他服务访问前端（如需要从后端推送静态资源）
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/agent-execution/sa/backend-sa"
+              - "cluster.local/ns/agent-execution/sa/default"
+
+    # 规则 3: 允许未认证的外部请求（前端是公开服务）
+    # 注意：PERMISSIVE mTLS 模式下，外部请求无 mTLS 身份
+    # 此规则允许没有 source.principal 的请求通过
+    - from:
+        - source:
+            notPrincipals:
+              - "*"
+
+---
+# ============================================================
+# 6. RequestAuthentication - JWT 请求级认证（全局，用于 API 路径）
+# ============================================================
+# 对通过 Ingress Gateway 的 /api/ 路径请求进行 JWT 验证
+# 实现请求级身份感知：API 调用必须携带有效 JWT
+apiVersion: security.istio.io/v1
+kind: RequestAuthentication
+metadata:
+  name: gateway-jwt
+  namespace: user-interaction
+  labels:
+    domain: user-interaction
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Gateway JWT 认证 - 对 /api/ 路径请求验证 JWT"
+spec:
+  selector:
+    matchLabels:
+      istio: ingressgateway
+  jwtRules:
+    - issuer: "https://erp.example.com/auth"
+      audiences:
+        - "erp-api"
+      fromHeaders:
+        - name: Authorization
+          prefix: "Bearer "
+      forwardOriginalToken: true
+      outputPayloadToHeader: "x-jwt-payload"
+      jwksUri: "https://erp.example.com/.well-known/jwks.json"
+      clockSkewSeconds: 60

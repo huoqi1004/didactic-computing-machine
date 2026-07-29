@@ -1,0 +1,80 @@
+# ============================================================
+# Agent-Native ERP - Prometheus 监控配置
+# 抓取间隔: 15秒
+# ============================================================
+
+global:
+  scrape_interval: 15s          # 抓取间隔 15秒
+  evaluation_interval: 15s      # 规则评估间隔 15秒
+  scrape_timeout: 10s           # 抓取超时时间
+
+# 告警规则文件 (可选)
+# rule_files:
+#   - "alerts.yml"
+
+# 抓取配置
+scrape_configs:
+  # ----------------------------------------------------------
+  # Prometheus 自身监控
+  # ----------------------------------------------------------
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          domain: 'monitoring'
+          service: 'prometheus'
+
+  # ----------------------------------------------------------
+  # 后端服务指标 - FastAPI /metrics 端点
+  # 域: agent-execution / user-interaction
+  # ----------------------------------------------------------
+  - job_name: 'erp-backend'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['backend:8000']
+        labels:
+          domain: 'agent-execution'
+          service: 'fastapi-backend'
+          environment: 'production'
+
+  # ----------------------------------------------------------
+  # PostgreSQL 数据库指标
+  # 域: data-knowledge
+  # (需要部署 postgres-exporter, 当前预留配置)
+  # ----------------------------------------------------------
+  # - job_name: 'postgres'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 15s
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+  #       labels:
+  #         domain: 'data-knowledge'
+  #         service: 'postgresql'
+
+  # ----------------------------------------------------------
+  # Redis 缓存指标
+  # 域: data-knowledge
+  # (需要部署 redis-exporter, 当前预留配置)
+  # ----------------------------------------------------------
+  # - job_name: 'redis'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 15s
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+  #       labels:
+  #         domain: 'data-knowledge'
+  #         service: 'redis'
+
+  # ----------------------------------------------------------
+  # 前端服务指标 (通过Nginx)
+  # 域: user-interaction
+  # ----------------------------------------------------------
+  # - job_name: 'frontend'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 15s
+  #   static_configs:
+  #     - targets: ['frontend:3000']
+  #       labels:
+  #         domain: 'user-interaction'
+  #         service: 'nginx-frontend'

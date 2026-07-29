@@ -1,0 +1,121 @@
+# ============================================================
+# Hyperledger Fabric 网络配置 - Agent-Native ERP 审计链
+# ============================================================
+# 本文件描述 ERP 审计链使用的 Fabric 网络拓扑：
+#   - 单组织 ERPOrg（MSP ID: ERPMSP）
+#   - 单排序节点 orderer.erp.com（Raft 共识）
+#   - 单 Peer 节点 peer0.erp.com（CouchDB 状态库）
+#   - 通道 audit-channel
+#   - Chaincode audit-chaincode
+#
+# 生产环境建议：
+#   - 多组织（多 MSP）实现跨组织背书
+#   - 多 Peer 节点实现高可用
+#   - 多 Orderer 节点实现排序容错
+# ============================================================
+
+network:
+  name: erp-audit-network
+  version: "2.5"
+
+  # ------------------------------------------------------------
+  # 组织定义
+  # ------------------------------------------------------------
+  organizations:
+    ERPOrg:
+      msp_id: ERPMSP
+      name: ERP Organization
+      domain: erp.com
+      peers:
+        - peer0.erp.com
+      certificate_authorities:
+        - ca.erp.com
+      # 组织管理员证书路径（启动网络时由 cryptogen 生成）
+      admin_private_key: /etc/hyperledger/certs/ERPMSP/admin/private_key
+      admin_cert: /etc/hyperledger/certs/ERPMSP/admin/cert.pem
+
+  # ------------------------------------------------------------
+  # 排序节点
+  # ------------------------------------------------------------
+  orderers:
+    orderer.erp.com:
+      host: orderer.erp.com
+      port: 7050
+      url: grpcs://orderer.erp.com:7050
+      consensus_type: raft
+      tls_cert: /etc/hyperledger/certs/orderer-tls-cert.pem
+      # Raft 集群配置（生产环境建议 3/5 节点）
+      cluster:
+        endpoints:
+          - orderer.erp.com:7050
+
+  # ------------------------------------------------------------
+  # Peer 节点
+  # ------------------------------------------------------------
+  peers:
+    peer0.erp.com:
+      host: peer0.erp.com
+      port: 7051
+      url: grpcs://peer0.erp.com:7051
+      event_url: grpcs://peer0.erp.com:7053
+      tls_cert: /etc/hyperledger/certs/peer-tls-cert.pem
+      # 状态数据库（CouchDB 支持富查询）
+      state_database: CouchDB
+      couchdb_url: http://couchdb.erp.com:5984
+      # Gossip 协议配置（组织内发现）
+      gossip:
+        bootstrap: peer0.erp.com:7051
+        use_leader_election: true
+        org_leader: false
+
+  # ------------------------------------------------------------
+  # 证书颁发机构
+  # ------------------------------------------------------------
+  certificate_authorities:
+    ca.erp.com:
+      url: https://ca.erp.com:7054
+      ca_name: ca.erp.com
+      tls_cert: /etc/hyperledger/certs/ca-tls-cert.pem
+      registrar:
+        enroll_id: admin
+        enroll_secret: adminpw
+
+  # ------------------------------------------------------------
+  # 通道配置
+  # ------------------------------------------------------------
+  channels:
+    audit-channel:
+      name: audit-channel
+      orderers:
+        - orderer.erp.com
+      peers:
+        ERPOrg:
+          peer0.erp.com:
+            endorsing_peer: true
+            chaincode_query: true
+            ledger_query: true
+            event_source: true
+      # 通道策略
+      policies:
+        lifecycle-endorsement:
+          type: ImplicitMeta
+          rule: MAJORITY Endorsement
+        endorsement:
+          type: ImplicitMeta
+          rule: MAJORITY Endorsement
+
+  # ------------------------------------------------------------
+  # Chaincode 配置
+  # ------------------------------------------------------------
+  chaincodes:
+    audit-chaincode:
+      name: audit-chaincode
+      version: "1.0.0"
+      language: golang
+      path: github.com/erp/audit-chaincode
+      channel: audit-channel
+      # 背书策略：ERPMSP 组织的任意成员背书
+      endorsement_policy: OR('ERPMSP.member')
+      # 初始化参数
+      init_args:
+        - "init"

@@ -1,0 +1,120 @@
+# ============================================================
+# connection-profile.yaml - Fabric 连接配置文件
+# ============================================================
+# 客户端（app/core/blockchain/fabric_client.py 的 FabricAuditClient）
+# 通过此文件连接 Fabric 网络。
+#
+# 证书路径需与 network-config.yaml 中 cryptogen 生成的路径一致。
+# 生产环境建议通过环境变量注入敏感路径，避免硬编码。
+# ============================================================
+
+name: erp-audit-network
+version: "1.0.0"
+client:
+  organization: ERPOrg
+  # 日志级别：debug / info / warning / error
+  logging:
+    level: info
+  # 凭据存储（fabric-sdk-py 用于缓存用户证书）
+  credentialStore:
+    path: /etc/hyperledger/certs/credentials
+    cryptoStore:
+      path: /etc/hyperledger/certs/crypto-store
+  # 连接超时与请求超时（秒）
+  connection:
+    timeout:
+      peer:
+        endorser: "10"
+        eventHub: "10"
+        eventReg: "5"
+      orderer: "10"
+
+# ------------------------------------------------------------
+# 通道配置
+# ------------------------------------------------------------
+channels:
+  audit-channel:
+    # 该通道上的 orderer 节点
+    orderers:
+      - orderer.erp.com
+    # 该通道上的 peer 节点及其角色
+    peers:
+      peer0.erp.com:
+        endorsingPeer: true
+        chaincodeQuery: true
+        ledgerQuery: true
+        eventSource: true
+    # 已部署的 chaincode
+    chaincodes:
+      - name: audit-chaincode
+        version: "1.0.0"
+
+# ------------------------------------------------------------
+# 组织配置
+# ------------------------------------------------------------
+organizations:
+  ERPOrg:
+    mspid: ERPMSP
+    # 该组织下的 peer 节点
+    peers:
+      - peer0.erp.com
+    # 证书颁发机构
+    certificateAuthorities:
+      - ca.erp.com
+    # 管理员签名证书与私钥（用于提交交易）
+    adminPrivateKey:
+      path: /etc/hyperledger/certs/ERPMSP/users/Admin@erp.com/msp/keystore/priv_sk
+    signedCert:
+      path: /etc/hyperledger/certs/ERPMSP/users/Admin@erp.com/msp/signcerts/cert.pem
+
+# ------------------------------------------------------------
+# Orderer 节点配置
+# ------------------------------------------------------------
+orderers:
+  orderer.erp.com:
+    url: grpcs://orderer.erp.com:7050
+    # gRPC 选项
+    grpcOptions:
+      ssl-target-name-override: orderer.erp.com
+      keep-alive-time: "0s"
+      keep-alive-timeout: "20s"
+      keep-alive-permit: false
+      fail-fast: false
+      allow-insecure: false
+    # TLS 证书
+    tlsCACerts:
+      path: /etc/hyperledger/certs/orderer-tls-cert.pem
+
+# ------------------------------------------------------------
+# Peer 节点配置
+# ------------------------------------------------------------
+peers:
+  peer0.erp.com:
+    url: grpcs://peer0.erp.com:7051
+    # 事件监听地址（用于监听区块事件）
+    eventUrl: grpcs://peer0.erp.com:7053
+    grpcOptions:
+      ssl-target-name-override: peer0.erp.com
+      keep-alive-time: "0s"
+      keep-alive-timeout: "20s"
+      keep-alive-permit: false
+      fail-fast: false
+      allow-insecure: false
+    tlsCACerts:
+      path: /etc/hyperledger/certs/peer-tls-cert.pem
+
+# ------------------------------------------------------------
+# 证书颁发机构配置
+# ------------------------------------------------------------
+certificateAuthorities:
+  ca.erp.com:
+    url: https://ca.erp.com:7054
+    caName: ca.erp.com
+    grpcOptions:
+      verify: true
+    tlsCACerts:
+      path: /etc/hyperledger/certs/ca-tls-cert.pem
+    # 注册员凭据（用于 enroll 新用户）
+    registrar:
+      enrollId: admin
+      enrollSecret: adminpw

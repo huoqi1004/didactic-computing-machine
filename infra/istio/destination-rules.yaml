@@ -1,0 +1,213 @@
+# ============================================================
+# Istio DestinationRule - 目标规则
+# 定义服务的流量策略：mTLS 模式、负载均衡、连接池、异常检测
+# 文档: https://istio.io/latest/docs/concepts/traffic-management/#destination-rules
+# ============================================================
+# DestinationRule 定义了流量到达目标服务后的路由策略
+# 与 VirtualService（定义路由规则）配合使用
+# ============================================================
+
+---
+# ============================================================
+# 1. Backend 服务目标规则 (agent-execution 域)
+# ============================================================
+# FastAPI 后端服务 - Agent 执行调度核心
+# 强制 mTLS STRICT 模式，LEAST_REQUEST 负载均衡
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: backend
+  namespace: agent-execution
+  labels:
+    domain: agent-execution
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Backend 服务 - STRICT mTLS, LEAST_REQUEST 负载均衡, 连接池配置"
+spec:
+  # 目标服务（同命名空间内的 Kubernetes Service）
+  host: backend.agent-execution.svc.cluster.local
+
+  # 流量策略
+  trafficPolicy:
+    # mTLS 配置 - 强制 STRICT
+    tls:
+      mode: SIMPLE
+      # SIMPLE: 客户端发起 TLS，用于 mTLS 出站连接
+      # 目标服务端由 PeerAuthentication 控制为 STRICT
+
+    # 负载均衡策略 - LEAST_REQUEST
+    # 从所有健康实例中选择当前活跃请求数最少的实例
+    # 适合 Agent 执行负载不均匀的场景
+    loadBalancer:
+      simple: LEAST_REQUEST
+
+    # 连接池配置 - 控制到 backend 的连接数
+    connectionPool:
+      tcp:
+        maxConnections: 100           # 最大 TCP 连接数
+        connectTimeout: 10s           # 连接超时
+        tcpKeepalive:
+          time: 300s                  # TCP keepalive 探测间隔
+          interval: 60s               # 探测周期
+          probes: 3                   # 探测失败次数
+      http:
+        http2MaxRequests: 1000        # HTTP/2 最大并发请求数
+        maxRequestsPerConnection: 10  # 每个连接最大请求数（之后关闭重连）
+        maxRetries: 3                 # 最大重试次数
+        consecutiveMaxRequestsPerConnection: 10
+        idleTimeout: 60s              # 空闲连接超时
+        h2UpgradePolicy: UPGRADE      # 允许 HTTP/1.1 升级到 HTTP/2
+
+    # 异常检测 - 自动驱逐不健康实例
+    outlierDetection:
+      consecutive5xxErrors: 5         # 连续 5xx 错误次数阈值
+      consecutiveGatewayErrors: 5     # 连续网关错误次数阈值
+      interval: 30s                   # 检测间隔
+      baseEjectionTime: 30s           # 基础驱逐时间（实际驱逐时间 = baseEjectionTime * 驱逐次数）
+      maxEjectionPercent: 50          # 最大驱逐比例（防止过多实例被驱逐导致服务雪崩）
+      minHealthPercent: 50            # 最小健康比例（低于此值时禁用异常检测）
+
+    # 子集定义 - 可用于金丝雀发布
+    subsets:
+      - name: v1
+        labels:
+          version: v1
+        trafficPolicy:
+          loadBalancer:
+            simple: LEAST_REQUEST
+
+---
+# ============================================================
+# 2. Frontend 服务目标规则 (user-interaction 域)
+# ============================================================
+# Nginx 前端服务 - 对外服务，禁用 mTLS
+# 前端接受来自 Ingress Gateway 的明文 HTTP 请求
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: frontend
+  namespace: user-interaction
+  labels:
+    domain: user-interaction
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Frontend 服务 - DISABLE mTLS（对外服务）"
+spec:
+  host: frontend.user-interaction.svc.cluster.local
+
+  trafficPolicy:
+    # mTLS 配置 - 禁用（前端对外服务，接受明文请求）
+    tls:
+      mode: DISABLE
+
+    # 负载均衡策略 - ROUND_ROBIN（前端无状态，轮询即可）
+    loadBalancer:
+      simple: ROUND_ROBIN
+
+    # 连接池配置
+    connectionPool:
+      tcp:
+        maxConnections: 200
+        connectTimeout: 5s
+      http:
+        http2MaxRequests: 500
+        maxRequestsPerConnection: 50
+        idleTimeout: 30s
+
+    # 异常检测
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+
+---
+# ============================================================
+# 3. PostgreSQL 服务目标规则 (data-knowledge 域)
+# ============================================================
+# PostgreSQL 数据库 - 强制 mTLS，保护数据通信
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: postgres
+  namespace: data-knowledge
+  labels:
+    domain: data-knowledge
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "PostgreSQL 服务 - STRICT mTLS, 保护数据库通信"
+spec:
+  host: postgres.data-knowledge.svc.cluster.local
+
+  trafficPolicy:
+    # mTLS 配置 - SIMPLE（客户端发起 mTLS）
+    tls:
+      mode: SIMPLE
+
+    # 负载均衡策略 - ROUND_ROBIN
+    # PostgreSQL StatefulSet 通常单副本，负载均衡策略影响较小
+    loadBalancer:
+      simple: ROUND_ROBIN
+
+    # 连接池配置 - 数据库连接池需保守配置
+    connectionPool:
+      tcp:
+        maxConnections: 50            # 数据库最大连接数
+        connectTimeout: 10s
+        tcpKeepalive:
+          time: 600s                  # 数据库长连接保活间隔
+          interval: 60s
+          probes: 3
+
+    # 异常检测
+    outlierDetection:
+      consecutive5xxErrors: 5
+      consecutiveGatewayErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+
+---
+# ============================================================
+# 4. Redis 服务目标规则 (data-knowledge 域)
+# ============================================================
+# Redis 缓存 - 强制 mTLS，保护缓存通信
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: redis
+  namespace: data-knowledge
+  labels:
+    domain: data-knowledge
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Redis 服务 - STRICT mTLS, 保护缓存通信"
+spec:
+  host: redis.data-knowledge.svc.cluster.local
+
+  trafficPolicy:
+    # mTLS 配置 - SIMPLE（客户端发起 mTLS）
+    tls:
+      mode: SIMPLE
+
+    # 负载均衡策略 - ROUND_ROBIN
+    loadBalancer:
+      simple: ROUND_ROBIN
+
+    # 连接池配置
+    connectionPool:
+      tcp:
+        maxConnections: 80            # Redis 最大连接数
+        connectTimeout: 5s
+        tcpKeepalive:
+          time: 300s
+          interval: 30s
+          probes: 3
+
+    # 异常检测
+    outlierDetection:
+      consecutive5xxErrors: 5
+      consecutiveGatewayErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50

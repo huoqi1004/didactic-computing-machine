@@ -1,0 +1,129 @@
+# ============================================================
+# Istio PeerAuthentication - 对等认证策略
+# 定义三域隔离架构中每个命名空间的 mTLS 模式
+# 文档: https://istio.io/latest/docs/concepts/security/#peer-authentication
+# ============================================================
+# PeerAuthentication 策略层级：
+#   1. 网格级（istio-system 命名空间，名为 default）- 全局默认
+#   2. 命名空间级 - 覆盖网格级默认
+#   3. 工作负载级（指定 selector）- 覆盖命名空间级
+#
+# mTLS 模式：
+#   UNSET: 继承父级策略（默认值）
+#   DISABLE: 不使用 mTLS，明文通信
+#   PERMISSIVE: 同时接受 mTLS 和明文（迁移期）
+#   STRICT: 仅接受 mTLS，拒绝明文
+# ============================================================
+
+---
+# ============================================================
+# 1. 网格级默认 PeerAuthentication
+# ============================================================
+# 部署在 istio-system 命名空间，作为所有命名空间的默认 mTLS 策略
+# 设置为 STRICT，确保整个网格默认强制 mTLS 加密通信
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "网格全局默认 mTLS 策略 - STRICT"
+spec:
+  # 网格级默认：所有服务间通信必须使用 mTLS
+  mtls:
+    mode: STRICT
+
+---
+# ============================================================
+# 2. Agent执行域 (agent-execution) - STRICT mTLS
+# ============================================================
+# 此域运行后端 FastAPI 服务，处理 Agent 执行调度
+# 作为三域桥梁层，需严格加密所有通信
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: agent-execution-mtls
+  namespace: agent-execution
+  labels:
+    domain: agent-execution
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Agent执行域 - 强制 STRICT mTLS，保护 Agent 调度通信"
+spec:
+  # 命名空间级策略：强制 STRICT mTLS
+  mtls:
+    mode: STRICT
+  # 工作负载级覆盖（可选，此处保持与命名空间一致）
+  selector:
+    matchLabels:
+      domain: agent-execution
+  # 端口级策略：backend 服务的 HTTP 端口也强制 mTLS
+  portLevelMtls:
+    8000:
+      mode: STRICT
+
+---
+# ============================================================
+# 3. 数据知识域 (data-knowledge) - STRICT mTLS
+# ============================================================
+# 此域运行 PostgreSQL 和 Redis，存储核心业务数据
+# 数据库访问必须严格加密，防止数据泄露
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: data-knowledge-mtls
+  namespace: data-knowledge
+  labels:
+    domain: data-knowledge
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "数据知识域 - 强制 STRICT mTLS，保护数据库通信"
+spec:
+  # 命名空间级策略：强制 STRICT mTLS
+  mtls:
+    mode: STRICT
+  selector:
+    matchLabels:
+      domain: data-knowledge
+  # 端口级策略
+  # PostgreSQL 5432 端口：强制 mTLS
+  # Redis 6379 端口：强制 mTLS
+  portLevelMtls:
+    5432:
+      mode: STRICT
+    6379:
+      mode: STRICT
+
+---
+# ============================================================
+# 4. 用户交互域 (user-interaction) - PERMISSIVE mTLS
+# ============================================================
+# 此域运行前端 Nginx 服务，需要接受来自外部的明文 HTTP 请求
+# 使用 PERMISSIVE 模式：同时接受 mTLS（网格内）和明文（外部浏览器）
+# 前端服务本身不强制 mTLS，但前端到后端的通信仍受后端策略保护
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: user-interaction-mtls
+  namespace: user-interaction
+  labels:
+    domain: user-interaction
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "用户交互域 - PERMISSIVE 模式，前端接受外部明文请求"
+spec:
+  # 命名空间级策略：PERMISSIVE 模式
+  # 前端服务需要接受来自 Ingress Gateway 的外部 HTTP 请求（明文）
+  # 同时也接受来自网格内部的其他 mTLS 请求
+  mtls:
+    mode: PERMISSIVE
+  selector:
+    matchLabels:
+      domain: user-interaction
+  # 端口级策略
+  # Nginx 3000 端口：PERMISSIVE（接受外部浏览器请求）
+  portLevelMtls:
+    3000:
+      mode: PERMISSIVE

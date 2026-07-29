@@ -1,0 +1,298 @@
+# ============================================================
+# Istio EnvoyFilter - 审计过滤器
+# 在 backend 服务的 Envoy 代理中注入审计过滤器
+# 记录所有请求/响应的元数据到审计链，过滤敏感 header
+# 文档: https://istio.io/latest/docs/reference/config/networking/envoy-filter/
+# ============================================================
+# EnvoyFilter 允许直接修改 Envoy 代理配置
+# 用于实现 Istio 标准 API 不支持的自定义功能
+#
+# 审计链集成：
+#   1. 记录所有 HTTP 请求/响应的元数据（方法、路径、状态码、延迟）
+#   2. 过滤敏感 header（Authorization, Cookie 等），防止泄露
+#   3. 注入审计追踪 ID，关联到应用层审计链
+#   4. 通过 gRPC/HTTP 将审计日志发送到审计服务
+# ============================================================
+
+---
+# ============================================================
+# 1. 审计日志过滤器 - 请求/响应元数据记录
+# ============================================================
+# 在 backend 的 Envoy 中注入 AccessLog 过滤器
+# 使用 Envoy ALS (Access Log Service) 将审计日志发送到审计后端
+apiVersion: networking.istio.io/v1
+kind: EnvoyFilter
+metadata:
+  name: backend-audit-filter
+  namespace: agent-execution
+  labels:
+    domain: agent-execution
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Backend 审计过滤器 - 记录请求/响应元数据到审计链"
+spec:
+  # 目标工作负载 - backend 服务
+  workloadSelector:
+    labels:
+      app: backend
+
+  # 配置优先级
+  priority: 10
+
+  configPatches:
+    # ============================================================
+    # 1.1 HTTP 连接管理器 - 注入审计日志过滤器
+    # ============================================================
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          filterChain:
+            filter:
+              name: "envoy.filters.network.http_connection_manager"
+              subFilter:
+                name: "envoy.filters.http.router"
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          # Lua 过滤器 - 自定义审计日志逻辑
+          name: envoy.filters.http.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            inlineCode: |
+              -- ============================================================
+              -- 审计日志 Lua 脚本
+              -- 记录请求/响应元数据，过滤敏感 header
+              -- ============================================================
+
+              local audit_log = {}
+
+              -- 敏感 header 列表（不记录到审计日志）
+              local sensitive_headers = {
+                "authorization",
+                "cookie",
+                "set-cookie",
+                "x-api-key",
+                "x-jwt-payload",
+                "proxy-authorization",
+                "www-authenticate"
+              }
+
+              -- 检查 header 是否为敏感 header
+              local function is_sensitive_header(name)
+                local lower_name = string.lower(name)
+                for _, sensitive in ipairs(sensitive_headers) do
+                  if lower_name == sensitive then
+                    return true
+                  end
+                end
+                return false
+              end
+
+              -- 过滤敏感 header，返回安全 header 列表
+              local function filter_headers(headers)
+                local safe_headers = {}
+                for key, value in pairs(headers) do
+                  if is_sensitive_header(key) then
+                    safe_headers[key] = "[REDACTED]"
+                  else
+                    safe_headers[key] = value
+                  end
+                end
+                return safe_headers
+              end
+
+              -- 生成审计追踪 ID
+              local function generate_audit_id()
+                return "audit-" .. os.time() .. "-" .. math.random(100000, 999999)
+              end
+
+              -- ============================================================
+              -- 请求阶段 - 记录请求元数据
+              -- ============================================================
+              function envoy_on_request(request_handle)
+                -- 生成或获取审计追踪 ID
+                local audit_id = request_handle:headers():get("x-audit-id")
+                if audit_id == nil then
+                  audit_id = generate_audit_id()
+                  request_handle:headers():replace("x-audit-id", audit_id)
+                end
+
+                -- 获取请求元数据
+                local method = request_handle:headers():get(":method")
+                local path = request_handle:headers():get(":path")
+                local host = request_handle:headers():get(":authority")
+                local user_agent = request_handle:headers():get("user-agent")
+                local x_forwarded_for = request_handle:headers():get("x-forwarded-for")
+                local x_request_id = request_handle:headers():get("x-request-id")
+
+                -- 过滤敏感 header
+                local all_headers = request_handle:headers()
+                local safe_headers = filter_headers(all_headers)
+
+                -- 记录审计元数据到 Envoy 动态元数据
+                request_handle:metadata():set("erp.audit", "request", {
+                  audit_id = audit_id,
+                  method = method,
+                  path = path,
+                  host = host,
+                  user_agent = user_agent,
+                  x_forwarded_for = x_forwarded_for,
+                  x_request_id = x_request_id,
+                  timestamp = os.time(),
+                  headers = safe_headers
+                })
+
+                -- 设置审计响应头
+                request_handle:headers():replace("x-audit-timestamp", tostring(os.time()))
+              end
+
+              -- ============================================================
+              -- 响应阶段 - 记录响应元数据
+              -- ============================================================
+              function envoy_on_response(response_handle)
+                -- 获取审计追踪 ID
+                local audit_id = response_handle:headers():get("x-audit-id")
+                if audit_id == nil then
+                  audit_id = "unknown"
+                end
+
+                -- 获取响应元数据
+                local status = response_handle:headers():get(":status")
+                local content_type = response_handle:headers():get("content-type")
+                local content_length = response_handle:headers():get("content-length")
+
+                -- 过滤敏感响应 header
+                local all_headers = response_handle:headers()
+                local safe_headers = filter_headers(all_headers)
+
+                -- 记录审计元数据
+                response_handle:metadata():set("erp.audit", "response", {
+                  audit_id = audit_id,
+                  status = status,
+                  content_type = content_type,
+                  content_length = content_length,
+                  timestamp = os.time(),
+                  headers = safe_headers
+                })
+
+                -- 注入审计追踪 ID 到响应头（供客户端关联）
+                response_handle:headers():replace("x-audit-id", audit_id)
+              end
+
+    # ============================================================
+    # 1.2 访问日志配置 - 输出审计日志到 stdout
+    # ============================================================
+    - applyTo: NETWORK_FILTER
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          filterChain:
+            filter:
+              name: "envoy.filters.network.http_connection_manager"
+      patch:
+        operation: MERGE
+        value:
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+            access_log:
+              # 审计日志 - stdout 输出（供日志采集器收集）
+              - name: envoy.access_loggers.stdout
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                  log_format:
+                    json_format:
+                      # 审计日志 JSON 格式
+                      timestamp: "%START_TIME%"
+                      audit_id: "%REQ(X-AUDIT-ID)%"
+                      request_id: "%REQ(X-REQUEST-ID)%"
+                      method: "%REQ(:METHOD)%"
+                      path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+                      protocol: "%PROTOCOL%"
+                      response_code: "%RESPONSE_CODE%"
+                      response_flags: "%RESPONSE_FLAGS%"
+                      bytes_received: "%BYTES_RECEIVED%"
+                      bytes_sent: "%BYTES_SENT%"
+                      duration: "%DURATION%"
+                      upstream_service_time: "%RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)%"
+                      x_forwarded_for: "%REQ(X-FORWARDED-FOR)%"
+                      user_agent: "%REQ(USER-AGENT)%"
+                      request_authority: "%REQ(:AUTHORITY)%"
+                      upstream_host: "%UPSTREAM_HOST%"
+                      upstream_cluster: "%UPSTREAM_CLUSTER%"
+                      route_name: "%ROUTE_NAME%"
+                      downstream_remote_address: "%DOWNSTREAM_REMOTE_ADDRESS%"
+                      downstream_local_address: "%DOWNSTREAM_LOCAL_ADDRESS%"
+                      upstream_local_address: "%UPSTREAM_LOCAL_ADDRESS%"
+                      # 敏感 header 已被 Lua 过滤器替换为 [REDACTED]
+                      authorization: "[REDACTED]"
+                      cookie: "[REDACTED]"
+                      # 审计标记
+                      audit_log_type: "erp-audit"
+                      mesh_domain: "cluster.local"
+
+---
+# ============================================================
+# 2. 审计链追踪 ID 注入过滤器
+# ============================================================
+# 为每个请求注入审计链追踪 ID
+# 与应用层审计链（audit_chain）关联
+apiVersion: networking.istio.io/v1
+kind: EnvoyFilter
+metadata:
+  name: audit-chain-tracing
+  namespace: agent-execution
+  labels:
+    domain: agent-execution
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "审计链追踪 ID 注入 - 关联 Envoy 审计与应用层审计链"
+spec:
+  workloadSelector:
+    labels:
+      app: backend
+
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          filterChain:
+            filter:
+              name: "envoy.filters.network.http_connection_manager"
+              subFilter:
+                name: "envoy.filters.http.router"
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.header_to_metadata
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.header_to_metadata.v3.Config
+            # 将请求头中的审计信息转换为 Envoy 动态元数据
+            # 便于后续访问日志和追踪系统使用
+            request_rules:
+              - header: x-audit-id
+                on_present:
+                  metadata_namespace: erp.audit
+                  key: audit_id
+                  type: STRING
+                on_missing:
+                  metadata_namespace: erp.audit
+                  key: audit_id
+                  value: "auto-generated"
+                  type: STRING
+              - header: x-request-id
+                on_present:
+                  metadata_namespace: erp.audit
+                  key: request_id
+                  type: STRING
+              - header: x-forwarded-for
+                on_present:
+                  metadata_namespace: erp.audit
+                  key: client_ip
+                  type: STRING
+              - header: x-jwt-payload
+                on_present:
+                  metadata_namespace: erp.audit
+                  key: jwt_claims
+                  type: STRING

@@ -1,0 +1,2 @@
+App total routes: 7
+Knowledge routes: 0

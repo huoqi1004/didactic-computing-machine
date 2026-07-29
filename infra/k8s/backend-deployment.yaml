@@ -1,0 +1,226 @@
+# ============================================================
+# Backend Deployment & Service (agent-execution 域)
+# FastAPI 后端服务 - Agent 执行调度核心
+# 对应 Docker Compose 中的 backend 服务
+# ============================================================
+
+---
+# ============================================================
+# 1. Backend Service Account
+# ============================================================
+# Istio 使用 ServiceAccount 作为工作负载身份
+# AuthorizationPolicy 中的 principals 引用此 ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend-sa
+  namespace: agent-execution
+  labels:
+    domain: agent-execution
+    app: backend
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Backend 服务账户 - Istio 工作负载身份"
+
+---
+# ============================================================
+# 2. Backend Service
+# ============================================================
+# ClusterIP Service - 网格内部访问
+# 通过 Istio Ingress Gateway 对外暴露
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: agent-execution
+  labels:
+    domain: agent-execution
+    app: backend
+    version: v1
+    app.kubernetes.io/part-of: agent-native-erp
+    service: backend
+  annotations:
+    description: "Backend ClusterIP Service - 端口8000"
+    # Prometheus 指标采集注解
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 8000          # Service 端口
+      targetPort: 8000    # 容器端口
+      protocol: TCP
+      appProtocol: http   # 应用协议（Istio 用于协议检测）
+    # Admin 端口（仅网格内部访问，不对外暴露）
+    # - name: admin
+    #   port: 9090
+    #   targetPort: 9090
+    #   protocol: TCP
+
+---
+# ============================================================
+# 3. Backend Deployment
+# ============================================================
+# 2副本部署，资源限制 1CPU/1GB
+# Istio sidecar 通过命名空间标签自动注入（无需在此声明 sidecar 容器）
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: agent-execution
+  labels:
+    domain: agent-execution
+    app: backend
+    version: v1
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Backend FastAPI 部署 - 2副本, 1CPU/1GB"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1          # 滚动更新时最多多出1个副本
+      maxUnavailable: 0    # 滚动更新时不允许减少可用副本
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        version: v1
+        domain: agent-execution
+        app.kubernetes.io/part-of: agent-native-erp
+      annotations:
+        # Istio sidecar 注入注解（命名空间已启用自动注入，此处可覆盖配置）
+        sidecar.istio.io/inject: "true"
+        # Sidecar 资源限制
+        sidecar.istio.io/proxyCPU: "100m"
+        sidecar.istio.io/proxyMemory: "128Mi"
+        sidecar.istio.io/proxyCPULimit: "500m"
+        sidecar.istio.io/proxyMemoryLimit: "256Mi"
+        # Prometheus 采集注解
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # 使用专用 ServiceAccount（Istio 身份标识）
+      serviceAccountName: backend-sa
+      containers:
+        # ============================================================
+        # 3.1 Backend 应用容器
+        # ============================================================
+        - name: backend
+          image: erp-backend:latest
+          # 开发环境使用本地镜像，不拉取远程镜像
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          # 环境变量从 ConfigMap 和 Secret 引用
+          envFrom:
+            - configMapRef:
+                name: backend-config
+          env:
+            # 从 Secret 引用敏感配置
+            - name: ERP_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-secret
+                  key: ERP_JWT_SECRET
+            - name: ERP_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-api-secret
+                  key: ERP_LLM_API_KEY
+            # Pod 信息注入
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          # 资源限制 - 1 CPU / 1 GB
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          # 健康检查 - 存活探针
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 40    # 启动后40秒开始探测
+            periodSeconds: 30          # 每30秒探测一次
+            timeoutSeconds: 10         # 探测超时
+            failureThreshold: 3        # 连续3次失败重启
+          # 健康检查 - 就绪探针
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10    # 启动后10秒开始探测
+            periodSeconds: 10          # 每10秒探测一次
+            timeoutSeconds: 5          # 探测超时
+            failureThreshold: 3        # 连续3次失败标记为未就绪
+            successThreshold: 1        # 1次成功标记为就绪
+          # 启动探针（K8s 1.16+）
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 12       # 最多等待 120 秒启动
+          # 安全上下文 - 非 root 用户运行
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false  # FastAPI 需要写临时文件
+            capabilities:
+              drop:
+                - ALL
+          # 卷挂载
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      # 安全上下文 - Pod 级别
+      securityContext:
+        fsGroup: 1000
+      # 卷定义
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory  # 使用 tmpfs 提高性能
+      # 反亲和性 - 将副本调度到不同节点
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - backend
+                topologyKey: kubernetes.io/hostname
+      # 优雅终止
+      terminationGracePeriodSeconds: 30

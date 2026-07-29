@@ -1,0 +1,71 @@
+# ============================================================
+# Kubernetes Namespace - 三域隔离命名空间
+# 对应 Docker Compose 的三域隔离网络
+# ============================================================
+# 三域架构：
+#   1. agent-execution   - Agent执行域（对应 erp-agent-net）
+#   2. data-knowledge    - 数据知识域（对应 erp-data-net）
+#   3. user-interaction  - 用户交互域（对应 erp-ui-net）
+#
+# 每个命名空间：
+#   - 启用 Istio sidecar 自动注入（istio-injection=enabled）
+#   - 添加域标签（domain）用于 PeerAuthentication 和 AuthorizationPolicy 匹配
+# ============================================================
+
+---
+# ============================================================
+# 1. Agent执行域 (agent-execution)
+# ============================================================
+# 运行后端 FastAPI 服务，处理 Agent 执行调度
+# 对应 Docker Compose 网络: erp-agent-net
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-execution
+  labels:
+    # 启用 Istio sidecar 自动注入
+    istio-injection: enabled
+    # 域标识 - 用于 PeerAuthentication 和 AuthorizationPolicy 匹配
+    domain: agent-execution
+    # 架构层级标识
+    architecture: three-domain-isolation
+    # 应用标识
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Agent执行域 - AI Agent调度与执行（对应Docker erp-agent-net）"
+
+---
+# ============================================================
+# 2. 数据知识域 (data-knowledge)
+# ============================================================
+# 运行 PostgreSQL 和 Redis，存储核心业务数据
+# 对应 Docker Compose 网络: erp-data-net
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data-knowledge
+  labels:
+    istio-injection: enabled
+    domain: data-knowledge
+    architecture: three-domain-isolation
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "数据知识域 - 数据库与缓存存储（对应Docker erp-data-net）"
+
+---
+# ============================================================
+# 3. 用户交互域 (user-interaction)
+# ============================================================
+# 运行前端 Nginx 服务，提供用户界面和 API 网关
+# 对应 Docker Compose 网络: erp-ui-net
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: user-interaction
+  labels:
+    istio-injection: enabled
+    domain: user-interaction
+    architecture: three-domain-isolation
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "用户交互域 - 前端展示与API网关（对应Docker erp-ui-net）"

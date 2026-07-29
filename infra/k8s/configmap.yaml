@@ -1,0 +1,234 @@
+# ============================================================
+# Kubernetes ConfigMap - 应用配置
+# 存储 backend 和 frontend 的非敏感配置
+# 对应 Docker Compose 中的 env_file 和 nginx.conf 挂载
+# ============================================================
+
+---
+# ============================================================
+# 1. Backend ConfigMap (agent-execution 域)
+# ============================================================
+# 后端 FastAPI 环境变量配置
+# 所有 ERP_ 前缀的环境变量（对应 backend/.env.example）
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: agent-execution
+  labels:
+    domain: agent-execution
+    app: backend
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Backend 环境变量配置 - ERP_前缀变量"
+data:
+  # 应用配置
+  ERP_APP_NAME: "Agent-Native ERP"
+  ERP_APP_VERSION: "1.0.0"
+  ERP_DEBUG: "true"
+  ERP_ENVIRONMENT: "development"
+
+  # 当前域
+  ERP_CURRENT_DOMAIN: "agent_execution"
+
+  # 持久化后端配置
+  ERP_DB_BACKEND: "postgres"
+  ERP_CACHE_BACKEND: "redis"
+
+  # 数据库连接配置（主机名使用 K8s Service DNS）
+  # 格式: <service>.<namespace>.svc.cluster.local
+  ERP_POSTGRES_URL: "postgresql+asyncpg://erp_user:erp_password@postgres.data-knowledge.svc.cluster.local:5432/erp_db"
+
+  # Redis 连接配置
+  ERP_REDIS_URL: "redis://redis.data-knowledge.svc.cluster.local:6379/0"
+
+  # 数据库连接池配置
+  ERP_DB_POOL_SIZE: "10"
+  ERP_DB_MAX_OVERFLOW: "20"
+  ERP_DB_POOL_TIMEOUT: "30"
+  ERP_DB_POOL_RECYCLE: "1800"
+  ERP_DB_ECHO: "false"
+
+  # Redis 配置
+  ERP_REDIS_MAX_CONNECTIONS: "20"
+  ERP_REDIS_DEFAULT_TTL: "300"
+
+  # Kafka 事件总线配置（当前使用内存事件总线）
+  ERP_KAFKA_BOOTSTRAP_SERVERS: "kafka.data-knowledge.svc.cluster.local:9092"
+  ERP_KAFKA_EVENT_TOPIC: "erp.events"
+  ERP_KAFKA_AUDIT_TOPIC: "erp.audit"
+  ERP_KAFKA_CONSUMER_GROUP: "erp-agent-group"
+
+  # LLM 配置（私有化部署）
+  # 使用 ServiceEntry 注册的外部 LLM API
+  ERP_LLM_BASE_URL: "http://llm-api.external/v1"
+  ERP_LLM_MODEL: "Qwen-72B-Chat"
+  ERP_LLM_TEMPERATURE: "0.3"
+  ERP_LLM_MAX_TOKENS: "4096"
+  ERP_LLM_ENABLED: "false"
+  ERP_LLM_FALLBACK_TO_RULES: "true"
+  ERP_LLM_TIMEOUT: "30"
+  ERP_LLM_MAX_RETRIES: "3"
+  ERP_LLM_RATE_LIMIT: "10"
+
+  # mTLS 配置（在 K8s+Istio 环境中启用）
+  ERP_MTLS_ENABLED: "true"
+
+  # 审计链配置
+  ERP_AUDIT_CHAIN_ENABLED: "true"
+  ERP_AUDIT_HASH_ALGORITHM: "sha256"
+
+  # Agent 配置
+  ERP_AGENT_HEALTH_CHECK_INTERVAL: "30"
+  ERP_AGENT_SLO_RESPONSE_TIME_MS: "5000"
+  ERP_AGENT_CIRCUIT_BREAKER_THRESHOLD: "5"
+  ERP_AGENT_CONSENSUS_THRESHOLD: "0.67"
+
+  # 人在回路配置
+  ERP_HUMAN_APPROVAL_TIMEOUT: "3600"
+  ERP_AUTO_FALLBACK_TO_HUMAN: "true"
+
+  # 监控配置
+  ERP_PROMETHEUS_PORT: "9090"
+  ERP_METRICS_ENABLED: "true"
+
+  # JWT 配置（算法和过期时间，密钥在 Secret 中）
+  ERP_JWT_ALGORITHM: "HS256"
+  ERP_JWT_EXPIRE_MINUTES: "30"
+
+  # 时区
+  TZ: "Asia/Shanghai"
+
+---
+# ============================================================
+# 2. Nginx ConfigMap (user-interaction 域)
+# ============================================================
+# 前端 Nginx 配置
+# 对应 Docker Compose 中的 frontend/nginx.conf
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: user-interaction
+  labels:
+    domain: user-interaction
+    app: frontend
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Frontend Nginx 配置 - 静态资源托管与API代理"
+data:
+  nginx.conf: |
+    # ============================================================
+    # Agent-Native ERP Frontend - Nginx 配置
+    # 在 K8s+Istio 环境中，Nginx 仅负责静态资源托管
+    # API 代理由 Istio Ingress Gateway 和 VirtualService 处理
+    # ============================================================
+
+    server {
+        listen 3000;
+        server_name localhost;
+
+        # 安全头
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+        # gzip 压缩
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_proxied any;
+        gzip_comp_level 6;
+        gzip_types
+            text/plain
+            text/css
+            text/xml
+            text/javascript
+            application/json
+            application/javascript
+            application/xml
+            application/xml+rss
+            application/xhtml+xml
+            application/x-javascript
+            image/svg+xml;
+
+        # 上传文件大小限制
+        client_max_body_size 50m;
+
+        # ----------------------------------------------------------
+        # API 反向代理 -> 后端 FastAPI
+        # 在 K8s 中使用 Service DNS 名称
+        # backend.agent-execution.svc.cluster.local
+        # ----------------------------------------------------------
+        location /api/ {
+            proxy_pass http://backend.agent-execution.svc.cluster.local:8000/api/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 30s;
+            proxy_send_timeout 120s;
+            proxy_read_timeout 120s;
+        }
+
+        # ----------------------------------------------------------
+        # WebSocket 代理 (Agent实时通信)
+        # ----------------------------------------------------------
+        location /ws/ {
+            proxy_pass http://backend.agent-execution.svc.cluster.local:8000/ws/;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_read_timeout 86400s;
+            proxy_send_timeout 86400s;
+        }
+
+        # ----------------------------------------------------------
+        # API 文档 (仅开发环境)
+        # ----------------------------------------------------------
+        location /docs {
+            proxy_pass http://backend.agent-execution.svc.cluster.local:8000/docs;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+
+        location /openapi.json {
+            proxy_pass http://backend.agent-execution.svc.cluster.local:8000/openapi.json;
+            proxy_set_header Host $host;
+        }
+
+        # ----------------------------------------------------------
+        # 健康检查端点
+        # ----------------------------------------------------------
+        location /health {
+            proxy_pass http://backend.agent-execution.svc.cluster.local:8000/health;
+            proxy_set_header Host $host;
+        }
+
+        # ----------------------------------------------------------
+        # 前端静态资源 (SPA)
+        # ----------------------------------------------------------
+        location / {
+            root /usr/share/nginx/html;
+            index index.html;
+            try_files $uri $uri/ /index.html;
+
+            # 静态资源缓存
+            location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+                expires 30d;
+                add_header Cache-Control "public, immutable";
+            }
+        }
+
+        # 禁止访问隐藏文件
+        location ~ /\. {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
+    }

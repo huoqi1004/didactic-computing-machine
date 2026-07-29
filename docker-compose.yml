@@ -1,0 +1,308 @@
+# ============================================================
+# Agent-Native ERP System - Docker Compose 编排
+# 三域隔离架构: agent-execution / data-knowledge / user-interaction
+# ============================================================
+#
+# [Istio Sidecar 说明]
+# 本 Docker Compose 配置用于开发/测试环境，不包含 Istio sidecar。
+# 生产环境使用 Kubernetes + Istio 服务网格，每个 Pod 自动注入
+# istio-proxy sidecar 容器，实现 mTLS 加密通信、身份感知路由和审计链。
+#
+# [网络策略说明]
+# 三域隔离网络通过 Docker 自定义 bridge 网络实现：
+#   - erp-agent-net:   Agent执行域 (对应K8s: agent-execution命名空间)
+#   - erp-data-net:    数据知识域 (对应K8s: data-knowledge命名空间)
+#   - erp-ui-net:      用户交互域 (对应K8s: user-interaction命名空间)
+#
+# 在 K8s+Istio 环境中，网络隔离通过以下机制实现：
+#   1. 命名空间隔离（Namespace-level isolation）
+#   2. Istio PeerAuthentication（mTLS STRICT 模式）
+#   3. Istio AuthorizationPolicy（基于工作负载身份的访问控制）
+#   4. Kubernetes NetworkPolicy（可选，L3/L4 层网络隔离）
+#
+# [生产环境 Sidecar 占位]
+# 以下每个服务在 K8s 中将自动注入 Istio sidecar:
+#   - backend:   sidecar.istio.io/inject: "true" (agent-execution命名空间)
+#   - frontend:  sidecar.istio.io/inject: "true" (user-interaction命名空间)
+#   - postgres:  sidecar.istio.io/inject: "true" (data-knowledge命名空间)
+#   - redis:     sidecar.istio.io/inject: "true" (data-knowledge命名空间)
+# 详见: infra/k8s/ 和 infra/istio/ 目录
+# ============================================================
+
+version: '3.9'
+
+services:
+  # ----------------------------------------------------------
+  # 后端服务 - FastAPI (桥梁层, 连接三域)
+  # [生产环境] K8s中此服务位于 agent-execution 命名空间
+  # [生产环境] Istio sidecar 自动注入, 启用 STRICT mTLS
+  # [生产环境] 授权策略: 仅允许 frontend 和 istio-system 命名空间流量
+  # ----------------------------------------------------------
+  backend:
+    # [Istio Sidecar 占位] 生产环境中此服务将注入 istio-proxy sidecar
+    # sidecar 配置见 infra/k8s/backend-deployment.yaml
+    # mTLS 策略见 infra/istio/peer-authentication.yaml
+    # 授权策略见 infra/istio/authorization-policies.yaml
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: erp-backend
+    ports:
+      - "8000:8000"
+    networks:
+      - erp-agent-net    # 连接 agent-execution 域 (Agent执行调度)
+      - erp-data-net     # 连接 data-knowledge 域 (数据存储访问)
+      - erp-ui-net       # 连接 user-interaction 域 (为前端提供API)
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - backend/.env
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+
+  # ----------------------------------------------------------
+  # 前端服务 - Nginx 托管静态资源 (仅 user-interaction 域)
+  # [生产环境] K8s中此服务位于 user-interaction 命名空间
+  # [生产环境] Istio sidecar 自动注入, 启用 PERMISSIVE mTLS (需接受外部请求)
+  # [生产环境] 授权策略: 允许 Ingress Gateway 和网格内访问
+  # ----------------------------------------------------------
+  frontend:
+    # [Istio Sidecar 占位] 生产环境中此服务将注入 istio-proxy sidecar
+    # sidecar 配置见 infra/k8s/frontend-deployment.yaml
+    # mTLS 策略见 infra/istio/peer-authentication.yaml (PERMISSIVE模式)
+    # Gateway 路由见 infra/istio/gateway.yaml
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: erp-frontend
+    ports:
+      - "3000:3000"
+    networks:
+      - erp-ui-net       # 仅连接 user-interaction 域, 通过Nginx代理访问后端API
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+
+  # ----------------------------------------------------------
+  # PostgreSQL - 关系型数据库 (仅 data-knowledge 域)
+  # [生产环境] K8s中此服务位于 data-knowledge 命名空间 (StatefulSet)
+  # [生产环境] Istio sidecar 自动注入, 启用 STRICT mTLS
+  # [生产环境] 授权策略: 仅允许 agent-execution 命名空间 (backend) 访问
+  # [生产环境] 持久化: 10Gi PVC (见 infra/k8s/postgres-statefulset.yaml)
+  # ----------------------------------------------------------
+  postgres:
+    # [Istio Sidecar 占位] 生产环境中此服务将注入 istio-proxy sidecar
+    # StatefulSet 配置见 infra/k8s/postgres-statefulset.yaml
+    # mTLS 策略见 infra/istio/peer-authentication.yaml (STRICT模式)
+    # 授权策略见 infra/istio/authorization-policies.yaml (仅允许backend)
+    image: postgres:16-alpine
+    container_name: erp-postgres
+    ports:
+      - "5432:5432"
+    networks:
+      - erp-data-net     # 仅连接 data-knowledge 域
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_admin
+      POSTGRES_DB: postgres
+      TZ: Asia/Shanghai
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  # ----------------------------------------------------------
+  # Redis - 缓存与消息队列 (仅 data-knowledge 域)
+  # [生产环境] K8s中此服务位于 data-knowledge 命名空间
+  # [生产环境] Istio sidecar 自动注入, 启用 STRICT mTLS
+  # [生产环境] 授权策略: 仅允许 agent-execution 命名空间 (backend) 访问
+  # [生产环境] 持久化: 5Gi PVC (见 infra/k8s/redis-deployment.yaml)
+  # ----------------------------------------------------------
+  redis:
+    # [Istio Sidecar 占位] 生产环境中此服务将注入 istio-proxy sidecar
+    # Deployment 配置见 infra/k8s/redis-deployment.yaml
+    # mTLS 策略见 infra/istio/peer-authentication.yaml (STRICT模式)
+    # 授权策略见 infra/istio/authorization-policies.yaml (仅允许backend)
+    image: redis:7-alpine
+    container_name: erp-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - erp-data-net     # 仅连接 data-knowledge 域
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.3'
+
+  # ----------------------------------------------------------
+  # Prometheus - 监控采集 (连接所有域, 采集各服务指标)
+  # [生产环境] K8s中此服务位于 istio-system 或 monitoring 命名空间
+  # [生产环境] 通过 Istio AuthorizationPolicy 允许采集 /metrics 端点
+  # ----------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: erp-prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - erp-agent-net    # 采集 agent-execution 域服务指标
+      - erp-data-net     # 采集 data-knowledge 域服务指标
+      - erp-ui-net       # 采集 user-interaction 域服务指标
+    volumes:
+      - ./infra/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  # ----------------------------------------------------------
+  # Grafana - 可视化监控面板 (仅 user-interaction 域)
+  # [生产环境] K8s中此服务位于 istio-system 或 monitoring 命名空间
+  # [生产环境] 可集成 Istio 内置的 Grafana 仪表盘
+  # ----------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: erp-grafana
+    ports:
+      - "3001:3000"
+    networks:
+      - erp-ui-net       # 仅连接 user-interaction 域
+    volumes:
+      - ./infra/monitoring/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro
+      - ./infra/monitoring/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./infra/monitoring/grafana/dashboard.json:/var/lib/grafana/dashboards/erp-dashboard.json:ro
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=
+      - GF_SERVER_HTTP_PORT=3000
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+
+# ============================================================
+# 三域隔离网络定义
+# ============================================================
+# [Docker 网络 vs K8s+Istio 隔离]
+# Docker 环境: 通过自定义 bridge 网络实现 L2 隔离
+# K8s+Istio 环境: 通过命名空间 + mTLS + AuthorizationPolicy 实现隔离
+#
+# 三域对应关系:
+#   erp-agent-net  <-> K8s 命名空间 agent-execution  (STRICT mTLS)
+#   erp-data-net   <-> K8s 命名空间 data-knowledge   (STRICT mTLS)
+#   erp-ui-net     <-> K8s 命名空间 user-interaction (PERMISSIVE mTLS)
+# ============================================================
+networks:
+  # Agent执行域 - AI Agent调度与执行
+  # 对应 K8s: agent-execution 命名空间
+  # 对应 Istio: STRICT mTLS, 仅允许 frontend 和 istio-system 访问
+  erp-agent-net:
+    name: erp-agent-net
+    driver: bridge
+    labels:
+      domain: "agent-execution"
+      description: "Agent execution domain - AI agent scheduling and execution"
+      k8s-namespace: "agent-execution"
+      istio-mtls-mode: "STRICT"
+    internal: false
+
+  # 数据知识域 - 数据存储与知识管理
+  # 对应 K8s: data-knowledge 命名空间
+  # 对应 Istio: STRICT mTLS, 仅允许 agent-execution (backend) 访问
+  erp-data-net:
+    name: erp-data-net
+    driver: bridge
+    labels:
+      domain: "data-knowledge"
+      description: "Data knowledge domain - database and cache storage"
+      k8s-namespace: "data-knowledge"
+      istio-mtls-mode: "STRICT"
+    internal: false
+
+  # 用户交互域 - 前端展示与API网关
+  # 对应 K8s: user-interaction 命名空间
+  # 对应 Istio: PERMISSIVE mTLS (接受外部HTTP请求)
+  erp-ui-net:
+    name: erp-ui-net
+    driver: bridge
+    labels:
+      domain: "user-interaction"
+      description: "User interaction domain - frontend and API gateway"
+      k8s-namespace: "user-interaction"
+      istio-mtls-mode: "PERMISSIVE"
+    internal: false
+
+# ============================================================
+# 持久化数据卷
+# [生产环境] K8s中使用 PersistentVolumeClaim (PVC)
+#   - postgres-data: 10Gi PVC (见 infra/k8s/postgres-statefulset.yaml)
+#   - redis-data:    5Gi PVC  (见 infra/k8s/redis-deployment.yaml)
+# ============================================================
+volumes:
+  postgres-data:
+    name: erp-postgres-data
+  redis-data:
+    name: erp-redis-data
+  prometheus-data:
+    name: erp-prometheus-data
+  grafana-data:
+    name: erp-grafana-data

@@ -1,0 +1,137 @@
+# ============================================================
+# Istio MeshConfig - 全局网格配置
+# 定义整个服务网格的安全策略、流量策略和可观测性配置
+# 文档: https://istio.io/latest/docs/reference/config/istio.mesh.v1alpha1/
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: istio-mesh-config
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: istio
+    app.kubernetes.io/component: mesh-config
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Agent-Native ERP 三域隔离架构全局网格配置"
+data:
+  mesh: |
+    # ============================================================
+    # 网格全局配置
+    # ============================================================
+
+    # 信任域名 - Istio 用于签发和验证工作负载证书的信任根
+    # cluster.local 是 Kubernetes 集群内的标准信任域
+    trustDomain: cluster.local
+
+    # 信任域别名 - 允许来自这些域的证书被信任（多集群场景使用）
+    trustDomainAliases: []
+
+    # ============================================================
+    # 工作负载默认配置 (ProxyConfig)
+    # ============================================================
+    defaultConfig:
+      # 等待 sidecar 就绪后再启动应用容器，避免启动时连接失败
+      holdApplicationUntilProxyStarts: true
+
+      # 追踪采样率 - 开发环境 100% 采样，捕获所有请求
+      # 生产环境建议设置为 0.01 ~ 0.1（1%-10%）
+      tracing:
+        sampling: 100.0
+        # 追踪上下文传播方式 - 使用 b3 格式兼容 Zipkin/Jaeger
+        max_path_tag_length: 256
+
+      # 注入额外的元数据到 Envoy，用于审计链追踪
+      proxyMetadata:
+        ERP_MESH_DOMAIN: "cluster.local"
+        ERP_AUDIT_ENABLED: "true"
+
+      # 网格内部服务发现模式
+      discoveryAddress: istiod.istio-system.svc:15012
+
+    # ============================================================
+    # 出站流量策略
+    # ============================================================
+    # REGISTRY_ONLY: 仅允许访问已在网格中注册的服务（通过 ServiceEntry 声明）
+    # 这是安全最佳实践，防止应用未经声明访问外部不可信服务
+    # 需要访问外部 API（如 LLM）时，需创建 ServiceEntry
+    outboundTrafficPolicy:
+      mode: REGISTRY_ONLY
+
+    # ============================================================
+    # 默认入站流量策略
+    # ============================================================
+    # AnyInbound: 接受所有入站流量（由 PeerAuthentication 和 AuthorizationPolicy 控制具体策略）
+    inboundTrafficPolicy:
+      mode: AnyInbound
+
+    # ============================================================
+    # 默认重试策略（网格全局）
+    # ============================================================
+    # 每个服务可在 DestinationRule 中覆盖此配置
+    # 3次重试，每次超时30秒
+    defaultHttpRetryPolicy:
+      retryOn: "connect-failure,refused-stream,unavailable,cancelled,retriable-status-codes"
+      # connect-failure: 连接失败重试
+      # refused-stream: 流被拒绝重试
+      # unavailable: 服务不可用重试
+      # cancelled: 请求取消重试
+      # retriable-status-codes: 可重试的HTTP状态码（502, 503, 504）
+      numRetries: 3              # 最大重试次数：3次
+      perTryTimeout: 30s        # 每次尝试超时：30秒
+      retryHostPredicate:
+        - name: env.retry_host_predicates.previous_hosts
+          args: {}
+
+    # ============================================================
+    # 分布式追踪扩展提供者
+    # ============================================================
+    extensionProviders:
+      # Jaeger 追踪后端（Zipkin 协议）
+      - name: jaeger
+        zipkin:
+          service: jaeger-collector.istio-system.svc.cluster.local
+          port: 9411
+
+    # 默认追踪提供者
+    defaultProviders:
+      tracing:
+        - jaeger
+
+    enableTracing: true
+
+    # ============================================================
+    # 名称空间默认标签
+    # ============================================================
+    rootNamespace: istio-system
+
+  # ============================================================
+  # MeshNetworks 配置 - 多集群网络拓扑（单集群可留空）
+  # ============================================================
+  meshNetworks: |
+    networks: {}
+
+---
+# ============================================================
+# Telemetry API - 追踪采样配置
+# 通过 Telemetry API 实现 100% 采样率（开发环境）
+# 文档: https://istio.io/latest/docs/tasks/observability/telemetry/
+# ============================================================
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: mesh-default-tracing
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "网格全局追踪配置 - 开发环境100%采样"
+spec:
+  # 全局追踪配置
+  tracing:
+    - randomSamplingPercentage: 100.0
+      # 开发环境：100% 采样率，捕获所有请求
+      # 生产环境建议：1.0 ~ 10.0
+      # 使用 randomSamplingPercentage 覆盖 MeshConfig 中的 sampling
+      providers:
+        - name: jaeger

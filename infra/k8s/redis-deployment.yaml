@@ -1,0 +1,183 @@
+# ============================================================
+# Redis Deployment (data-knowledge 域)
+# Redis 缓存服务部署
+# 对应 Docker Compose 中的 redis 服务
+# ============================================================
+
+---
+# ============================================================
+# 1. Redis ServiceAccount
+# ============================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: redis-sa
+  namespace: data-knowledge
+  labels:
+    domain: data-knowledge
+    app: redis
+    app.kubernetes.io/part-of: agent-native-erp
+
+---
+# ============================================================
+# 2. Redis Service
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: data-knowledge
+  labels:
+    domain: data-knowledge
+    app: redis
+    version: v1
+    app.kubernetes.io/part-of: agent-native-erp
+    service: redis
+  annotations:
+    description: "Redis ClusterIP Service - 端口6379"
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+      protocol: TCP
+
+---
+# ============================================================
+# 3. Redis Deployment
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: data-knowledge
+  labels:
+    domain: data-knowledge
+    app: redis
+    version: v1
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Redis 部署 - 1副本, 5Gi持久化"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+        version: v1
+        domain: data-knowledge
+        app.kubernetes.io/part-of: agent-native-erp
+      annotations:
+        # Istio sidecar 注入
+        sidecar.istio.io/inject: "true"
+        sidecar.istio.io/proxyCPU: "50m"
+        sidecar.istio.io/proxyMemory: "64Mi"
+        sidecar.istio.io/proxyCPULimit: "200m"
+        sidecar.istio.io/proxyMemoryLimit: "128Mi"
+    spec:
+      serviceAccountName: redis-sa
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          # Redis 启动命令
+          command:
+            - redis-server
+          args:
+            - --appendonly
+            - "yes"                   # 开启 AOF 持久化
+            - --maxmemory
+            - 256mb                   # 最大内存限制
+            - --maxmemory-policy
+            - allkeys-lru             # 内存满时使用 LRU 淘汰策略
+            - --save
+            - "60 1000"               # 每60秒如果有1000个key变化则保存
+            - --tcp-keepalive
+            - "60"                    # TCP keepalive 间隔
+            - --timeout
+            - "300"                   # 客户端空闲超时
+            - --loglevel
+            - notice                  # 日志级别
+          # 资源限制
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "384Mi"
+          # 健康检查 - 存活探针
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          # 健康检查 - 就绪探针
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # 安全上下文
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999        # Redis Alpine 镜像默认用户
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          # 卷挂载
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      # 安全上下文
+      securityContext:
+        fsGroup: 999
+      # 卷定义
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: redis-data
+      terminationGracePeriodSeconds: 30
+
+---
+# ============================================================
+# 4. Redis PersistentVolumeClaim
+# ============================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: data-knowledge
+  labels:
+    domain: data-knowledge
+    app: redis
+    app.kubernetes.io/part-of: agent-native-erp
+  annotations:
+    description: "Redis 持久化存储 - 5Gi"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi    # 5Gi 持久化存储
+  # storageClassName: fast-ssd

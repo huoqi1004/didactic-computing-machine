@@ -124,7 +124,10 @@ services:
       - erp-data-net     # 仅连接 data-knowledge 域
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./infra/docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+      # init-db.sql 已退役：其中 5 张遗留表与当前 ORM 结构不匹配，
+      # 会遮蔽 ORM 建表（如 users 表缺 user_id 列导致播种失败）。
+      # 建表由 backend 的 bootstrap_schema()（以 app/db/models.py 为
+      # 事实源）完成，无需初始化 SQL。
     environment:
       MYSQL_ROOT_PASSWORD: root_admin
       MYSQL_DATABASE: erp_db

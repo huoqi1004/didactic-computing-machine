@@ -1075,7 +1075,8 @@ async def persist_seed_data(engine: "RBACEngine") -> None:
     Args:
         engine: RBACEngine 实例（通常为全局单例 ``rbac_engine``）
     """
-    from app.core.database import get_session_factory
+    from app.core.database import _is_mysql_engine, get_engine, get_session_factory
+    from sqlalchemy import text as _sql_text
 
     if get_session_factory() is None:
         logger.warning(
@@ -1084,6 +1085,32 @@ async def persist_seed_data(engine: "RBACEngine") -> None:
         )
         return
 
+    # 与 bootstrap_schema 使用同一把命名锁：多个 uvicorn worker / 多实例
+    # 同时启动时，建库与播种全程串行，避免并发写同一批种子行。
+    db_engine = get_engine()
+    if db_engine is not None and _is_mysql_engine():
+        async with db_engine.connect() as lock_conn:
+            got = (
+                await lock_conn.execute(
+                    _sql_text("SELECT GET_LOCK('erp_schema_bootstrap', 300)")
+                )
+            ).scalar()
+            if not got:
+                logger.warning("rbac.persist_seed_lock_timeout")
+                return
+            try:
+                await _persist_seed_data_locked(engine)
+            finally:
+                await lock_conn.execute(
+                    _sql_text("SELECT RELEASE_LOCK('erp_schema_bootstrap')")
+                )
+        return
+
+    await _persist_seed_data_locked(engine)
+
+
+async def _persist_seed_data_locked(engine: "RBACEngine") -> None:
+    """persist_seed_data 的锁内实现（调用方保证已持有顾问锁）。"""
     try:
         # 1. 权限定义
         for perm in SEED_PERMISSIONS:

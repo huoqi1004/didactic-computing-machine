@@ -206,14 +206,26 @@ async def bootstrap_schema() -> dict:
     migrations.py 仅 4 张系统表、init-db.sql 为旧版遗留表），
     全新环境部署后业务表不存在，系统会"静默降级"到内存模式。
 
-    策略：
-    - 非空库：跳过（不触碰存量结构，避免与存量数据/未来 alembic 迁移冲突）
-    - 空库：以 ``app/db/models.py`` 为唯一事实源建出全部表
+    策略：以 ``app/db/models.py`` 为唯一事实源，计算「ORM 期望表」与
+    「库中实际表」的差集，只建缺失的表（``create_all`` 默认
+    ``checkfirst=True``，已存在的表不会被修改）：
+
+    - 表齐备：跳过，不动存量结构
+    - 缺表：仅补建缺失部分，并记录日志（含缺失清单，便于排查漂移）
+
+    说明：早期实现以「库是否为空」为判据，导致挂载了 init-db.sql 的
+    环境（库里有 5 张与 ORM 无关的遗留表）被误判为非空而跳过建表，
+    业务表缺失后系统静默降级到内存模式。改为差集判定后该问题消失。
 
     Returns:
         {"existed": bool, "created": int, "table_count": int}
         - existed: 目标库原本就有业务表
         - created: 本次新建的表数量（空库兜底时 > 0）
+
+    并发安全：MySQL 环境使用命名顾问锁 ``GET_LOCK('erp_schema_bootstrap')``
+    串行化多个 uvicorn worker / 多实例的建库过程，避免并发 DDL 互撞
+    （MySQL 1684 错误）。锁在专用连接上持有，函数返回时释放；
+    连接意外断开时 MySQL 会自动释放锁。
     """
     from sqlalchemy import text
 
@@ -221,6 +233,30 @@ async def bootstrap_schema() -> dict:
     if engine is None:
         logger.warning("database.bootstrap_schema_no_engine")
         return {"existed": False, "created": 0, "table_count": 0}
+
+    if _is_mysql_engine():
+        async with engine.connect() as lock_conn:
+            got = (
+                await lock_conn.execute(
+                    text("SELECT GET_LOCK('erp_schema_bootstrap', 300)")
+                )
+            ).scalar()
+            if not got:
+                logger.warning("database.bootstrap_schema_lock_timeout")
+                return {"existed": True, "created": 0, "table_count": -1}
+            try:
+                return await _bootstrap_schema_locked(engine)
+            finally:
+                await lock_conn.execute(
+                    text("SELECT RELEASE_LOCK('erp_schema_bootstrap')")
+                )
+    # sqlite 等测试后端：单进程，无需锁
+    return await _bootstrap_schema_locked(engine)
+
+
+async def _bootstrap_schema_locked(engine) -> dict:
+    """bootstrap_schema 的锁内实现（调用方保证已持有顾问锁）。"""
+    from sqlalchemy import text
 
     try:
         # 导入 models 模块，确保所有表模型注册到 Base.metadata
@@ -233,35 +269,46 @@ async def bootstrap_schema() -> dict:
                 db_name = db_name.split("?")[0]
                 result = await conn.execute(
                     text(
-                        "SELECT COUNT(*) FROM information_schema.tables "
+                        "SELECT table_name FROM information_schema.tables "
                         "WHERE table_schema = :db AND table_type = 'BASE TABLE'"
                     ),
                     {"db": db_name},
                 )
             else:  # sqlite 等其他后端（测试环境）
                 result = await conn.execute(
-                    text("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+                    text("SELECT name FROM sqlite_master WHERE type='table'")
                 )
-            table_count = int(result.scalar() or 0)
+            existing = {row[0] for row in result.fetchall()}
 
-        if table_count > 0:
-            # 非空库：不触碰存量结构
+        # 以 ORM 元数据为准，计算缺失的表（差集）
+        missing = sorted(set(Base.metadata.tables.keys()) - existing)
+        if not missing:
             logger.debug(
-                "database.bootstrap_schema_existing",
-                table_count=table_count,
+                "database.bootstrap_schema_complete",
+                table_count=len(existing),
+                expected=len(Base.metadata.tables),
             )
-            return {"existed": True, "created": 0, "table_count": table_count}
+            return {"existed": True, "created": 0, "table_count": len(existing)}
 
-        # 空库：用 ORM 元数据建出全部表
+        # 只建缺失的表。create_all 默认 checkfirst=True：
+        # 已存在的表不会被修改，因此存量数据与结构不受影响。
+        tables = [Base.metadata.tables[name] for name in missing]
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        created = len(Base.metadata.tables)
+            await conn.run_sync(
+                lambda sync_conn: Base.metadata.create_all(sync_conn, tables=tables)
+            )
         logger.info(
             "database.bootstrap_schema_created",
-            tables=created,
+            created=len(missing),
+            missing=missing,
+            skipped_existing=len(existing),
             source="app.db.models.Base.metadata",
         )
-        return {"existed": False, "created": created, "table_count": created}
+        return {
+            "existed": len(existing) > 0,
+            "created": len(missing),
+            "table_count": len(existing) + len(missing),
+        }
     except Exception as e:
         logger.error(
             "database.bootstrap_schema_failed",

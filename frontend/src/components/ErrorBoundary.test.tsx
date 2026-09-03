@@ -4,12 +4,13 @@
  * 覆盖错误捕获、重试、返回首页、自定义 fallback
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { ReactElement } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ErrorBoundary from './ErrorBoundary'
 
-// 会在渲染时抛出错误的组件
-function ThrowOnRender({ error }: { error: Error }) {
+// 会在渲染时抛出错误的组件（返回 never，可作为 JSX 组件使用）
+function ThrowOnRender({ error }: { error: Error }): never {
   throw error
 }
 
@@ -79,7 +80,8 @@ describe('ErrorBoundary', () => {
   it('retry button resets error state', async () => {
     const user = userEvent.setup()
 
-    const MockChild = vi.fn(() => {
+    // 显式标注返回类型，使后续 mockImplementation 可替换为正常渲染组件
+    const MockChild = vi.fn<() => ReactElement | null>(() => {
       throw new Error('first error')
     })
 

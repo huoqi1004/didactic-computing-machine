@@ -8,7 +8,7 @@
 |------|------|
 | 后端 | Python 3.10 / FastAPI / SQLAlchemy 2.0 (async) / Pydantic 2 |
 | 前端 | React 18 / TypeScript / Vite 5 / Tailwind CSS / Zustand |
-| 数据库 | PostgreSQL 16 / Redis 7 |
+| 数据库 | MySQL 8.0 / Redis 7 |
 | 监控 | Prometheus / Grafana |
 | 部署 | Docker / Docker Compose |
 | CI/CD | GitHub Actions |
@@ -46,7 +46,7 @@ curl http://localhost:8000/health
 |------|------|------|
 | Backend API | 8000 | FastAPI 后端服务 |
 | Frontend | 3000 | Nginx 托管前端静态资源 |
-| PostgreSQL | 5432 | 数据库 |
+| MySQL | 3306 | 数据库 |
 | Redis | 6379 | 缓存 |
 | Prometheus | 9090 | 指标采集 |
 | Grafana | 3001 | 监控面板 (admin/admin) |

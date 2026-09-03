@@ -681,6 +681,26 @@ async def create_backup(req: CreateBackupRequest):
     return result
 
 
+@router.post("/backup/snapshot")
+async def export_snapshot():
+    """导出系统实时数据快照（事件存储/审计日志/RBAC/Agent状态）"""
+    result = backup_manager.export_snapshot()
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    logger.info("admin.backup_snapshot_exported",
+                backup_id=result.get("backup", {}).get("backup_id"))
+    return result
+
+
+@router.get("/backup/{backup_id}/snapshot-data")
+async def get_snapshot_data(backup_id: str):
+    """读取已导出的快照数据（恢复前预览）"""
+    result = backup_manager.get_snapshot_data(backup_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
 @router.post("/backup/{backup_id}/restore")
 async def restore_backup(backup_id: str, target: str = Query("current", description="恢复目标")):
     """从备份恢复"""
@@ -749,3 +769,98 @@ async def get_backup_storage():
 async def get_restore_history():
     """获取恢复历史记录"""
     return backup_manager.get_restore_history()
+
+
+# =============================================================================
+# 8. 事件总线监控（P2-1 生产加固）
+# =============================================================================
+
+@router.get("/event-bus/stats")
+async def get_event_bus_stats():
+    """获取事件总线统计信息（发布/消费/死信/滞后等指标）"""
+    from app.core.event.kafka_bus import get_event_bus
+    bus = get_event_bus()
+    if hasattr(bus, 'get_stats'):
+        return bus.get_stats()
+    return {"error": "event_bus_stats_unavailable"}
+
+
+@router.get("/event-bus/health")
+async def get_event_bus_health():
+    """获取事件总线健康状态（供 Kubernetes readiness/liveness 探针）"""
+    from app.core.event.kafka_bus import get_event_bus
+    bus = get_event_bus()
+    if hasattr(bus, 'health_check'):
+        return await bus.health_check()
+    return {"status": "unknown", "implementation": "memory"}
+
+
+# =============================================================================
+# 9. 数据迁移与合规（P3-3 企业就绪）
+# =============================================================================
+
+class ImportDataRequest(BaseModel):
+    file_path: Optional[str] = Field(None, description="导入文件路径（CSV/JSON）")
+    records: Optional[list[dict]] = Field(None, description="直接传入的记录列表")
+    target: str = Field("default", description="导入目标（如 crm/finance/hr）")
+    mapping: Optional[dict] = Field(None, description="CSV 字段映射 {源列: 目标字段}")
+    # 使用 alias 保持 JSON body 键名为 "schema"（避免遮蔽 BaseModel.schema）
+    validation_schema: Optional[dict] = Field(
+        None, alias="schema", description="校验规则（必填/类型/枚举）")
+    user: str = Field("admin", description="操作者（写入审计日志）")
+
+
+@router.get("/data/export")
+async def data_export(
+    scope: str = Query("erp_snapshot", description="导出范围（erp_snapshot 或自定义 scope）"),
+    format: str = Query("json", description="导出格式 csv/json/excel"),
+    mask: bool = Query(True, description="是否自动脱敏（默认开启）"),
+    user: str = Query("admin", description="操作者"),
+):
+    """导出数据（自动脱敏 + 审计日志），支持系统快照或自定义记录"""
+    from app.core.migration import migration_manager
+    # mask=False 时显式关闭脱敏（传空列表）；默认 None 触发自动脱敏
+    mask_fields = None if mask else []
+    result = migration_manager.export(
+        scope=scope, format=format, mask_fields=mask_fields, user=user)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    logger.info("admin.data_exported", scope=scope, format=format,
+                mask=mask, path=result.get("file_path"))
+    return result
+
+
+@router.post("/data/import")
+async def data_import(req: ImportDataRequest):
+    """导入数据（支持文件路径或直接传记录，可选校验，写入审计日志）"""
+    from app.core.migration import migration_manager
+    if not req.file_path and not req.records:
+        raise HTTPException(
+            status_code=400, detail="file_path or records is required")
+    result = migration_manager.import_data(
+        file_path=req.file_path, target=req.target, mapping=req.mapping,
+        records=req.records, schema=req.validation_schema, user=req.user)
+    logger.info("admin.data_imported", target=req.target,
+                total=result.get("total"), success=result.get("success_count"))
+    return result
+
+
+@router.get("/data/export-history")
+async def data_export_history():
+    """查询数据导出历史"""
+    from app.core.migration import migration_manager
+    return {"exports": migration_manager.get_export_history()}
+
+
+@router.get("/data/import-history")
+async def data_import_history():
+    """查询数据导入历史"""
+    from app.core.migration import migration_manager
+    return {"imports": migration_manager.get_import_history()}
+
+
+@router.get("/data/compliance-report")
+async def data_compliance_report():
+    """生成数据迁移合规报告（导出/导入次数、脱敏应用率、最近活动）"""
+    from app.core.migration import migration_manager
+    return migration_manager.compliance_report()

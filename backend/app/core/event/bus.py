@@ -57,6 +57,38 @@ class EventBus:
                 pass
         logger.info("event_bus.stopped")
 
+    async def drain(self, timeout: Optional[float] = None):
+        """
+        优雅排空：等待内存队列中的事件分发完毕（接口与 KafkaEventBus 兼容）。
+
+        - 停止接收新事件（设 ``_running=False`` 后分发循环退出）
+        - 等待队列中剩余事件处理完成
+        """
+        self._running = False
+        wait_s = timeout if timeout is not None else 5.0
+        deadline = asyncio.get_event_loop().time() + wait_s
+        while self._event_queue.qsize() > 0 and asyncio.get_event_loop().time() < deadline:
+            await asyncio.sleep(0.1)
+        logger.info("event_bus.drained", queue_size=self._event_queue.qsize())
+
+    async def health_check(self) -> dict:
+        """
+        健康检查：返回总线状态（接口与 KafkaEventBus 兼容）。
+
+        - ``healthy``：运行中
+        - ``unhealthy``：未启动或已停止
+        """
+        status = "healthy" if self._running else "unhealthy"
+        result = {
+            "status": status,
+            "implementation": "memory",
+            "degraded": False,
+            "connected": self._running,
+            "in_flight": self._event_queue.qsize(),
+            "stats": self.get_stats(),
+        }
+        return result
+
     def subscribe(self, subscription: EventSubscription):
         """注册事件订阅"""
         self._subscriptions.append(subscription)

@@ -468,6 +468,7 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         response_format: Optional[dict] = None,
+        extra: Optional[dict] = None,
     ) -> str:
         """
         异步聊天补全 - 返回纯文本响应
@@ -482,6 +483,7 @@ class LLMClient:
         - temperature: 采样温度（None=使用默认 settings.llm_temperature）
         - max_tokens: 最大生成token数（None=使用默认 settings.llm_max_tokens）
         - response_format: 响应格式（如 {"type": "json_object"} 启用JSON模式）
+        - extra: 额外透传参数（如 {"thinking": {"type": "disabled"}} 禁用思考模式）
 
         返回：LLM生成的文本内容（str）
 
@@ -497,6 +499,7 @@ class LLMClient:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 response_format=response_format,
+                extra=extra,
             )
             content = self._extract_content(data)
             elapsed = time.monotonic() - start_time
@@ -712,6 +715,16 @@ class LLMClient:
             payload["tool_choice"] = tool_choice
         if response_format:
             payload["response_format"] = response_format
+
+        # DeepSeek V4 思考模式：通过 extra body 传入 thinking 参数
+        # V4-Pro 默认开启思考模式；显式控制以确保行为一致
+        # 注意：思考模式下 temperature/top_p 等参数不生效，由模型自主控制推理深度
+        if hasattr(settings, "llm_thinking_enabled") and settings.llm_thinking_enabled:
+            thinking_type = "enabled"
+        else:
+            thinking_type = "disabled"
+        payload["thinking"] = {"type": thinking_type}
+
         if extra:
             payload.update(extra)
         return payload
@@ -733,9 +746,27 @@ class LLMClient:
             )
 
     def _extract_content(self, data: dict) -> str:
-        """从响应中提取文本内容"""
+        """
+        从响应中提取文本内容
+
+        DeepSeek 思考模式下，响应可能包含两个字段：
+        - content: 最终回答（可能为空，如果模型将所有token用于推理）
+        - reasoning_content: 推理过程
+
+        当 content 为空时，回退到 reasoning_content，确保不丢失响应。
+        """
         try:
-            return data["choices"][0]["message"]["content"] or ""
+            message = data["choices"][0]["message"]
+            content = message.get("content") or ""
+            if content:
+                return content
+            # 思考模式下 content 可能为空，回退到 reasoning_content
+            reasoning = message.get("reasoning_content") or ""
+            if reasoning:
+                logger.debug("llm_client.content_fallback_to_reasoning",
+                             reasoning_length=len(reasoning))
+                return reasoning
+            return ""
         except (KeyError, IndexError) as e:
             raise LLMResponseError(
                 f"无法从LLM响应中提取content: {e}; 原始: {str(data)[:500]}"

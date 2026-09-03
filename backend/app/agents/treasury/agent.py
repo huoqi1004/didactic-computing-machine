@@ -40,6 +40,11 @@ class TreasuryAgent(BaseAgent):
     # 大额资金调拨阈值（超过需人在回路确认）
     FUND_TRANSFER_THRESHOLD = 500_000.0
 
+    # 现金流预测缓存时长（秒）：on_tick 每秒触发一次，预测按小时缓存即可，
+    # 避免同一预测每秒重算、重发事件、重打 LLM（评估报告 B-01/B-02/B-03）
+    FORECAST_CACHE_SECONDS = 3600
+    _forecast_cache: Optional[dict] = None
+
     def __init__(self):
         super().__init__(
             name="资金Agent",
@@ -592,9 +597,20 @@ class TreasuryAgent(BaseAgent):
         )
 
     async def on_tick(self):
-        """每日检查现金流状况，生成预测和支付建议"""
+        """每日检查现金流状况，生成预测和支付建议（预测结果按小时缓存）"""
+        # 命中缓存则跳过：LLM预测与事件发布都随缓存降频，
+        # 失败场景下由 llm_analyze 的 agent 级冷却兜底（连续失败3次冷却10分钟）
+        now = datetime.now(timezone.utc)
+        cached = self._forecast_cache
+        if (
+            cached is not None
+            and (now - cached["at"]).total_seconds() < self.FORECAST_CACHE_SECONDS
+        ):
+            return
+
         # 生成现金流预测并发布事件
         forecast = await self.get_cash_flow_forecast(days=7)
+        self._forecast_cache = {"at": now, "forecast": forecast}
         await self._publish_event(
             EventType.CASH_FLOW_FORECAST_COMPLETED,
             {

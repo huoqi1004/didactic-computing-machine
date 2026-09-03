@@ -35,5 +35,17 @@ Thumbs.db
 
 # Project specific
 *.sqlite3
-postgres-data/
+mysql-data/
 redis-data/
+
+# Playwright E2E 测试产物
+frontend/e2e/test-results/
+frontend/e2e/playwright-report/
+frontend/playwright/.cache/
+
+# 部署产物与本地工具目录（含 SSH 密钥/临时配置，不入库）
+.deploy/
+.workbuddy/
+.trae/
+.trae-html-share-packages/
+backend/.pytest_cache/

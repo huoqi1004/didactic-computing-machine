@@ -12,7 +12,7 @@
 │  │ agent-execution   │  │ data-knowledge   │  │ user-interaction│ │
 │  │ (STRICT mTLS)     │  │ (STRICT mTLS)    │  │ (PERMISSIVE)   │ │
 │  │                    │  │                  │  │                 │ │
-│  │  backend (FastAPI) │  │  postgres        │  │  frontend       │ │
+│  │  backend (FastAPI) │  │  mysql           │  │  frontend       │ │
 │  │  Agent执行调度     │  │  redis           │  │  Nginx          │ │
 │  └────────┬───────────┘  └────────┬─────────┘  └────────┬───────┘ │
 │           │                       │                     │         │
@@ -158,11 +158,11 @@ kubectl apply -f infra/k8s/configmap.yaml
 kubectl apply -f infra/k8s/secret.yaml
 
 # 2. 数据库层
-kubectl apply -f infra/k8s/postgres-statefulset.yaml
+kubectl apply -f infra/k8s/mysql-statefulset.yaml
 kubectl apply -f infra/k8s/redis-deployment.yaml
 
 # 3. 等待数据库就绪
-kubectl wait --for=condition=ready pod -l app=postgres -n data-knowledge --timeout=120s
+kubectl wait --for=condition=ready pod -l app=mysql -n data-knowledge --timeout=120s
 kubectl wait --for=condition=ready pod -l app=redis -n data-knowledge --timeout=60s
 
 # 4. 应用层
@@ -213,9 +213,9 @@ kubectl get destinationrule --all-namespaces -o yaml | grep -A5 trafficPolicy
 ### 4. 验证服务间通信
 
 ```bash
-# 检查 backend 到 postgres 的连接（应使用 mTLS）
+# 检查 backend 到 mysql 的连接（应使用 mTLS）
 kubectl exec -n agent-execution deploy/backend -c istio-proxy \
-  -- curl -s http://postgres.data-knowledge.svc.cluster.local:5432
+  -- curl -s http://mysql.data-knowledge.svc.cluster.local:3306
 
 # 查看 Envoy 访问日志（确认 mTLS 通信）
 kubectl logs -n agent-execution deploy/backend -c istio-proxy | grep "mTLS"
@@ -238,9 +238,9 @@ kubectl get requestauthentication --all-namespaces
 kubectl exec -n user-interaction deploy/frontend -c istio-proxy \
   -- curl -s http://backend.agent-execution.svc.cluster.local:8000/health
 
-# 测试：从 user-interaction 命名空间访问 postgres（应被拒绝）
+# 测试：从 user-interaction 命名空间访问 mysql（应被拒绝）
 kubectl exec -n user-interaction deploy/frontend -c istio-proxy \
-  -- curl -s http://postgres.data-knowledge.svc.cluster.local:5432
+  -- curl -s http://mysql.data-knowledge.svc.cluster.local:3306
 ```
 
 ### 6. 验证分布式追踪

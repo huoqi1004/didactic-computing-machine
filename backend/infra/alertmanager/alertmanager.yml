@@ -1,0 +1,82 @@
+# ============================================================
+# Alertmanager Configuration - Agent-Native ERP System
+# ============================================================
+# 部署: 修改 recipients 后放入 Alertmanager 配置目录
+# docker-compose 中挂载: ./infra/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+# ============================================================
+
+global:
+  resolve_timeout: 5m
+  # SMTP 配置（邮件通知）
+  smtp_smarthost: "smtp.example.com:587"
+  smtp_from: "alertmanager@erp-company.com"
+  smtp_auth_username: "alertmanager@erp-company.com"
+  smtp_auth_password: "your-smtp-password"
+  smtp_require_tls: true
+
+# 告警模板
+templates:
+  - "/etc/alertmanager/templates/*.tmpl"
+
+# 路由规则
+route:
+  group_by: ["alertname", "service", "severity"]
+  group_wait: 30s        # 首次告警等待时间
+  group_interval: 5m     # 同组告警间隔
+  repeat_interval: 4h    # 重复告警间隔
+  receiver: "default"
+
+  routes:
+    # Critical 告警 → 立即发送邮件 + 钉钉
+    - match:
+        severity: critical
+      receiver: "critical-notify"
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # Warning 告警 → 仅邮件
+    - match:
+        severity: warning
+      receiver: "warning-email"
+      group_wait: 1m
+      repeat_interval: 4h
+
+# 接收器配置
+receivers:
+  - name: "default"
+    email_configs:
+      - to: "ops-team@erp-company.com"
+        subject: '[ERP Alert] {{ .GroupLabels.alertname }}'
+
+  - name: "critical-notify"
+    email_configs:
+      - to: "ops-team@erp-company.com"
+        subject: '[CRITICAL] ERP System Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Labels: {{ .Labels }}
+          {{ end }}
+    # 钉钉 Webhook（需配置钉钉机器人）
+    webhook_configs:
+      - url: "https://oapi.dingtalk.com/robot/send?access_token=YOUR_DINGTALK_TOKEN"
+        send_resolved: true
+
+  - name: "warning-email"
+    email_configs:
+      - to: "ops-team@erp-company.com"
+        subject: '[WARNING] ERP System: {{ .GroupLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          {{ end }}
+
+# 抑制规则：Critical 告警时抑制同源的 Warning
+inhibit_rules:
+  - source_match:
+      severity: critical
+    target_match:
+      severity: warning
+    equal: ["alertname", "service"]

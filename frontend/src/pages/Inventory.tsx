@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Package,
   Plus,
@@ -12,24 +12,42 @@ import {
   Boxes,
 } from 'lucide-react'
 import {
-  useSystemStore,
   type InventoryItem,
   type InventoryStatus,
+  type RestockSuggestion,
 } from '../stores/systemStore'
+import { apiService } from '../services/api'
 import {
   INVENTORY_STATUS_CONFIG,
   formatCurrency,
   formatNumber,
   cn,
 } from '../lib/utils'
+import ExportButton from '../components/ExportButton'
+import Can from '../components/Can'
 
 export default function Inventory() {
-  const inventory = useSystemStore((s) => s.inventory)
-  const restockSuggestions = useSystemStore((s) => s.restockSuggestions)
-  const adjustInventory = useSystemStore((s) => s.adjustInventory)
+  const [inventory, setInventory] = useState<InventoryItem[]>([])
+  const [restockSuggestions, setRestockSuggestions] = useState<RestockSuggestion[]>([])
+  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<InventoryStatus | 'all'>('all')
   const [adjustModal, setAdjustModal] = useState<InventoryItem | null>(null)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const [inventoryList, restockList] = await Promise.all([
+      apiService.getInventory(),
+      apiService.getRestockSuggestions(),
+    ])
+    setInventory(inventoryList)
+    setRestockSuggestions(restockList)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
 
   const filtered = inventory.filter((item) => {
     const matchSearch =
@@ -43,6 +61,59 @@ export default function Inventory() {
   const totalValue = inventory.reduce((sum, i) => sum + i.quantity * i.unit_price, 0)
   const lowCount = inventory.filter((i) => i.status === 'low' || i.status === 'out').length
 
+  // 导出数据构造：库存盘点表
+  const inventoryExportData = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0]
+    return {
+      title: '库存盘点表',
+      warehouse: '全部仓库',
+      count_date: today,
+      items: {
+        headers: [
+          '序号',
+          'SKU',
+          '品名',
+          '分类',
+          '库存量',
+          '安全库存',
+          '单价',
+          '库存价值',
+          '仓库',
+          '状态',
+        ],
+        rows: inventory.map((item, idx) => [
+          idx + 1,
+          item.sku,
+          item.name,
+          item.category,
+          item.quantity,
+          item.safety_stock,
+          item.unit_price,
+          item.quantity * item.unit_price,
+          item.warehouse,
+          INVENTORY_STATUS_CONFIG[item.status].label,
+        ]),
+      },
+    }
+  }, [inventory])
+
+  // 导出数据构造：智能补货建议清单
+  const restockExportData = useMemo(
+    () => ({
+      title: '智能补货建议清单',
+      headers: ['SKU', '品名', '当前库存', '建议补货', '预估成本', '建议原因'],
+      rows: restockSuggestions.map((s) => [
+        s.sku,
+        s.name,
+        s.current_qty,
+        s.suggested_qty,
+        s.estimated_cost,
+        s.reason,
+      ]),
+    }),
+    [restockSuggestions],
+  )
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* 页面标题 */}
@@ -50,6 +121,28 @@ export default function Inventory() {
         <div>
           <h2 className="text-xl font-bold text-white">库存管理</h2>
           <p className="text-sm text-slate-500 mt-0.5">库存监控、调整与智能补货建议</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <ExportButton
+            agentId="inventory"
+            templateType="inventory"
+            filename="库存盘点表"
+            data={inventoryExportData}
+            title="库存盘点表"
+            formats={['xlsx']}
+            label="导出盘点表"
+            size="sm"
+          />
+          <ExportButton
+            agentId="inventory"
+            templateType="basic"
+            filename="智能补货建议清单"
+            data={restockExportData}
+            title="智能补货建议清单"
+            formats={['xlsx']}
+            label="导出补货清单"
+            size="sm"
+          />
         </div>
       </div>
 
@@ -216,13 +309,19 @@ export default function Inventory() {
                     </td>
                     <td>
                       <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => setAdjustModal(item)}
-                          className="p-1.5 rounded-md bg-bg-hover hover:bg-primary/20 text-slate-400 hover:text-primary transition-colors"
-                          title="调整库存"
+                        <Can
+                          resource="inventory"
+                          action="update"
+                          fallback={<span className="text-xs text-slate-600">—</span>}
                         >
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
+                          <button
+                            onClick={() => setAdjustModal(item)}
+                            className="p-1.5 rounded-md bg-bg-hover hover:bg-primary/20 text-slate-400 hover:text-primary transition-colors"
+                            title="调整库存"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </Can>
                       </div>
                     </td>
                   </tr>
@@ -231,7 +330,9 @@ export default function Inventory() {
             </tbody>
           </table>
           {filtered.length === 0 && (
-            <div className="text-center py-8 text-sm text-slate-500">未找到匹配的库存项</div>
+            <div className="text-center py-8 text-sm text-slate-500">
+              {loading ? '加载中...' : '未找到匹配的库存项'}
+            </div>
           )}
         </div>
       </div>
@@ -242,8 +343,9 @@ export default function Inventory() {
           item={adjustModal}
           onClose={() => setAdjustModal(null)}
           onSubmit={async (delta, reason) => {
-            await adjustInventory(adjustModal.sku, delta, reason)
+            await apiService.adjustInventory(adjustModal.sku, delta, reason)
             setAdjustModal(null)
+            fetchData()
           }}
         />
       )}

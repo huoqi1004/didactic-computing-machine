@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from 'react'
 import {
   PiggyBank,
   CalendarDays,
@@ -17,6 +18,8 @@ import {
   type Column,
 } from '../components/ui'
 import { cn } from '../lib/utils'
+import { apiService } from '../services/api'
+import Can from '../components/Can'
 
 /* ===================== 类型定义 ===================== */
 
@@ -38,6 +41,37 @@ interface BudgetChange {
   reason: string
   applicant: string
   date: string
+}
+
+/** 后端预算统计响应结构（字段均为可选，兼容降级） */
+interface BudgetStats {
+  total_budgets?: number
+  total_planned?: number
+  total_actual?: number
+  exceeded_count?: number
+  by_status?: Record<string, number>
+  by_department?: Record<string, number>
+}
+
+/* ===================== 数据映射 ===================== */
+
+/** 将后端预算数据（snake_case）映射为前端 DepartmentBudget 结构 */
+function mapBudget(raw: any): DepartmentBudget {
+  const annual = Number(raw.amount ?? raw.annual_budget ?? 0)
+  const executed = Number(raw.actual_amount ?? raw.executed ?? 0)
+  let status: BudgetStatus = 'normal'
+  if (raw.status === 'exceeded' || executed > annual) {
+    status = 'overrun'
+  } else if (annual > 0 && executed / annual > 0.8) {
+    status = 'warning'
+  }
+  return {
+    id: String(raw.budget_id ?? raw.id ?? ''),
+    department: String(raw.department ?? ''),
+    annual_budget: annual,
+    executed,
+    status,
+  }
 }
 
 /* ===================== 状态配置 ===================== */
@@ -65,65 +99,7 @@ function formatYuan(value: number): string {
 
 /* ===================== Mock 数据 ===================== */
 
-const DEPARTMENT_BUDGETS: DepartmentBudget[] = [
-  {
-    id: '1',
-    department: '研发中心',
-    annual_budget: 12000000,
-    executed: 8650000,
-    status: 'warning',
-  },
-  {
-    id: '2',
-    department: '生产制造部',
-    annual_budget: 10000000,
-    executed: 4820000,
-    status: 'normal',
-  },
-  {
-    id: '3',
-    department: '销售与市场部',
-    annual_budget: 8000000,
-    executed: 7280000,
-    status: 'warning',
-  },
-  {
-    id: '4',
-    department: '信息技术部',
-    annual_budget: 6000000,
-    executed: 3450000,
-    status: 'normal',
-  },
-  {
-    id: '5',
-    department: '供应链管理部',
-    annual_budget: 5000000,
-    executed: 5260000,
-    status: 'overrun',
-  },
-  {
-    id: '6',
-    department: '人力资源部',
-    annual_budget: 3500000,
-    executed: 1820000,
-    status: 'normal',
-  },
-  {
-    id: '7',
-    department: '财务与审计部',
-    annual_budget: 2500000,
-    executed: 1340000,
-    status: 'normal',
-  },
-  {
-    id: '8',
-    department: '行政后勤部',
-    annual_budget: 3000000,
-    executed: 2620000,
-    status: 'warning',
-  },
-]
-
+/* 预算变更记录：后端暂无对应接口，保留为本地回退数据 */
 const BUDGET_CHANGES: BudgetChange[] = [
   {
     id: '1',
@@ -184,6 +160,30 @@ const BUDGET_CHANGES: BudgetChange[] = [
 /* ===================== 主组件 ===================== */
 
 export default function BudgetManagement() {
+  const [budgets, setBudgets] = useState<DepartmentBudget[]>([])
+  const [stats, setStats] = useState<BudgetStats | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const [list, budgetStats] = await Promise.all([
+      apiService.getBudgets(),
+      apiService.getBudgetStats(),
+    ])
+    setBudgets((Array.isArray(list) ? list : []).map(mapBudget))
+    setStats(budgetStats ?? null)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  const totalPlanned = stats?.total_planned ?? 0
+  const totalActual = stats?.total_actual ?? 0
+  const executionRate = totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0
+  const remaining = totalPlanned - totalActual
+
   const columns: Column<DepartmentBudget>[] = [
     {
       key: 'department',
@@ -280,13 +280,13 @@ export default function BudgetManagement() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="年度预算"
-          value="¥50,000,000"
+          value={formatYuan(totalPlanned)}
           icon={<CalendarDays className="w-5 h-5" />}
           variant="primary"
         />
         <StatCard
           label="已执行"
-          value="¥28,560,000"
+          value={formatYuan(totalActual)}
           icon={<CheckCircle2 className="w-5 h-5" />}
           trend="本年累计"
           trendUp
@@ -294,7 +294,7 @@ export default function BudgetManagement() {
         />
         <StatCard
           label="执行率"
-          value="57.1%"
+          value={`${executionRate.toFixed(1)}%`}
           icon={<Percent className="w-5 h-5" />}
           trend="进度正常"
           trendUp
@@ -302,7 +302,7 @@ export default function BudgetManagement() {
         />
         <StatCard
           label="剩余预算"
-          value="¥21,440,000"
+          value={formatYuan(remaining)}
           icon={<Wallet className="w-5 h-5" />}
           variant="accent"
         />
@@ -312,7 +312,8 @@ export default function BudgetManagement() {
       <Card title="部门预算执行情况">
         <DataTable
           columns={columns}
-          data={DEPARTMENT_BUDGETS}
+          data={budgets}
+          loading={loading}
           pageSize={10}
           searchable={false}
         />

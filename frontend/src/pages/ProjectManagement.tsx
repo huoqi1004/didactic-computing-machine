@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   FolderKanban,
   PlayCircle,
@@ -17,6 +17,7 @@ import {
   type Column,
 } from '../components/ui'
 import { cn } from '../lib/utils'
+import { apiService } from '../services/api'
 
 /* ===================== 类型定义 ===================== */
 
@@ -49,183 +50,81 @@ const STATUS_CONFIG: Record<
   paused: { label: '已暂停', variant: 'warning' },
 }
 
-/* ===================== Mock 数据 ===================== */
+/** 后端项目状态 → 前端 ProjectStatus 映射 */
+const PROJECT_STATUS_MAP: Record<string, ProjectStatus> = {
+  planning: 'planning',
+  in_progress: 'in_progress',
+  pending_acceptance: 'in_progress',
+  completed: 'completed',
+  cancelled: 'paused',
+  paused: 'paused',
+}
 
-const PROJECTS: Project[] = [
-  {
-    id: '1',
-    code: 'PRJ-2026-001',
-    name: 'ERP 系统升级',
-    manager: '张明',
-    start_date: '2026-01-15',
-    end_date: '2026-06-30',
-    progress: 68,
-    status: 'in_progress',
-    budget: 1280000,
-    description: '对企业现有 ERP 系统进行全面升级，包括财务、库存、采购模块重构。',
-    department: '信息技术部',
-    members: 12,
-  },
-  {
-    id: '2',
-    code: 'PRJ-2026-002',
-    name: '智能仓储建设',
-    manager: '李华',
-    start_date: '2026-02-01',
-    end_date: '2026-08-15',
-    progress: 45,
-    status: 'in_progress',
-    budget: 2560000,
-    description: '建设自动化智能仓储中心，引入 AGV 机器人和 WMS 系统。',
-    department: '供应链部',
-    members: 18,
-  },
-  {
-    id: '3',
-    code: 'PRJ-2025-088',
-    name: '官网改版',
-    manager: '王芳',
-    start_date: '2025-10-01',
-    end_date: '2026-01-20',
-    progress: 100,
-    status: 'completed',
-    budget: 380000,
-    description: '企业官网全新改版，提升品牌形象与用户体验。',
-    department: '市场部',
-    members: 6,
-  },
-  {
-    id: '4',
-    code: 'PRJ-2026-003',
-    name: '数据中台搭建',
-    manager: '陈强',
-    start_date: '2026-03-01',
-    end_date: '2026-09-30',
-    progress: 22,
-    status: 'in_progress',
-    budget: 3200000,
-    description: '搭建企业级数据中台，统一数据治理与分析能力。',
-    department: '信息技术部',
-    members: 15,
-  },
-  {
-    id: '5',
-    code: 'PRJ-2025-076',
-    name: 'ISO27001 认证',
-    manager: '刘洋',
-    start_date: '2025-08-01',
-    end_date: '2026-02-28',
-    progress: 90,
-    status: 'in_progress',
-    budget: 560000,
-    description: '完成信息安全管理体系 ISO27001 认证全流程。',
-    department: '安全合规部',
-    members: 8,
-  },
-  {
-    id: '6',
-    code: 'PRJ-2025-092',
-    name: '客户 CRM 迁移',
-    manager: '赵敏',
-    start_date: '2025-11-15',
-    end_date: '2026-02-10',
-    progress: 100,
-    status: 'completed',
-    budget: 720000,
-    description: '将客户关系管理系统迁移至云端架构。',
-    department: '销售部',
-    members: 10,
-  },
-  {
-    id: '7',
-    code: 'PRJ-2026-004',
-    name: '生产线自动化改造',
-    manager: '孙伟',
-    start_date: '2026-01-10',
-    end_date: '2026-07-20',
-    progress: 15,
-    status: 'paused',
-    budget: 4800000,
-    description: '对现有生产线进行自动化改造，提升产能 40%。',
-    department: '生产部',
-    members: 22,
-  },
-  {
-    id: '8',
-    code: 'PRJ-2026-005',
-    name: '移动办公 App 开发',
-    manager: '周婷',
-    start_date: '2026-02-20',
-    end_date: '2026-05-30',
-    progress: 55,
-    status: 'in_progress',
-    budget: 680000,
-    description: '开发企业移动办公应用，支持审批、通讯、报表等功能。',
-    department: '信息技术部',
-    members: 9,
-  },
-  {
-    id: '9',
-    code: 'PRJ-2025-070',
-    name: '财务共享中心建设',
-    manager: '吴刚',
-    start_date: '2025-06-01',
-    end_date: '2025-12-31',
-    progress: 100,
-    status: 'completed',
-    budget: 1850000,
-    description: '建立财务共享服务中心，集中处理报销、凭证、结算业务。',
-    department: '财务部',
-    members: 14,
-  },
-  {
-    id: '10',
-    code: 'PRJ-2026-006',
-    name: '供应商门户平台',
-    manager: '郑磊',
-    start_date: '2026-03-10',
-    end_date: '2026-08-01',
-    progress: 8,
-    status: 'planning',
-    budget: 920000,
-    description: '搭建供应商协同门户，实现采购全流程线上化。',
-    department: '采购部',
-    members: 7,
-  },
-  {
-    id: '11',
-    code: 'PRJ-2025-095',
-    name: '能耗监测系统',
-    manager: '黄丽',
-    start_date: '2025-09-15',
-    end_date: '2026-01-10',
-    progress: 100,
-    status: 'completed',
-    budget: 460000,
-    description: '部署工厂能耗实时监测系统，助力节能减排。',
-    department: '工程部',
-    members: 5,
-  },
-  {
-    id: '12',
-    code: 'PRJ-2026-007',
-    name: '员工培训平台',
-    manager: '林雪',
-    start_date: '2026-04-01',
-    end_date: '2026-08-30',
-    progress: 0,
-    status: 'planning',
-    budget: 320000,
-    description: '搭建在线学习与培训管理平台，覆盖全员能力发展。',
-    department: '人力资源部',
-    members: 6,
-  },
-]
+/** 后端项目统计响应结构（字段均为可选，兼容降级） */
+interface ProjectStats {
+  total_projects?: number
+  by_status?: Record<string, number>
+  by_department?: Record<string, number>
+  total_budget?: number
+  total_cost?: number
+  over_budget_projects?: number
+  budget_warning_projects?: number
+}
+
+/* ===================== 数据映射 ===================== */
+
+/** 将后端项目数据（snake_case）映射为前端 Project 结构 */
+function mapProject(raw: any): Project {
+  const rawStatus = String(raw.status ?? 'in_progress')
+  const status: ProjectStatus = PROJECT_STATUS_MAP[rawStatus] ?? 'in_progress'
+  const progress = Number(
+    raw.progress ?? (status === 'completed' ? 100 : 0),
+  )
+  return {
+    id: String(raw.project_id ?? raw.id ?? ''),
+    code: String(raw.code ?? raw.project_id ?? raw.id ?? ''),
+    name: String(raw.name ?? '—'),
+    manager: String(raw.manager ?? '—'),
+    start_date: String(raw.start_date ?? ''),
+    end_date: String(raw.end_date ?? ''),
+    progress,
+    status,
+    budget: Number(raw.budget ?? 0),
+    description: String(raw.description ?? ''),
+    department: String(raw.department ?? ''),
+    members: Number(raw.members ?? 0),
+  }
+}
 
 /* ===================== 主组件 ===================== */
 
 export default function ProjectManagement() {
+  const [projects, setProjects] = useState<Project[]>([])
+  const [stats, setStats] = useState<ProjectStats | null>(null)
+  const [loading, setLoading] = useState(true)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const [list, projectStats] = await Promise.all([
+      apiService.getProjects(),
+      apiService.getProjectStats(),
+    ])
+    setProjects((Array.isArray(list) ? list : []).map(mapProject))
+    setStats(projectStats ?? null)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  const statusDist = stats?.by_status ?? {}
+  const inProgressCount =
+    (statusDist.in_progress ?? 0) + (statusDist.pending_acceptance ?? 0)
+  const completedCount = statusDist.completed ?? 0
+  const delayedCount = stats?.over_budget_projects ?? 0
+  const totalBudget = stats?.total_budget ?? 0
 
   const columns: Column<Project>[] = [
     {
@@ -335,7 +234,7 @@ export default function ProjectManagement() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="进行中项目"
-          value="18"
+          value={inProgressCount}
           icon={<PlayCircle className="w-5 h-5" />}
           trend="较上月 +2"
           trendUp
@@ -343,7 +242,7 @@ export default function ProjectManagement() {
         />
         <StatCard
           label="已完成"
-          value="86"
+          value={completedCount}
           icon={<CheckCircle2 className="w-5 h-5" />}
           trend="本季新增 12"
           trendUp
@@ -351,7 +250,7 @@ export default function ProjectManagement() {
         />
         <StatCard
           label="延期项目"
-          value="3"
+          value={delayedCount}
           icon={<AlertTriangle className="w-5 h-5" />}
           trend="需关注"
           trendUp={false}
@@ -359,7 +258,7 @@ export default function ProjectManagement() {
         />
         <StatCard
           label="总预算"
-          value="¥12,580,000"
+          value={`¥${totalBudget.toLocaleString('zh-CN')}`}
           icon={<Wallet className="w-5 h-5" />}
           variant="primary"
         />
@@ -369,7 +268,8 @@ export default function ProjectManagement() {
       <Card title="项目列表">
         <DataTable
           columns={columns}
-          data={PROJECTS}
+          data={projects}
+          loading={loading}
           pageSize={10}
           searchKeys={['name']}
           searchPlaceholder="搜索项目名称..."

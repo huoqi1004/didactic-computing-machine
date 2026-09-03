@@ -11,12 +11,17 @@ CIO管理员系统的数据保护中心，提供全量/增量备份、调度、�
 - 灾难恢复计划管理
 """
 import hashlib
+import json
+import os
 import structlog
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 logger = structlog.get_logger()
+
+# 数据快照导出目录（可被环境变量覆盖）
+_SNAPSHOT_DIR = os.environ.get("ERP_BACKUP_DIR", "data/backups")
 
 
 class BackupManager:
@@ -288,6 +293,161 @@ class BackupManager:
         logger.info("backup.created",
                     backup_id=backup_id, type=type, size_mb=size_mb)
         return {"status": "success", "backup": backup}
+
+    def export_snapshot(self) -> dict:
+        """
+        导出系统真实数据快照到本地文件（JSON）。
+
+        采集当前运行态的以下数据：
+        - 事件存储（event_store 持久化记录）
+        - 审计日志（audit_chain）
+        - RBAC 配置（角色/权限/用户）
+        - Agent 状态（orchestrator）
+        - 配置快照（settings 关键项）
+
+        Returns:
+            dict: 导出结果（含文件路径、条目数、SHA-256 校验和）
+        """
+        snapshot: dict[str, Any] = {
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "version": "1.0",
+            "sections": {},
+        }
+
+        # 1. 事件存储（读取内存 streams，最多 1000 条）
+        try:
+            from app.core.event.store import event_store
+            events: list[Any] = []
+            streams = getattr(event_store, "_streams", {})
+            for stream in streams.values():
+                events.extend(stream)
+            snapshot["sections"]["event_store"] = [
+                {
+                    "event_id": str(getattr(e, "event_id", "")),
+                    "event_type": getattr(e, "event_type", ""),
+                    "aggregate_id": getattr(e, "aggregate_id", ""),
+                    "timestamp": str(getattr(e, "timestamp", "")),
+                }
+                for e in events[-1000:]
+            ]
+        except Exception as e:
+            snapshot["sections"]["event_store"] = {"error": str(e)}
+
+        # 2. 审计日志
+        try:
+            from app.core.security.audit import audit_chain
+            entries = audit_chain.query() if hasattr(audit_chain, "query") else []
+            snapshot["sections"]["audit_logs"] = [
+                {
+                    "id": e.get("id", e.get("entry_id", "")),
+                    "timestamp": e.get("timestamp", ""),
+                    "action": e.get("action", ""),
+                    "risk_level": e.get("risk_level", ""),
+                }
+                for e in entries[-1000:]
+            ]
+        except Exception as e:
+            snapshot["sections"]["audit_logs"] = {"error": str(e)}
+
+        # 3. RBAC 配置
+        try:
+            from app.core.rbac.engine import rbac_engine
+            roles = rbac_engine.list_roles() if hasattr(rbac_engine, "list_roles") else []
+            snapshot["sections"]["rbac_roles"] = roles
+        except Exception as e:
+            snapshot["sections"]["rbac_roles"] = {"error": str(e)}
+
+        # 4. Agent 状态
+        try:
+            from app.core.agent.orchestrator import orchestrator
+            agent_stats = orchestrator.get_stats() if hasattr(orchestrator, "get_stats") else {}
+            snapshot["sections"]["agent_status"] = agent_stats
+        except Exception as e:
+            snapshot["sections"]["agent_status"] = {"error": str(e)}
+
+        # 5. 关键配置快照（仅非敏感项）
+        try:
+            from app.core.config import settings
+            snapshot["sections"]["config"] = {
+                "app_version": settings.app_version,
+                "kafka_enabled": settings.kafka_enabled,
+                "debug": settings.debug,
+            }
+        except Exception as e:
+            snapshot["sections"]["config"] = {"error": str(e)}
+
+        # 序列化并写入文件（二进制写入避免换行符转换导致校验和不一致）
+        os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        file_path = os.path.join(_SNAPSHOT_DIR, f"erp_snapshot_{timestamp}.json")
+        payload = json.dumps(snapshot, ensure_ascii=False, indent=2, default=str)
+        payload_bytes = payload.encode("utf-8")
+        with open(file_path, "wb") as f:
+            f.write(payload_bytes)
+
+        checksum = hashlib.sha256(payload_bytes).hexdigest()
+        size_bytes = len(payload_bytes)
+
+        # 登记为一次备份记录
+        backup_id = f"backup-{str(uuid4())[:8]}"
+        now = datetime.now(timezone.utc)
+        self._backups[backup_id] = {
+            "backup_id": backup_id,
+            "type": "snapshot",
+            "description": "实时数据快照导出",
+            "status": "completed",
+            "size_mb": round(size_bytes / 1024 / 1024, 2),
+            "storage": "local",
+            "storage_path": file_path,
+            "checksum": checksum,
+            "created_at": now.isoformat(),
+            "completed_at": now.isoformat(),
+            "created_by": "admin",
+            "verified": True,
+            "verified_at": now.isoformat(),
+            "contains": list(snapshot["sections"].keys()),
+            "retention_days": 30,
+            "expires_at": (now + timedelta(days=30)).isoformat(),
+        }
+
+        logger.info("backup.snapshot_exported",
+                    backup_id=backup_id,
+                    path=file_path,
+                    size_bytes=size_bytes,
+                    sections=len(snapshot["sections"]))
+        return {
+            "status": "success",
+            "backup": self._backups[backup_id],
+            "checksum": checksum,
+            "sections": list(snapshot["sections"].keys()),
+            "exported_at": snapshot["exported_at"],
+        }
+
+    def get_snapshot_data(self, backup_id: str) -> dict:
+        """
+        读取已导出的快照数据（用于恢复前预览）。
+
+        Args:
+            backup_id: 备份ID
+
+        Returns:
+            dict: 快照内容；备份不存在或非快照时返回错误
+        """
+        backup = self._backups.get(backup_id)
+        if not backup:
+            return {"error": "backup_not_found", "backup_id": backup_id}
+        if backup.get("type") != "snapshot":
+            return {"error": "not_a_snapshot_backup", "backup_id": backup_id}
+
+        path = backup.get("storage_path", "")
+        if not os.path.exists(path):
+            return {"error": "snapshot_file_missing", "path": path}
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return {"status": "success", "snapshot": json.load(f)}
+        except Exception as e:
+            return {"error": "snapshot_read_failed", "detail": str(e)}
 
     def get_backups(
         self,

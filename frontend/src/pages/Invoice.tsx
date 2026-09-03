@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   FileText,
   CheckCircle2,
@@ -13,6 +13,8 @@ import {
 } from 'lucide-react'
 import { apiService } from '../services/api'
 import { formatCurrency, formatNumber, formatDateTime, cn } from '../lib/utils'
+import ExportButton from '../components/ExportButton'
+import Can from '../components/Can'
 
 /* ===================== 类型定义 ===================== */
 
@@ -108,6 +110,33 @@ export default function Invoice() {
     return matchStatus && matchSearch
   })
 
+  // 构造导出数据（发票清单汇总，PDF basic 模板）
+  const exportData = useMemo(() => {
+    const totalCount = stats?.total_invoices ?? invoices.length
+    const totalWithTax = stats?.total_with_tax ?? invoices.reduce((sum, inv) => sum + inv.total, 0)
+    return {
+      title: '发票清单汇总',
+      paragraphs: [
+        `发票总数：${totalCount} 张`,
+        `价税合计：${formatCurrency(totalWithTax)}`,
+      ],
+      table: {
+        headers: ['发票号', '类型', '购买方', '商品/服务', '金额', '税率', '税额', '价税合计', '状态'],
+        rows: invoices.map((inv) => [
+          inv.invoice_no,
+          inv.invoice_type_name,
+          inv.buyer_name || '—',
+          inv.description || '—',
+          formatCurrency(inv.amount),
+          `${(inv.tax_rate * 100).toFixed(0)}%`,
+          formatCurrency(inv.tax_amount),
+          formatCurrency(inv.total),
+          INVOICE_STATUS_CONFIG[inv.status].label,
+        ]),
+      },
+    }
+  }, [invoices, stats])
+
   const handleVerify = async (id: string) => {
     setActionLoading(id)
     await apiService.verifyInvoice(id)
@@ -141,10 +170,24 @@ export default function Invoice() {
             <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
             刷新
           </button>
-          <button onClick={() => setShowIssueForm(true)} className="btn-accent">
-            <Plus className="w-4 h-4" />
-            开具发票
-          </button>
+          <Can resource="document" action="create">
+            <ExportButton
+              agentId="invoice"
+              templateType="basic"
+              filename="发票清单"
+              data={exportData}
+              title="发票清单汇总"
+              formats={['pdf']}
+              label="导出发票清单"
+              size="sm"
+            />
+          </Can>
+          <Can resource="invoice" action="create">
+            <button onClick={() => setShowIssueForm(true)} className="btn-accent">
+              <Plus className="w-4 h-4" />
+              开具发票
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -270,14 +313,42 @@ export default function Invoice() {
                       <div className="flex items-center justify-center gap-1">
                         {inv.status === 'issued' && (
                           <>
-                            <button
-                              onClick={() => handleVerify(inv.invoice_id)}
-                              disabled={actionLoading === inv.invoice_id}
-                              className="p-1.5 rounded-md bg-accent/10 hover:bg-accent/20 text-accent transition-colors disabled:opacity-50"
-                              title="验证发票"
+                            <Can
+                              resource="invoice"
+                              action="update"
+                              fallback={<span className="text-xs text-slate-600">—</span>}
                             >
-                              <ShieldCheck className="w-3.5 h-3.5" />
-                            </button>
+                              <button
+                                onClick={() => handleVerify(inv.invoice_id)}
+                                disabled={actionLoading === inv.invoice_id}
+                                className="p-1.5 rounded-md bg-accent/10 hover:bg-accent/20 text-accent transition-colors disabled:opacity-50"
+                                title="验证发票"
+                              >
+                                <ShieldCheck className="w-3.5 h-3.5" />
+                              </button>
+                            </Can>
+                            <Can
+                              resource="invoice"
+                              action="delete"
+                              fallback={<span className="text-xs text-slate-600">—</span>}
+                            >
+                              <button
+                                onClick={() => handleCancel(inv.invoice_id)}
+                                disabled={actionLoading === inv.invoice_id}
+                                className="p-1.5 rounded-md bg-status-circuit/10 hover:bg-status-circuit/20 text-status-circuit transition-colors disabled:opacity-50"
+                                title="红冲发票"
+                              >
+                                <Ban className="w-3.5 h-3.5" />
+                              </button>
+                            </Can>
+                          </>
+                        )}
+                        {inv.status === 'verified' && (
+                          <Can
+                            resource="invoice"
+                            action="delete"
+                            fallback={<span className="text-xs text-slate-600">—</span>}
+                          >
                             <button
                               onClick={() => handleCancel(inv.invoice_id)}
                               disabled={actionLoading === inv.invoice_id}
@@ -286,17 +357,7 @@ export default function Invoice() {
                             >
                               <Ban className="w-3.5 h-3.5" />
                             </button>
-                          </>
-                        )}
-                        {inv.status === 'verified' && (
-                          <button
-                            onClick={() => handleCancel(inv.invoice_id)}
-                            disabled={actionLoading === inv.invoice_id}
-                            className="p-1.5 rounded-md bg-status-circuit/10 hover:bg-status-circuit/20 text-status-circuit transition-colors disabled:opacity-50"
-                            title="红冲发票"
-                          >
-                            <Ban className="w-3.5 h-3.5" />
-                          </button>
+                          </Can>
                         )}
                         {(inv.status === 'cancelled' || inv.status === 'rejected') && (
                           <span className="text-xs text-slate-600">—</span>

@@ -10,15 +10,19 @@ FastAPI应用，集成所有核心模块
 import asyncio
 import structlog
 from contextlib import asynccontextmanager
+from typing import Any
+from uuid import uuid4
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import make_asgi_app
 
 from app.core.config import settings
+from app.core.logging_config import configure_logging, RequestContextMiddleware
 from app.core.event.bus import event_bus
 from app.core.event.store import event_store
 from app.core.event.saga import saga_coordinator
 from app.api.middleware.auth import AuthMiddleware, PermissionMiddleware
+from app.api.middleware.rate_limit import RateLimitMiddleware
 from app.api.routes import (
     router,
     auth_router,
@@ -29,7 +33,12 @@ from app.api.routes import (
     sales_marketing_router,
     operations_strategy_router,
     admin_system_router,
+    conversation_router,
+    document_router,
+    messaging_router,
 )
+from app.api.routes.tenant import router as tenant_router
+from app.core.tenant import TenantMiddleware
 from app.core.agent.orchestrator import orchestrator
 from app.core.security.did import did_registry
 from app.core.security.authorization import authz_engine
@@ -76,6 +85,9 @@ from app.agents.budget.agent import BudgetAgent
 from app.agents.bi.agent import BIAgent
 from app.agents.esg.agent import ESGAgent
 from app.agents.admin.agent import AdminAgent
+
+# 初始化结构化日志（JSON 格式，便于 Loki / ELK 采集）
+configure_logging(debug=settings.debug)
 
 logger = structlog.get_logger()
 
@@ -346,16 +358,45 @@ async def lifespan(app: FastAPI):
     # 2. 初始化持久化层（MySQL + Redis）
     # 数据库初始化失败时降级到内存模式，不影响应用启动
 
-    # 2.0 初始化 MySQL 引擎（RBAC 缓存在 2.2 步统一加载）
+    # 2.0 初始化 MySQL 引擎 + 建库兜底 + RBAC 播种与缓存加载
+    # （此前 2.0 与 2.2 重复调用 init_db 两次，已合并；评估报告 C-01/问题#20）
     try:
-        from app.core.database import init_db as init_mysql
+        from app.core.database import init_db as init_mysql, bootstrap_schema
+        from app.core.rbac import rbac_engine as _rbac_engine
         mysql_engine = await init_mysql()
         if mysql_engine is not None:
-            logger.info("app.mysql_ready", backend="mysql")
+            # 建库兜底：空库时以 app/db/models.py 为唯一事实源建出全部业务表，
+            # 非空库自动跳过不触碰存量结构（解决"全新部署必然失败"的 C-01）
+            schema_info = await bootstrap_schema()
+            logger.info("app.mysql_ready", backend="mysql", schema=schema_info)
+
+            # 先将种子数据幂等播种到 MySQL（全新空库也能获得完整 RBAC 数据），
+            # 再从 DB 加载到内存缓存（覆盖导入期的内存种子数据，与 DB 保持一致）
+            from app.core.rbac.seed import persist_seed_data
+            await persist_seed_data(_rbac_engine)
+            await _rbac_engine.load_from_db()
+            rbac_stats = _rbac_engine.get_stats()
+            logger.info(
+                "app.rbac_cache_loaded",
+                users=rbac_stats["users"],
+                roles=rbac_stats["roles"],
+                permissions=rbac_stats["permissions"],
+                initialized=rbac_stats["initialized"],
+            )
         else:
-            logger.warning("app.mysql_unavailable_degraded_to_memory")
+            # 降级必须显式告警（ERROR 级），禁止"表面 healthy、实际零持久化"的静默降级
+            logger.error(
+                "app.mysql_unavailable_degraded_to_memory",
+                impact="auth/rbac/messaging 持久化全部失效，重启即丢数据，请立即排查 MySQL",
+            )
     except Exception as e:
-        logger.warning("app.mysql_init_failed", error=str(e), degraded="memory")
+        logger.error(
+            "app.mysql_init_failed",
+            error=str(e),
+            error_type=type(e).__name__,
+            degraded="memory",
+            impact="auth/rbac/messaging 持久化全部失效，请立即排查 MySQL",
+        )
 
     try:
         store_ready = await event_store.init_db()
@@ -399,34 +440,8 @@ async def lifespan(app: FastAPI):
             degraded="hash_chain_only",
         )
 
-    # 2.2 初始化主数据库 MySQL + 从 DB 加载 RBAC 缓存
-    # 初始化失败时降级到内存种子数据，不影响应用启动
-    try:
-        from app.core.database import init_db as _init_mysql
-        from app.core.rbac import rbac_engine as _rbac_engine
-        mysql_engine = await _init_mysql()
-        if mysql_engine is not None:
-            logger.info("app.mysql_ready", backend="mysql")
-            # 从 MySQL 加载 RBAC 数据到内存缓存
-            # 若 DB 未播种，load_from_db 会保留现有种子数据
-            await _rbac_engine.load_from_db()
-            rbac_stats = _rbac_engine.get_stats()
-            logger.info(
-                "app.rbac_cache_loaded",
-                users=rbac_stats["users"],
-                roles=rbac_stats["roles"],
-                permissions=rbac_stats["permissions"],
-                initialized=rbac_stats["initialized"],
-            )
-        else:
-            logger.warning("app.mysql_unavailable_degraded_to_memory")
-    except Exception as e:
-        logger.warning(
-            "app.rbac_load_failed",
-            error=str(e),
-            error_type=type(e).__name__,
-            degraded="memory_seed_data",
-        )
+    # 2.2 主数据库 RBAC 播种与缓存加载已合并到 2.0 步
+    # （此前在 2.0 与 2.2 重复调用 init_db 两次，见评估报告问题总表 #20）
 
     # 3. 初始化认知与知识层（知识图谱 + RAG 检索 + 规则引擎）
     # 在Agent启动前注入示例企业主数据、业务文档与预置规则
@@ -679,19 +694,41 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # 关闭
-    logger.info("app.stopping")
-    await orchestrator.stop_all()
-    await event_bus.stop()
+    # 关闭（优雅关机：按序 + 超时保护）
+    shutdown_started = asyncio.get_event_loop().time()
+    logger.info("app.stopping", reason="shutdown")
 
-    # 关闭持久化层连接
+    # 1. 停止编排器（先停止 Agent，不再接受新任务）
+    try:
+        await asyncio.wait_for(orchestrator.stop_all(), timeout=15.0)
+        logger.info("app.orchestrator_stopped")
+    except asyncio.TimeoutError:
+        logger.error("app.orchestrator_stop_timeout")
+    except Exception as e:
+        logger.warning("app.orchestrator_stop_failed", error=str(e))
+
+    # 2. 排空并停止事件总线（等待在途消息处理完成）
+    try:
+        await asyncio.wait_for(event_bus.drain(), timeout=10.0)
+        await event_bus.stop()
+        logger.info("app.event_bus_stopped")
+    except asyncio.TimeoutError:
+        logger.error("app.event_bus_drain_timeout")
+        await event_bus.stop()
+    except Exception as e:
+        logger.warning("app.event_bus_stop_failed", error=str(e))
+
+    # 3. 关闭持久化层连接
     try:
         from app.core.database import close_all
-        await close_all()
+        await asyncio.wait_for(close_all(), timeout=5.0)
+    except asyncio.TimeoutError:
+        logger.error("app.database_close_timeout")
     except Exception as e:
         logger.warning("app.database_close_failed", error=str(e))
 
-    logger.info("app.stopped")
+    shutdown_seconds = round(asyncio.get_event_loop().time() - shutdown_started, 2)
+    logger.info("app.stopped", shutdown_seconds=shutdown_seconds)
 
 
 # 创建FastAPI应用
@@ -702,20 +739,52 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS中间件
+# 全局异常处理器：捕获未处理异常并记录完整堆栈
+from fastapi import Request
+from fastapi.responses import JSONResponse
+import traceback as _tb
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """捕获所有未处理异常，任何模式下都不向客户端泄露内部信息（评估报告 D-06）"""
+    tb_str = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
+    request_id = str(uuid4())
+    logger.error(
+        "app.unhandled_exception",
+        request_id=request_id,
+        path=request.url.path,
+        method=request.method,
+        error_type=type(exc).__name__,
+        error=str(exc),
+        traceback=tb_str,  # 完整堆栈只进服务端日志
+    )
+    # 统一返回通用错误信息 + request_id 引用，便于凭 request_id 到日志中定位堆栈；
+    # 不再因 debug=True 把 traceback 原文放进响应体（生产误开 debug 即泄露内部路径与 SQL）
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "内部服务器错误，请联系管理员", "request_id": request_id},
+    )
+
+# CORS中间件 - 从环境变量读取允许的源，避免通配符+credentials安全问题
+import os as _os
+_cors_origins = _os.environ.get("ERP_CORS_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:5177,http://localhost:5178,http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生产环境应限制
+    allow_origins=[o.strip() for o in _cors_origins if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# JWT认证中间件 + RBAC权限校验中间件
-# 顺序：PermissionMiddleware → AuthMiddleware → CORS
+# JWT认证中间件 + RBAC权限校验中间件 + 限流中间件 + 请求上下文中间件 + 租户隔离中间件
 # Starlette中间件执行顺序：后添加的先执行（洋葱模型）
+# 实际执行顺序：RequestContext → RateLimit → Auth → Tenant → Permission → CORS → 路由
+# 说明：Tenant 需在 Auth 之后（读取 request.state.user），在 Permission 之前（配额校验）
 app.add_middleware(PermissionMiddleware)
+app.add_middleware(TenantMiddleware)
 app.add_middleware(AuthMiddleware)
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RequestContextMiddleware)
 
 # 路由
 app.include_router(router, prefix="/api/v1")
@@ -728,10 +797,31 @@ app.include_router(hr_router)
 app.include_router(sales_marketing_router)
 app.include_router(operations_strategy_router)
 app.include_router(admin_system_router)
+app.include_router(conversation_router)
+app.include_router(document_router)
+app.include_router(messaging_router)
+app.include_router(tenant_router)
 
 # Prometheus指标
 metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
+
+# Prometheus FastAPI Instrumentator — 自动采集 HTTP 请求指标
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator(
+        should_group_status_codes=True,
+        should_ignore_untemplated=True,
+        should_respect_env_var=False,
+        excluded_handlers=["/metrics", "/health", "/health/live", "/health/ready"],
+    ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+    logger.info("app.prometheus_instrumentator_enabled")
+except ImportError:
+    logger.warning("app.prometheus_instrumentator_unavailable")
+
+# 分布式追踪（OpenTelemetry）
+from app.core.tracing import init_tracing as _init_tracing
+_init_tracing(app)
 
 
 @app.get("/")
@@ -750,12 +840,164 @@ async def root():
 @app.get("/health")
 async def health():
     """健康检查端点 - 供 Docker 健康检查和负载均衡器使用"""
+    # 检查事件总线健康状态
+    bus_health = {"status": "unknown"}
+    try:
+        if hasattr(event_bus, 'health_check'):
+            bus_health = await event_bus.health_check()
+        else:
+            bus_health = {"status": "healthy", "implementation": "memory"}
+    except Exception as e:
+        bus_health = {"status": "unhealthy", "error": str(e)}
+
+    # 综合健康状态
+    overall = "healthy" if bus_health.get("status") in ("healthy", "degraded") else "unhealthy"
+
     return {
-        "status": "healthy",
+        "status": overall,
         "service": "erp-backend",
         "version": settings.app_version,
+        "event_bus": bus_health,
         "timestamp": asyncio.get_event_loop().time(),
     }
+
+
+@app.get("/health/live")
+async def health_live():
+    """Liveness 探针 - 仅检查进程存活（轻量级，不检查依赖）"""
+    return {"status": "alive"}
+
+
+@app.get("/health/ready")
+async def health_ready():
+    """
+    Readiness 探针 - 检查服务是否准备好处理请求。
+
+    检查项：
+    - 事件总线状态
+    - 数据库连通性（如果配置了）
+    - Redis 连通性（如果配置了）
+    """
+    checks: dict[str, Any] = {}
+    all_ready = True
+
+    # 1. 事件总线
+    try:
+        if hasattr(event_bus, 'health_check'):
+            bus_hc = await event_bus.health_check()
+            checks["event_bus"] = bus_hc.get("status", "unknown")
+            if bus_hc.get("status") == "unhealthy":
+                all_ready = False
+        else:
+            checks["event_bus"] = "healthy"
+    except Exception as e:
+        checks["event_bus"] = f"error: {e}"
+        all_ready = False
+
+    # 2. 数据库（MySQL）
+    try:
+        from app.core.database import check_db_connection
+        db_ok = await check_db_connection()
+        checks["database"] = "ready" if db_ok else "unavailable"
+        if not db_ok:
+            all_ready = False
+    except ImportError:
+        checks["database"] = "not_configured"
+    except Exception as e:
+        checks["database"] = f"error: {type(e).__name__}"
+        all_ready = False
+
+    # 3. Redis
+    try:
+        from app.core.database import check_redis_connection
+        redis_ok = await check_redis_connection()
+        checks["redis"] = "ready" if redis_ok else "unavailable"
+        if not redis_ok:
+            all_ready = False
+    except ImportError:
+        checks["redis"] = "not_configured"
+    except Exception as e:
+        checks["redis"] = f"error: {type(e).__name__}"
+        all_ready = False
+
+    return {
+        "status": "ready" if all_ready else "not_ready",
+        "checks": checks,
+        "timestamp": asyncio.get_event_loop().time(),
+    }
+
+
+# ===========================================================================
+# WebSocket 端点 — 内部通讯实时推送
+# ===========================================================================
+
+import json as _json
+from datetime import datetime as _datetime, timezone as _timezone
+from fastapi import WebSocket as _WebSocket, WebSocketDisconnect as _WebSocketDisconnect
+from app.api.middleware.ws_manager import ws_connection_manager as _ws_manager
+from app.core.auth import jwt_manager as _jwt_manager
+
+
+@app.websocket("/api/v1/ws/chat")
+async def chat_websocket(websocket: _WebSocket):
+    """聊天 WebSocket 端点 — 基于 token 认证。
+
+    客户端通过 query param ``?token=<JWT>`` 传递认证令牌。
+    连接建立后，客户端可发送以下消息类型：
+    - ``ping``:               心跳，服务端回复 ``pong``
+    - ``join_channel``:       加入频道（参数 ``channel_id``）
+    - ``leave_channel``:      离开频道（参数 ``channel_id``）
+
+    服务端通过 ``ws_connection_manager`` 推送消息、频道更新等事件。
+    """
+    # 从 query params 获取 token
+    token = websocket.query_params.get("token", "")
+    user_id = None
+    try:
+        # 复用现有 JWT 验证逻辑（兼容 PyJWT 与手动实现降级）
+        payload = _jwt_manager.verify_token(token)
+        if payload is not None:
+            user_id = payload.get("user_id", "")
+    except Exception:
+        user_id = None
+
+    if not user_id:
+        await websocket.close(code=4001, reason="认证失败")
+        return
+
+    await _ws_manager.connect(websocket, user_id)
+    try:
+        # 发送连接成功消息
+        await websocket.send_json({
+            "type": "connected",
+            "user_id": user_id,
+            "timestamp": _datetime.now(_timezone.utc).isoformat(),
+        })
+        # 接收消息循环
+        while True:
+            data = await websocket.receive_text()
+            # 处理客户端消息（心跳、加入频道等）
+            try:
+                msg = _json.loads(data)
+                msg_type = msg.get("type", "")
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong"})
+                elif msg_type == "join_channel":
+                    channel_id = msg.get("channel_id", "")
+                    if channel_id:
+                        _ws_manager.join_channel(channel_id, user_id)
+                        await websocket.send_json({"type": "joined", "channel_id": channel_id})
+                elif msg_type == "leave_channel":
+                    channel_id = msg.get("channel_id", "")
+                    if channel_id:
+                        _ws_manager.leave_channel(channel_id, user_id)
+                        await websocket.send_json({"type": "left", "channel_id": channel_id})
+            except _json.JSONDecodeError:
+                pass
+    except _WebSocketDisconnect:
+        pass
+    finally:
+        await _ws_manager.disconnect(websocket, user_id)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Receipt,
   TrendingUp,
@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { apiService } from '../services/api'
 import { formatCurrency, formatNumber, formatDateTime, cn } from '../lib/utils'
+import ExportButton from '../components/ExportButton'
 
 /* ===================== 类型定义 ===================== */
 
@@ -73,6 +74,32 @@ export default function Tax() {
   const declarations = data?.declarations || []
   const taxRecords = data?.tax_records || []
 
+  // 构造导出数据（税务申报表）
+  const exportData = useMemo(() => {
+    if (!data) return {}
+    const s = data.summary
+    const currentPeriod = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+    return {
+      title: '税务申报表',
+      tax_type: '增值税',
+      period: currentPeriod,
+      headers: ['税种', '计税依据', '税率', '应缴税额', '状态'],
+      rows: (data.tax_records || []).map((record: any) => [
+        record.tax_type || record.type || '—',
+        record.taxable_amount || record.base_amount || 0,
+        record.tax_rate ? `${(record.tax_rate * 100).toFixed(1)}%` : '—',
+        record.tax_amount || record.amount || 0,
+        record.status || '—',
+      ]),
+      total_tax: s?.vat_payable ?? 0,
+      notes: [
+        `销项税额：¥${s?.output_tax ?? 0}`,
+        `进项税额：¥${s?.input_tax ?? 0}`,
+        `应缴增值税：¥${s?.vat_payable ?? 0}`,
+      ],
+    }
+  }, [data])
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* 页面标题 */}
@@ -81,10 +108,23 @@ export default function Tax() {
           <h2 className="text-xl font-bold text-white">报税管理</h2>
           <p className="text-sm text-slate-500 mt-0.5">整合发票销项税、进项税抵扣与报销可抵扣费用，综合计算应缴税额</p>
         </div>
-        <button onClick={fetchData} className="btn-ghost">
-          <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
-          刷新
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={fetchData} className="btn-ghost">
+            <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+            刷新
+          </button>
+          {data && (
+            <ExportButton
+              agentId="tax"
+              templateType="tax"
+              filename="税务申报表"
+              data={exportData}
+              title="税务申报表"
+              formats={['xlsx', 'pdf']}
+              size="md"
+            />
+          )}
+        </div>
       </div>
 
       {/* 增值税计算核心看板 */}

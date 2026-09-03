@@ -10,7 +10,7 @@ CIO管理员系统的集成管理中心，管理外部系统连接、API网关�
 - 集成监控（连接状态、同步状态）
 """
 import structlog
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -104,7 +104,7 @@ class IntegrationPlatform:
                     "retry_count": 3,
                 },
                 "status": "disconnected",
-                "last_connected": (now.replace(hour=now.hour - 3)).isoformat(),
+                "last_connected": (now - timedelta(hours=3)).isoformat(),
                 "created_at": now.isoformat(),
                 "created_by": "admin",
                 "stats": {
@@ -656,7 +656,7 @@ class IntegrationPlatform:
         )
         recent_executions = [
             h for h in self._sync_history
-            if h["timestamp"] >= (now.replace(hour=now.hour - 24)).isoformat()
+            if h["timestamp"] >= (now - timedelta(hours=24)).isoformat()
         ]
         successful_execs = sum(1 for h in recent_executions if h["result"] == "success")
         sync_success_rate = (

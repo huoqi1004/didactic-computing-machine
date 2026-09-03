@@ -68,7 +68,7 @@ spec:
 # ============================================================
 # 3. 数据知识域 (data-knowledge) - STRICT mTLS
 # ============================================================
-# 此域运行 PostgreSQL 和 Redis，存储核心业务数据
+# 此域运行 MySQL 和 Redis，存储核心业务数据
 # 数据库访问必须严格加密，防止数据泄露
 apiVersion: security.istio.io/v1
 kind: PeerAuthentication
@@ -88,10 +88,10 @@ spec:
     matchLabels:
       domain: data-knowledge
   # 端口级策略
-  # PostgreSQL 5432 端口：强制 mTLS
+  # MySQL 3306 端口：强制 mTLS
   # Redis 6379 端口：强制 mTLS
   portLevelMtls:
-    5432:
+    3306:
       mode: STRICT
     6379:
       mode: STRICT

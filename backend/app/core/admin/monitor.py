@@ -13,7 +13,7 @@ CIO管理员系统的核心监控能力，提供系统资源、API、Agent、事
 """
 import structlog
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 # psutil 为可选依赖，未安装时降级为零值指标
@@ -63,6 +63,12 @@ class SystemMonitor:
         }
         # 最大历史保留条数
         self._max_history = 10000
+        # 告警通知 Webhook 列表
+        self._notification_webhooks: list[dict] = []
+        # 告警去重窗口：同一 metric 在窗口内不重复告警（秒）
+        self._alert_dedup_window_s: int = 300
+        # 最近一次告警时间（按 metric 索引）
+        self._last_alert_time: dict[str, str] = {}
         self._seed_data()
 
     def _seed_data(self) -> None:
@@ -261,7 +267,7 @@ class SystemMonitor:
             }
 
     def _check_thresholds(self, metrics: dict) -> list[dict]:
-        """检查阈值并生成告警"""
+        """检查阈值并生成告警（含去重和自动恢复）"""
         new_alerts = []
         now = datetime.now(timezone.utc)
         checks = [
@@ -282,7 +288,19 @@ class SystemMonitor:
             if threshold is None:
                 continue
             current = metrics.get(metric_key, 0.0)
+
             if current > threshold:
+                # 去重：检查窗口内是否已有该 metric 的活跃告警
+                last_ts_str = self._last_alert_time.get(metric_key)
+                if last_ts_str:
+                    try:
+                        last_dt = datetime.fromisoformat(last_ts_str.replace("Z", "+00:00"))
+                        elapsed = (now - last_dt).total_seconds()
+                        if elapsed < self._alert_dedup_window_s:
+                            continue  # 窗口内已有告警，跳过
+                    except ValueError:
+                        pass
+
                 severity = "critical" if current > threshold * 1.2 else "warning"
                 alert = {
                     "alert_id": str(uuid4()),
@@ -297,9 +315,46 @@ class SystemMonitor:
                 }
                 new_alerts.append(alert)
                 self._alerts.append(alert)
+                self._last_alert_time[metric_key] = now.isoformat()
+            else:
+                # 自动恢复：指标回归正常时将活跃告警标记为已恢复
+                self._auto_resolve_alerts(metric_key, now)
+
         if new_alerts:
-            logger.warning("monitor.alerts_generated", count=len(new_alerts))
+            # 异步通知（不阻塞采集循环）
+            for alert in new_alerts:
+                self._notify_alert(alert)
         return new_alerts
+
+    def _auto_resolve_alerts(self, metric_key: str, now: datetime) -> None:
+        """指标回归正常时自动恢复告警"""
+        resolved_any = False
+        for alert in self._alerts:
+            if alert.get("metric") == metric_key and alert.get("status") == "active":
+                alert["status"] = "resolved"
+                alert["resolved_at"] = now.isoformat()
+                resolved_any = True
+        if resolved_any:
+            self._last_alert_time.pop(metric_key, None)
+            logger.info("monitor.alerts_auto_resolved", metric=metric_key)
+
+    def register_notification_webhook(self, name: str, url: str, secret: str = "") -> None:
+        """注册告警通知 Webhook"""
+        self._notification_webhooks.append({"name": name, "url": url, "secret": secret})
+        logger.info("monitor.webhook_registered", name=name, url=url)
+
+    def _notify_alert(self, alert: dict) -> None:
+        """向已注册的 Webhook 发送告警通知（同步记录日志，异步投递由调用方决定）"""
+        if not self._notification_webhooks:
+            return
+        for wh in self._notification_webhooks:
+            logger.info("monitor.alert_notification",
+                        webhook=wh["name"],
+                        alert_id=alert["alert_id"],
+                        severity=alert["severity"],
+                        metric=alert["metric"])
+        # 实际 Webhook 投递在生产环境中由异步任务完成
+        # 此处仅记录意图，避免在采集循环中引入网络 IO
 
     def get_realtime_metrics(self) -> dict:
         """

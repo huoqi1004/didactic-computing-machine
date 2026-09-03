@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from 'react'
 import {
   Leaf,
   Award,
@@ -15,6 +16,7 @@ import {
   ClipboardCheck,
   Users2,
   FileClock,
+  Loader2,
   type LucideIcon,
 } from 'lucide-react'
 import {
@@ -24,6 +26,7 @@ import {
   StatCard,
 } from '../components/ui'
 import { cn } from '../lib/utils'
+import { apiService } from '../services/api'
 
 /* ===================== 类型定义 ===================== */
 
@@ -69,101 +72,130 @@ const PROJECT_STATUS_CONFIG: Record<
   paused: { label: '已暂停', variant: 'warning' },
 }
 
-/* ===================== 指标数据 ===================== */
+/* ===================== 后端类型 ===================== */
 
-const ENVIRONMENT_METRICS: ESGMetric[] = [
-  { label: '碳排放量', value: '12,580', unit: 'tCO₂e', trend: '5.2%', trendUp: false, icon: Factory },
-  { label: '能耗总量', value: '8,640', unit: 'MWh', trend: '3.1%', trendUp: false, icon: Globe },
-  { label: '用水总量', value: '45,200', unit: 'm³', trend: '2.8%', trendUp: false, icon: Droplets },
-  { label: '废气回收率', value: '92.5', unit: '%', trend: '1.5%', trendUp: true, icon: Recycle },
-]
+/** 后端 ESG 评分响应结构 */
+interface ESGScore {
+  total?: number
+  rating?: string
+  by_category?: Record<string, { score?: number; count?: number; avg_achievement?: number }>
+  weights?: Record<string, number>
+}
 
-const SOCIAL_METRICS: ESGMetric[] = [
-  { label: '员工满意度', value: '88.6', unit: '%', trend: '2.3%', trendUp: true, icon: Smile },
-  { label: '社区投入', value: '1,280', unit: '万元', trend: '8.5%', trendUp: true, icon: HeartHandshake },
-  { label: '培训覆盖率', value: '95.2', unit: '%', trend: '3.0%', trendUp: true, icon: GraduationCap },
-  { label: '安全事故率', value: '0.08', unit: '‰', trend: '0.02%', trendUp: false, icon: AlertOctagon },
-]
+/** 后端 ESG 统计响应结构 */
+interface ESGStats {
+  total_indicators?: number
+  by_category?: Record<string, number>
+  total_reports?: number
+  total_carbon_records?: number
+  total_carbon_emission?: number
+  total_social_activities?: number
+  by_activity_status?: Record<string, number>
+}
 
-const GOVERNANCE_METRICS: ESGMetric[] = [
-  { label: '合规率', value: '99.8', unit: '%', trend: '0.3%', trendUp: true, icon: Scale },
-  { label: '审计通过率', value: '100', unit: '%', trend: '维持', trendUp: true, icon: ClipboardCheck },
-  { label: '董事会多样性', value: '37.5', unit: '%', trend: '5.0%', trendUp: true, icon: Users2 },
-  { label: '信息披露及时率', value: '98.5', unit: '%', trend: '1.2%', trendUp: true, icon: FileClock },
-]
+/* ===================== 维度图标映射 ===================== */
 
-/* ===================== Mock 改进项目 ===================== */
+/** 各维度默认图标（按索引顺序） */
+const DIMENSION_ICONS: Record<ESGDimension, LucideIcon[]> = {
+  E: [Factory, Globe, Droplets, Recycle],
+  S: [Smile, HeartHandshake, GraduationCap, AlertOctagon],
+  G: [Scale, ClipboardCheck, Users2, FileClock],
+}
 
-const ESG_PROJECTS: ESGProject[] = [
-  {
-    id: '1',
-    name: '屋顶光伏发电项目',
-    dimension: 'E',
-    owner: '黄丽',
-    progress: 72,
-    status: 'in_progress',
-  },
-  {
-    id: '2',
-    name: '碳中和路线图制定',
-    dimension: 'E',
-    owner: '孙伟',
-    progress: 45,
-    status: 'in_progress',
-  },
-  {
-    id: '3',
-    name: '废水循环利用系统',
-    dimension: 'E',
-    owner: '李华',
-    progress: 100,
-    status: 'completed',
-  },
-  {
-    id: '4',
-    name: '员工心理健康关怀计划',
-    dimension: 'S',
-    owner: '林雪',
-    progress: 60,
-    status: 'in_progress',
-  },
-  {
-    id: '5',
-    name: '乡村教育帮扶项目',
-    dimension: 'S',
-    owner: '王芳',
-    progress: 35,
-    status: 'in_progress',
-  },
-  {
-    id: '6',
-    name: '供应商 ESG 审核体系',
-    dimension: 'G',
-    owner: '郑磊',
-    progress: 20,
-    status: 'planning',
-  },
-  {
-    id: '7',
-    name: '反腐败合规培训',
-    dimension: 'G',
-    owner: '刘洋',
-    progress: 88,
-    status: 'in_progress',
-  },
-  {
-    id: '8',
-    name: 'ESG 信息披露平台建设',
-    dimension: 'G',
-    owner: '陈强',
-    progress: 50,
-    status: 'in_progress',
-  },
-]
+/* ===================== 数据映射 ===================== */
+
+/** 将后端 ESG 指标映射为前端 ESGMetric */
+function mapIndicatorToMetric(raw: any, dimension: ESGDimension, index: number): ESGMetric {
+  const current = Number(raw.current) || 0
+  const target = Number(raw.target) || 0
+  const direction = String(raw.direction ?? 'higher_better')
+  const achievement = Number(raw.achievement_rate) || 0
+
+  // 趋势判断：higher_better 时 current >= target 为好；lower_better 时 current <= target 为好
+  let trendUp: boolean
+  if (direction === 'lower_better') {
+    trendUp = current <= target
+  } else {
+    trendUp = current >= target
+  }
+
+  const trendPct = target > 0 ? Math.abs(((current - target) / target) * 100).toFixed(1) : '0.0'
+
+  const icons = DIMENSION_ICONS[dimension]
+  const icon = icons[index % icons.length]
+
+  // 格式化 value 显示
+  const valueStr = current % 1 === 0 ? current.toFixed(0) : current.toFixed(2)
+
+  return {
+    label: String(raw.name ?? '—'),
+    value: valueStr,
+    unit: String(raw.unit ?? ''),
+    trend: `${trendPct}%`,
+    trendUp,
+    icon,
+  }
+}
+
+/** 将后端 ESG 指标映射为前端 ESGProject */
+function mapIndicatorToProject(raw: any): ESGProject {
+  const achievement = Number(raw.achievement_rate) || 0
+  const progress = Math.min(Math.round(achievement * 100), 100)
+  let status: ProjectStatus = 'in_progress'
+  if (progress >= 100) status = 'completed'
+  else if (progress < 10) status = 'planning'
+
+  return {
+    id: String(raw.indicator_id ?? raw.id ?? ''),
+    name: String(raw.name ?? '—'),
+    dimension: String(raw.category ?? 'E') as ESGDimension,
+    owner: String(raw.owner ?? '—'),
+    progress,
+    status,
+  }
+}
 
 /* ===================== 主组件 ===================== */
 
 export default function ESGManagement() {
+  const [indicators, setIndicators] = useState<any[]>([])
+  const [score, setScore] = useState<ESGScore | null>(null)
+  const [stats, setStats] = useState<ESGStats | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const [indicatorList, esgScore, esgStats] = await Promise.all([
+      apiService.getESGIndicators(),
+      apiService.getESGScore(),
+      apiService.getESGStats(),
+    ])
+    setIndicators(Array.isArray(indicatorList) ? indicatorList : [])
+    setScore(esgScore ?? null)
+    setStats(esgStats ?? null)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  // 按维度分组指标
+  const envIndicators = indicators.filter((i) => i.category === 'E')
+  const socialIndicators = indicators.filter((i) => i.category === 'S')
+  const govIndicators = indicators.filter((i) => i.category === 'G')
+
+  const environmentMetrics: ESGMetric[] = envIndicators.map((raw, idx) =>
+    mapIndicatorToMetric(raw, 'E', idx),
+  )
+  const socialMetrics: ESGMetric[] = socialIndicators.map((raw, idx) =>
+    mapIndicatorToMetric(raw, 'S', idx),
+  )
+  const governanceMetrics: ESGMetric[] = govIndicators.map((raw, idx) =>
+    mapIndicatorToMetric(raw, 'G', idx),
+  )
+
+  const projects: ESGProject[] = indicators.map(mapIndicatorToProject)
   return (
     <div className="space-y-6 animate-fade-in">
       <PageHeader
@@ -176,46 +208,53 @@ export default function ESGManagement() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="ESG 总分"
-          value="82.5"
+          value={score?.total ?? '—'}
           icon={<Award className="w-5 h-5" />}
-          trend="行业领先"
+          trend={score?.rating ? `评级 ${score.rating}` : '待评估'}
           trendUp
           variant="primary"
         />
         <StatCard
           label="环境 (E) 得分"
-          value="85"
+          value={score?.by_category?.E?.score ?? '—'}
           icon={<Leaf className="w-5 h-5" />}
-          trend="2.0"
+          trend={`${envIndicators.length} 项指标`}
           trendUp
           variant="accent"
         />
         <StatCard
           label="社会 (S) 得分"
-          value="80"
+          value={score?.by_category?.S?.score ?? '—'}
           icon={<Users className="w-5 h-5" />}
-          trend="1.5"
+          trend={`${socialIndicators.length} 项指标`}
           trendUp
           variant="primary"
         />
         <StatCard
           label="治理 (G) 得分"
-          value="83"
+          value={score?.by_category?.G?.score ?? '—'}
           icon={<ShieldCheck className="w-5 h-5" />}
-          trend="1.0"
+          trend={`${govIndicators.length} 项指标`}
           trendUp
           variant="warning"
         />
       </div>
 
       {/* E - 环境维度 */}
+      {loading ? (
+        <div className="text-center py-12">
+          <Loader2 className="w-6 h-6 text-primary animate-spin mx-auto" />
+          <p className="text-sm text-slate-500 mt-2">加载中...</p>
+        </div>
+      ) : (
+      <>
       <DimensionSection
         title="环境维度 (E)"
         subtitle="气候变化、能源管理、资源利用与生态保护"
         icon={Leaf}
         accentColor="text-accent"
         bgColor="bg-accent/10"
-        metrics={ENVIRONMENT_METRICS}
+        metrics={environmentMetrics}
       />
 
       {/* S - 社会维度 */}
@@ -225,7 +264,7 @@ export default function ESGManagement() {
         icon={Users}
         accentColor="text-primary"
         bgColor="bg-primary/10"
-        metrics={SOCIAL_METRICS}
+        metrics={socialMetrics}
       />
 
       {/* G - 治理维度 */}
@@ -235,13 +274,25 @@ export default function ESGManagement() {
         icon={ShieldCheck}
         accentColor="text-status-paused"
         bgColor="bg-status-paused/10"
-        metrics={GOVERNANCE_METRICS}
+        metrics={governanceMetrics}
       />
+      </>
+      )}
 
       {/* ESG 改进项目列表 */}
       <Card title="ESG 改进项目">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {ESG_PROJECTS.map((project) => {
+          {loading ? (
+            <div className="col-span-full text-center py-12">
+              <Loader2 className="w-6 h-6 text-primary animate-spin mx-auto" />
+              <p className="text-sm text-slate-500 mt-2">加载中...</p>
+            </div>
+          ) : projects.length === 0 ? (
+            <div className="col-span-full text-center py-12">
+              <p className="text-sm text-slate-500">暂无 ESG 改进项目</p>
+            </div>
+          ) : (
+          projects.map((project) => {
             const dimCfg = DIMENSION_CONFIG[project.dimension]
             const statusCfg = PROJECT_STATUS_CONFIG[project.status]
             const progressColor =
@@ -282,7 +333,8 @@ export default function ESGManagement() {
                 </div>
               </div>
             )
-          })}
+          })
+          )}
         </div>
       </Card>
     </div>

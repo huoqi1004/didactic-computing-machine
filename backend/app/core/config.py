@@ -105,28 +105,47 @@ class Settings(BaseSettings):
     kafka_event_topic: str = "erp.events"
     kafka_audit_topic: str = "erp.audit"
     kafka_consumer_group: str = "erp-agent-group"
+    # 生产加固参数
+    kafka_dead_letter_topic: str = "erp.events.dlq"
+    kafka_compression_type: str = "lz4"       # gzip / snappy / lz4 / zstd
+    kafka_max_batch_size: int = 100            # 批量发布每批最大条数
+    kafka_request_timeout_ms: int = 30000      # 生产者请求超时
+    kafka_drain_timeout_s: float = 10.0        # 优雅排空最长等待秒数
+    kafka_health_check_interval_s: int = 30    # 健康检查周期
 
-    # LLM配置 (私有化部署)
-    # 兼容OpenAI API格式的私有化LLM（Qwen-72B / DeepSeek / Llama4 等）
-    llm_base_url: str = "http://localhost:8000/v1"
-    llm_model: str = "Qwen-72B-Chat"
+    # 分布式追踪（OpenTelemetry）
+    otel_enabled: bool = False
+    otel_endpoint: str = "http://localhost:4317"  # OTLP gRPC 端点
+    otel_service_name: str = "erp-backend"
+
+    # LLM配置 (DeepSeek V4 Pro)
+    # 兼容OpenAI API格式的LLM（DeepSeek / Qwen-72B / Llama4 等）
+    llm_base_url: str = "https://api.deepseek.com"
+    llm_model: str = "deepseek-v4-pro"
     llm_api_key: str = "sk-placeholder"
     llm_temperature: float = 0.3
-    llm_max_tokens: int = 4096
+    llm_max_tokens: int = 8192
     # LLM认知引擎开关：默认关闭，保护现有测试与未配置LLM的环境
     # 设置环境变量 ERP_LLM_ENABLED=true 可启用
     llm_enabled: bool = False
     # LLM不可用时是否降级到规则引擎（true=降级，false=直接报错）
     llm_fallback_to_rules: bool = True
-    # LLM请求超时时间（秒）
-    llm_timeout: int = 30
+    # LLM请求超时时间（秒）— DeepSeek思考模式需要更长时间
+    llm_timeout: int = 60
     # LLM请求最大重试次数（指数退避：0.5s, 1s, 2s ...）
     llm_max_retries: int = 3
     # LLM速率限制：每秒最大请求数（令牌桶算法，突发容量=rate*1秒）
     llm_rate_limit: int = 10
+    # LLM失败冷却：连续失败达到阈值后，该Agent在冷却期内不再发起出站LLM请求
+    # （防止欠费/故障状态下以tick频率空转打API，见评估报告 B-01）
+    llm_failure_cooldown_threshold: int = 3
+    llm_cooldown_seconds: int = 600
+    # DeepSeek思考模式开关：V4-Pro默认开启，关闭可获更快响应
+    # 开启时 temperature/top_p 等参数不生效，由模型自主控制推理深度
+    llm_thinking_enabled: bool = True
 
-    # 安全配置
-    jwt_secret: str = "change-this-in-production-use-hsm"
+    # 安全配置 - JWT密钥必须从环境变量注入，不提供不安全的默认值
+    jwt_secret: str = ""  # 必须通过 ERP_JWT_SECRET 环境变量设置
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 30
     mtls_enabled: bool = True

@@ -2,7 +2,7 @@
 数据库迁移脚本
 ==============
 
-创建 PostgreSQL 持久化层所需的表结构，包括：
+创建数据库持久化层所需的表结构（兼容 PostgreSQL 与 MySQL），包括：
 
 - ``events``       : 事件溯源日志（不可变 append-only）
 - ``snapshots``    : 聚合根状态快照（加速事件重放）
@@ -13,7 +13,8 @@
 --------
 1. **幂等执行**：所有 ``CREATE TABLE`` 使用 ``IF NOT EXISTS``，可安全重复调用。
 2. **原生 SQL**：使用 SQLAlchemy ``text()`` 执行原生 DDL，精确控制字段类型与约束。
-3. **JSONB 优先**：JSON 字段统一使用 PostgreSQL 原生 ``JSONB``，支持结构化查询与索引。
+3. **双后端兼容**：根据 ``mysql_url`` 自动检测后端（PostgreSQL / MySQL），
+   生成对应的 DDL（UUID/JSONB/TIMESTAMPTZ → CHAR(36)/JSON/DATETIME(6)）。
 4. **索引优化**：按常见查询模式（聚合根ID+版本、事件类型+时间、操作者+时间）建立索引。
 5. **降级安全**：所有操作包裹 try/except，数据库不可用时记录警告并返回 False。
 """
@@ -23,25 +24,71 @@ import structlog
 from typing import Any, Optional
 
 from app.core import database as db_module
+from app.core.config import settings
 
 logger = structlog.get_logger()
+
+
+# ===========================================================================
+# 后端检测
+# ===========================================================================
+
+def _is_mysql() -> bool:
+    """检测当前数据库后端是否为 MySQL"""
+    url = (settings.mysql_url or "").lower()
+    return "mysql" in url
+
+
+def _json_type() -> str:
+    return "JSON" if _is_mysql() else "JSONB"
+
+
+def _uuid_type() -> str:
+    return "CHAR(36)" if _is_mysql() else "UUID"
+
+
+def _timestamp_type() -> str:
+    return "DATETIME(6)" if _is_mysql() else "TIMESTAMPTZ"
+
+
+def _now_func() -> str:
+    return "NOW(6)" if _is_mysql() else "NOW()"
+
+
+def _json_default(val: str) -> str:
+    """JSON 默认值表达式，'{}'::jsonb → ('{}')（MySQL 8.0.13+ 需要引号包裹）"""
+    if _is_mysql():
+        return f"('{val}')"
+    return f"'{val}'::jsonb"
+
+
+def _json_cast(param: str) -> str:
+    """CAST 表达式，CAST(:x AS JSONB) → CAST(:x AS JSON)"""
+    return f"CAST({param} AS {_json_type()})"
 
 
 # ===========================================================================
 # DDL 语句定义
 # ===========================================================================
 
+_UUID = _uuid_type()
+_JSON = _json_type()
+_TS = _timestamp_type()
+_NOW = _now_func()
+_JSON_EMPTY_OBJ = _json_default("{}")
+_JSON_EMPTY_ARR = _json_default("[]")
+
 # --- 事件溯源日志 ---
-_CREATE_EVENTS_TABLE = """
+_CREATE_EVENTS_TABLE = f"""
 CREATE TABLE IF NOT EXISTS events (
-    event_id        UUID        PRIMARY KEY,
+    event_id        {_UUID}     PRIMARY KEY,
     event_type      VARCHAR(64) NOT NULL,
     aggregate_id    VARCHAR(128) NOT NULL,
     aggregate_type  VARCHAR(64) NOT NULL,
-    event_data      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    event_data      {_JSON}     NOT NULL DEFAULT {_JSON_EMPTY_OBJ},
     agent_id        VARCHAR(128),
     version         INTEGER     NOT NULL,
-    timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    timestamp       {_TS}       NOT NULL DEFAULT {_NOW},
     prev_hash       VARCHAR(128),
     event_hash      VARCHAR(128)
 );
@@ -59,13 +106,13 @@ CREATE INDEX IF NOT EXISTS ix_events_event_hash
 """
 
 # --- 聚合根快照 ---
-_CREATE_SNAPSHOTS_TABLE = """
+_CREATE_SNAPSHOTS_TABLE = f"""
 CREATE TABLE IF NOT EXISTS snapshots (
     aggregate_id    VARCHAR(128) NOT NULL,
     aggregate_type  VARCHAR(64)  NOT NULL,
     version         INTEGER      NOT NULL,
-    state           JSONB        NOT NULL DEFAULT '{}'::jsonb,
-    timestamp       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    state           {_JSON}      NOT NULL DEFAULT {_JSON_EMPTY_OBJ},
+    timestamp       {_TS}        NOT NULL DEFAULT {_NOW}
 );
 """
 
@@ -75,18 +122,18 @@ CREATE INDEX IF NOT EXISTS ix_snapshots_aggregate_version
 """
 
 # --- 审计日志 ---
-_CREATE_AUDIT_LOGS_TABLE = """
+_CREATE_AUDIT_LOGS_TABLE = f"""
 CREATE TABLE IF NOT EXISTS audit_logs (
-    entry_id    UUID         PRIMARY KEY,
+    entry_id    {_UUID}      PRIMARY KEY,
     actor_did   VARCHAR(128) NOT NULL,
     action      VARCHAR(128) NOT NULL,
     resource    VARCHAR(256) NOT NULL,
     result      VARCHAR(32)  NOT NULL,
-    details     JSONB        NOT NULL DEFAULT '{}'::jsonb,
+    details     {_JSON}      NOT NULL DEFAULT {_JSON_EMPTY_OBJ},
     risk_level  VARCHAR(16)  NOT NULL DEFAULT 'low',
     prev_hash   VARCHAR(128),
     entry_hash  VARCHAR(128),
-    timestamp   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    timestamp   {_TS}        NOT NULL DEFAULT {_NOW}
 );
 """
 
@@ -102,15 +149,15 @@ CREATE INDEX IF NOT EXISTS ix_audit_logs_entry_hash
 """
 
 # --- Saga 事务 ---
-_CREATE_SAGAS_TABLE = """
+_CREATE_SAGAS_TABLE = f"""
 CREATE TABLE IF NOT EXISTS sagas (
-    saga_id     UUID         PRIMARY KEY,
+    saga_id     {_UUID}      PRIMARY KEY,
     saga_type   VARCHAR(64)  NOT NULL,
     status      VARCHAR(32)  NOT NULL DEFAULT 'started',
-    steps       JSONB        NOT NULL DEFAULT '[]'::jsonb,
+    steps       {_JSON}      NOT NULL DEFAULT {_JSON_EMPTY_ARR},
     current_step INTEGER     NOT NULL DEFAULT 0,
-    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    created_at  {_TS}        NOT NULL DEFAULT {_NOW},
+    updated_at  {_TS}        NOT NULL DEFAULT {_NOW}
 );
 """
 
@@ -120,6 +167,14 @@ CREATE INDEX IF NOT EXISTS ix_sagas_status
 CREATE INDEX IF NOT EXISTS ix_sagas_saga_type
     ON sagas (saga_type);
 """
+
+# MySQL 不支持 CREATE INDEX IF NOT EXISTS，去掉 IF NOT EXISTS 子句
+# 索引重复创建的错误由 run_migrations 中的语句级异常处理捕获（errno 1061）
+if _is_mysql():
+    _CREATE_EVENTS_INDEXES = _CREATE_EVENTS_INDEXES.replace("IF NOT EXISTS ", "")
+    _CREATE_SNAPSHOTS_INDEXES = _CREATE_SNAPSHOTS_INDEXES.replace("IF NOT EXISTS ", "")
+    _CREATE_AUDIT_LOGS_INDEXES = _CREATE_AUDIT_LOGS_INDEXES.replace("IF NOT EXISTS ", "")
+    _CREATE_SAGAS_INDEXES = _CREATE_SAGAS_INDEXES.replace("IF NOT EXISTS ", "")
 
 # 所有 DDL 语句按依赖顺序排列
 _ALL_DDL: list[str] = [
@@ -164,11 +219,19 @@ async def run_migrations(engine: Optional[Any] = None) -> bool:
     try:
         async with engine.begin() as conn:
             for ddl in _ALL_DDL:
-                # 分号分隔的多条语句需要拆分执行
                 statements = [s.strip() for s in ddl.split(";") if s.strip()]
                 for stmt in statements:
                     logger.debug("migrations.executing", sql=stmt[:80])
-                    await conn.execute(text(stmt))
+                    try:
+                        await conn.execute(text(stmt))
+                    except Exception as stmt_err:
+                        err_str = str(stmt_err).lower()
+                        # MySQL 不支持 CREATE INDEX IF NOT EXISTS（errno 1061），
+                        # 索引已存在时忽略错误，其他错误才抛出
+                        if _is_mysql() and ("1061" in err_str or "duplicate key" in err_str):
+                            logger.debug("migrations.index_already_exists", sql=stmt[:80])
+                            continue
+                        raise
 
         logger.info("migrations.completed", tables=["events", "snapshots", "audit_logs", "sagas"])
         return True

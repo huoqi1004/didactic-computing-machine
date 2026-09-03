@@ -72,6 +72,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/exceptions', label: '例外管理', icon: AlertCircle, resource: 'agent', action: 'read' },
       { to: '/events', label: '事件流', icon: Activity, resource: 'system', action: 'read' },
       { to: '/knowledge', label: '知识库', icon: BookOpen, resource: 'knowledge', action: 'read' },
+      { to: '/messaging', label: '内部通讯', icon: MessageSquare, resource: 'message', action: 'read' },
     ],
   },
   {
@@ -127,6 +128,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: '系统管理',
     items: [
+      { to: '/documents', label: '文档中心', icon: FileText, resource: 'document', action: 'read' },
       { to: '/roles', label: '角色管理', icon: Shield, resource: 'role', action: 'read' },
       { to: '/permissions', label: '权限管理', icon: Key, resource: 'permission', action: 'read' },
       { to: '/approvals', label: '审批工作流', icon: GitBranch, resource: 'system', action: 'read' },

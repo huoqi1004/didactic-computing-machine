@@ -152,19 +152,19 @@ apply_config() {
 # 步骤 4: 部署数据库层
 # ----------------------------------------------------------
 deploy_database() {
-    log_step "步骤 4: 部署数据库层（PostgreSQL + Redis）"
+    log_step "步骤 4: 部署数据库层（MySQL + Redis）"
 
-    log_info "部署 PostgreSQL StatefulSet..."
-    kubectl apply -f "$K8S_DIR/postgres-statefulset.yaml"
+    log_info "部署 MySQL StatefulSet..."
+    kubectl apply -f "$K8S_DIR/mysql-statefulset.yaml"
 
     log_info "部署 Redis Deployment..."
     kubectl apply -f "$K8S_DIR/redis-deployment.yaml"
 
     log_info "等待数据库就绪..."
 
-    # 等待 PostgreSQL 就绪
-    log_info "等待 PostgreSQL Pod 就绪（最多120秒）..."
-    kubectl wait --for=condition=ready pod -l app=postgres -n data-knowledge --timeout=120s
+    # 等待 MySQL 就绪
+    log_info "等待 MySQL Pod 就绪（最多120秒）..."
+    kubectl wait --for=condition=ready pod -l app=mysql -n data-knowledge --timeout=120s
 
     # 等待 Redis 就绪
     log_info "等待 Redis Pod 就绪（最多60秒）..."
@@ -286,7 +286,7 @@ verify_deployment() {
 
     echo ""
     log_info "7. 验证服务状态..."
-    kubectl get svc --all-namespaces | grep -E "backend|frontend|postgres|redis"
+    kubectl get svc --all-namespaces | grep -E "backend|frontend|mysql|redis"
 
     echo ""
     log_success "部署验证完成"

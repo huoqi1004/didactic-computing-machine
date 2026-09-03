@@ -40,6 +40,7 @@ from sqlalchemy import (
     JSON,
     DateTime,
     Date,
+    Boolean,
     ForeignKey,
     UniqueConstraint,
     Index,
@@ -1312,6 +1313,141 @@ class WorkflowRequest(Base):
 
 
 # ===========================================================================
+# 内部通讯模块
+# ===========================================================================
+
+
+class ChatChannel(Base):
+    """聊天频道：群聊 / 单聊 / Agent对话"""
+
+    __tablename__ = "chat_channels"
+    __table_args__ = _UTF8MB4_TABLE_ARGS
+
+    channel_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    channel_type: Mapped[str] = mapped_column(String(20), nullable=False)  # group / direct / agent
+    name: Mapped[str | None] = mapped_column(String(128), nullable=True)  # 群聊名称
+    avatar: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)  # 创建者 user_id
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=_utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=_utc_now, onupdate=_utc_now
+    )
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_message_preview: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    def __repr__(self) -> str:
+        return (
+            f"<ChatChannel channel_id={self.channel_id!r} "
+            f"type={self.channel_type!r} name={self.name!r}>"
+        )
+
+
+class ChatMember(Base):
+    """频道成员"""
+
+    __tablename__ = "chat_members"
+    __table_args__ = (
+        Index("ix_chat_members_channel", "channel_id"),
+        Index("ix_chat_members_user", "user_id"),
+        _UTF8MB4_TABLE_ARGS,
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    channel_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("chat_channels.channel_id"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # user_id 或 agent_id
+    member_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="user"
+    )  # user / agent
+    role: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="member"
+    )  # owner / admin / member
+    joined_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=_utc_now
+    )
+    last_read_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    is_muted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    def __repr__(self) -> str:
+        return (
+            f"<ChatMember id={self.id} channel_id={self.channel_id!r} "
+            f"user_id={self.user_id!r} role={self.role!r}>"
+        )
+
+
+class ChatMessage(Base):
+    """聊天消息"""
+
+    __tablename__ = "chat_messages"
+    __table_args__ = (
+        Index("ix_chat_messages_channel", "channel_id"),
+        Index("ix_chat_messages_created_at", "created_at"),
+        _UTF8MB4_TABLE_ARGS,
+    )
+
+    message_id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    channel_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("chat_channels.channel_id"), nullable=False, index=True
+    )
+    sender_id: Mapped[str] = mapped_column(String(64), nullable=False)  # user_id 或 agent_id
+    sender_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="user"
+    )  # user / agent / system
+    sender_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    message_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="text"
+    )  # text / file / command / system
+    file_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reply_to_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=_utc_now, index=True
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ChatMessage message_id={self.message_id} "
+            f"channel_id={self.channel_id!r} sender_id={self.sender_id!r}>"
+        )
+
+
+class ChatFile(Base):
+    """聊天文件"""
+
+    __tablename__ = "chat_files"
+    __table_args__ = _UTF8MB4_TABLE_ARGS
+
+    file_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    channel_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("chat_channels.channel_id"), nullable=False
+    )
+    uploaded_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    filename: Mapped[str] = mapped_column(String(256), nullable=False)
+    original_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    mime_type: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="application/octet-stream"
+    )
+    storage_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=_utc_now
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ChatFile file_id={self.file_id!r} "
+            f"channel_id={self.channel_id!r} filename={self.filename!r}>"
+        )
+
+
+# ===========================================================================
 # 模型注册表
 # ===========================================================================
 
@@ -1359,4 +1495,9 @@ __all__ = [
     "AuditEntry",
     # 工作流
     "WorkflowRequest",
+    # 内部通讯
+    "ChatChannel",
+    "ChatMember",
+    "ChatMessage",
+    "ChatFile",
 ]

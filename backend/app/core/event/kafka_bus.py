@@ -77,7 +77,7 @@ class KafkaEventBus:
         self._subscriptions: list[EventSubscription] = []
         # 内存事件队列（降级模式下使用，与 EventBus 一致）
         self._event_queue: asyncio.Queue = asyncio.Queue()
-        # 死信队列
+        # 死信队列（内存备份，Kafka DLQ 不可用时兜底）
         self._dead_letter_queue: list[tuple[Event, Exception]] = []
 
         # 运行状态
@@ -92,14 +92,24 @@ class KafkaEventBus:
         self._consumer_task: Optional[asyncio.Task] = None
         self._dispatch_task: Optional[asyncio.Task] = None  # 降级模式下的本地分发任务
 
+        # 在途消息计数（用于优雅排空）
+        self._in_flight: int = 0
+        self._drain_event: Optional[asyncio.Event] = None
+
+        # 上次健康检查结果缓存
+        self._last_health: dict[str, Any] = {"status": "unknown"}
+
         # 统计信息
         self._stats: dict[str, Any] = {
-            "published": 0,         # publish() 调用总数
-            "delivered": 0,          # 成功投递给订阅者的次数
-            "failed": 0,             # 投递失败次数
-            "kafka_published": 0,    # 成功发送到 Kafka 的次数
-            "kafka_consumed": 0,     # 从 Kafka 消费的次数
-            "lag": 0,                # 消费者滞后量（最近一次估算）
+            "published": 0,            # publish() 调用总数
+            "delivered": 0,            # 成功投递给订阅者的次数
+            "failed": 0,              # 投递失败次数
+            "kafka_published": 0,     # 成功发送到 Kafka 的次数
+            "kafka_consumed": 0,      # 从 Kafka 消费的次数
+            "kafka_dlq_published": 0,  # 死信 topic 发布次数
+            "batch_published": 0,      # 批量发布调用次数
+            "lag": 0,                 # 消费者滞后量（最近一次估算）
+            "in_flight": 0,           # 当前在途消息数
         }
 
     # -----------------------------------------------------------------
@@ -150,15 +160,20 @@ class KafkaEventBus:
             return False
 
         try:
-            # 初始化生产者
-            self._producer = AIOKafkaProducer(
+            # 初始化生产者（带压缩、幂等、超时等生产加固参数）
+            producer_kwargs: dict[str, Any] = dict(
                 bootstrap_servers=settings.kafka_bootstrap_servers,
                 value_serializer=lambda v: v,  # Event.to_json() 已返回 bytes
                 key_serializer=lambda k: k if isinstance(k, bytes) else k.encode(),
                 acks="all",              # 等待所有副本确认（最高可靠性）
                 enable_idempotence=True,  # 幂等生产者，避免重复
                 max_request_size=1048576,  # 1MB
+                request_timeout_ms=settings.kafka_request_timeout_ms,
             )
+            comp = settings.kafka_compression_type
+            if comp and comp != "none":
+                producer_kwargs["compression_type"] = comp
+            self._producer = AIOKafkaProducer(**producer_kwargs)
             await self._producer.start()
 
             # 初始化消费者
@@ -204,7 +219,10 @@ class KafkaEventBus:
             self._producer = None
 
     async def stop(self):
-        """停止事件总线，关闭所有连接和任务"""
+        """停止事件总线，关闭所有连接和任务（含优雅排空）"""
+        if self._running:
+            await self.drain()
+
         self._running = False
 
         # 取消异步任务
@@ -222,6 +240,73 @@ class KafkaEventBus:
         await self._cleanup_kafka_clients()
 
         logger.info("kafka_bus.stopped", degraded=self._degraded)
+
+    async def drain(self, timeout: Optional[float] = None):
+        """
+        优雅排空：等待在途消息处理完毕或超时。
+
+        - 停止消费新消息（设 ``_running=False`` 后消费循环退出）
+        - 等待 ``_in_flight`` 归零
+        - 降级模式下等待内存队列排空
+        """
+        wait_s = timeout if timeout is not None else settings.kafka_drain_timeout_s
+        deadline = asyncio.get_event_loop().time() + wait_s
+
+        # 等待在途消息归零
+        while self._in_flight > 0 and asyncio.get_event_loop().time() < deadline:
+            await asyncio.sleep(0.1)
+
+        # 降级模式：等待内存队列排空
+        if self._degraded and self._event_queue.qsize() > 0:
+            remaining_wait = deadline - asyncio.get_event_loop().time()
+            if remaining_wait > 0:
+                try:
+                    await asyncio.wait_for(self._event_queue.join(), timeout=remaining_wait)
+                except asyncio.TimeoutError:
+                    logger.warning("kafka_bus.drain_timeout",
+                                   in_flight=self._in_flight,
+                                   queue_size=self._event_queue.qsize())
+
+        logger.info("kafka_bus.drained",
+                     in_flight=self._in_flight,
+                     queue_size=self._event_queue.qsize())
+
+    async def health_check(self) -> dict[str, Any]:
+        """
+        健康检查：返回总线连接状态和关键指标。
+
+        供 Kubernetes readiness/liveness 探针和 ``/health`` 端点调用。
+
+        返回结构::
+
+            {
+                "status": "healthy" | "degraded" | "unhealthy",
+                "implementation": "kafka" | "memory_fallback",
+                "degraded": bool,
+                "connected": bool,
+                "in_flight": int,
+                "stats": {...},
+            }
+        """
+        if not self._running:
+            status = "unhealthy"
+        elif self._degraded:
+            status = "degraded"
+        elif self._producer is not None and self._consumer is not None:
+            status = "healthy"
+        else:
+            status = "unhealthy"
+
+        result = {
+            "status": status,
+            "implementation": "memory_fallback" if self._degraded else "kafka",
+            "degraded": self._degraded,
+            "connected": self._producer is not None and not self._degraded,
+            "in_flight": self._in_flight,
+            "stats": self.get_stats(),
+        }
+        self._last_health = result
+        return result
 
     # -----------------------------------------------------------------
     # 订阅管理
@@ -284,6 +369,54 @@ class KafkaEventBus:
                          error=str(e),
                          error_type=type(e).__name__)
 
+    async def publish_batch(self, events: list[Event]) -> dict[str, int]:
+        """
+        批量发布事件（高吞吐场景）。
+
+        - Kafka 模式：逐条发送但聚合等待，利用生产者内部缓冲批量投递
+        - 降级模式：逐条放入内存队列
+        - 单条失败不影响其余事件
+
+        返回 ``{"succeeded": n, "failed": n}`` 汇总。
+        """
+        succeeded = 0
+        failed = 0
+        self._stats["batch_published"] += 1
+
+        if not events:
+            return {"succeeded": 0, "failed": 0}
+
+        if self._degraded:
+            for event in events:
+                self._stats["published"] += 1
+                await self._event_queue.put(event)
+                succeeded += 1
+            return {"succeeded": succeeded, "failed": 0}
+
+        # Kafka 模式：逐条发送（生产者内部会批量投递）
+        for event in events:
+            self._stats["published"] += 1
+            try:
+                key = event.aggregate_id.encode("utf-8") if event.aggregate_id else None
+                await self._producer.send_and_wait(  # type: ignore[union-attr]
+                    settings.kafka_event_topic,
+                    event.to_json(),
+                    key=key,
+                )
+                self._stats["kafka_published"] += 1
+                succeeded += 1
+            except Exception as e:  # noqa: BLE001
+                self._stats["failed"] += 1
+                failed += 1
+                logger.error("kafka_bus.batch_publish_item_failed",
+                             event_type=event.event_type.value,
+                             aggregate_id=event.aggregate_id,
+                             error=str(e))
+
+        logger.info("kafka_bus.batch_published",
+                     total=len(events), succeeded=succeeded, failed=failed)
+        return {"succeeded": succeeded, "failed": failed}
+
     # -----------------------------------------------------------------
     # Kafka 消费循环
     # -----------------------------------------------------------------
@@ -319,8 +452,10 @@ class KafkaEventBus:
         - 反序列化为 Event 对象
         - 分发给匹配的本地订阅者
         - 成功后提交偏移量（至少一次语义）
-        - 处理失败时记录死信队列后仍提交（避免毒丸消息阻塞消费）
+        - 处理失败时发布到死信 topic 后仍提交（避免毒丸消息阻塞消费）
         """
+        self._in_flight += 1
+        self._stats["in_flight"] = self._in_flight
         try:
             event = self._deserialize_event(msg.value)
             self._stats["kafka_consumed"] += 1
@@ -330,12 +465,13 @@ class KafkaEventBus:
                          error=str(e),
                          partition=msg.partition if hasattr(msg, "partition") else None,
                          offset=msg.offset if hasattr(msg, "offset") else None)
-            # 反序列化或分发失败，记录死信队列后提交，避免毒丸消息阻塞
-            # （生产环境可配置死信 topic 进行重放）
+            # 反序列化失败，尝试发送死信（原始 bytes）
+            await self._send_to_dlq_raw(msg.value, e)
             self._stats["failed"] += 1
         finally:
+            self._in_flight -= 1
+            self._stats["in_flight"] = self._in_flight
             # 提交偏移量（无论成功失败，避免消息卡住）
-            # 真正的处理失败已通过 _dispatch_event 内部的死信队列记录
             try:
                 await self._consumer.commit()  # type: ignore[union-attr]
             except Exception as e:  # noqa: BLE001
@@ -371,7 +507,7 @@ class KafkaEventBus:
         与 EventBus._dispatch_event 逻辑一致：
         - 匹配订阅者（事件类型 + 过滤条件）
         - 并行投递
-        - 失败进入死信队列
+        - 失败进入死信队列 + Kafka 死信 topic
         """
         matched = [sub for sub in self._subscriptions if sub.matches(event)]
         if not matched:
@@ -381,6 +517,7 @@ class KafkaEventBus:
         tasks = [self._deliver_to_subscriber(sub, event) for sub in matched]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
+        any_failed = False
         for sub, result in zip(matched, results):
             if isinstance(result, Exception):
                 self._stats["failed"] += 1
@@ -388,8 +525,58 @@ class KafkaEventBus:
                 logger.error("kafka_bus.delivery_failed",
                              subscriber=sub.subscriber_id,
                              error=str(result))
+                any_failed = True
             else:
                 self._stats["delivered"] += 1
+
+        # 有投递失败且非降级模式 → 发布到 Kafka 死信 topic
+        if any_failed and not self._degraded:
+            await self._send_to_dlq(event, results, matched)
+
+    # -----------------------------------------------------------------
+    # 死信处理
+    # -----------------------------------------------------------------
+
+    async def _send_to_dlq(self, event: Event, results: list, subs: list):
+        """将投递失败的事件发布到 Kafka 死信 topic"""
+        if self._producer is None:
+            return
+        failed_subs = [
+            subs[i].subscriber_id for i, r in enumerate(results)
+            if isinstance(r, Exception)
+        ]
+        # 在事件元数据中追加死信信息
+        dlq_data = orjson.loads(event.to_json())
+        dlq_data["_dlq_reason"] = "delivery_failed"
+        dlq_data["_dlq_failed_subs"] = failed_subs
+        dlq_payload = orjson.dumps(dlq_data)
+        try:
+            await self._producer.send_and_wait(
+                settings.kafka_dead_letter_topic,
+                dlq_payload,
+                key=event.aggregate_id.encode("utf-8") if event.aggregate_id else None,
+            )
+            self._stats["kafka_dlq_published"] += 1
+            logger.info("kafka_bus.dlq_published",
+                        event_id=str(event.event_id),
+                        failed_subs=failed_subs)
+        except Exception as e:  # noqa: BLE001
+            logger.error("kafka_bus.dlq_publish_failed", error=str(e))
+
+    async def _send_to_dlq_raw(self, raw_value: bytes, error: Exception):
+        """将反序列化失败的原始消息发布到死信 topic"""
+        if self._producer is None:
+            return
+        try:
+            await self._producer.send_and_wait(
+                settings.kafka_dead_letter_topic,
+                raw_value,
+                key=None,
+            )
+            self._stats["kafka_dlq_published"] += 1
+            logger.info("kafka_bus.dlq_published_raw", error=str(error))
+        except Exception as e:  # noqa: BLE001
+            logger.error("kafka_bus.dlq_publish_raw_failed", error=str(e))
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=0.1, min=0.1, max=1.0))
     async def _deliver_to_subscriber(self, subscription: EventSubscription, event: Event):
@@ -444,10 +631,13 @@ class KafkaEventBus:
         返回字段：
         - ``published`` / ``delivered`` / ``failed``：与 EventBus 一致
         - ``queue_size`` / ``dead_letters`` / ``subscriptions``：与 EventBus 一致
-        - ``kafka_published`` / ``kafka_consumed`` / ``lag``：Kafka 专属指标
+        - ``kafka_published`` / ``kafka_consumed`` / ``kafka_dlq_published`` / ``batch_published`` / ``lag`` / ``in_flight``：Kafka 专属指标
         - ``degraded``：是否降级到内存模式
         - ``implementation``：实现标识（``"kafka"`` / ``"memory_fallback"``）
         - ``aiokafka_available``：aiokafka 包是否已安装
+        - ``kafka_connected``：Kafka 连接是否活跃
+        - ``compression``：当前压缩类型
+        - ``dead_letter_topic``：死信 topic 名称
         """
         return {
             **self._stats,
@@ -458,6 +648,8 @@ class KafkaEventBus:
             "implementation": "memory_fallback" if self._degraded else "kafka",
             "aiokafka_available": _AIOKAFKA_AVAILABLE,
             "kafka_connected": self._producer is not None and not self._degraded,
+            "compression": settings.kafka_compression_type,
+            "dead_letter_topic": settings.kafka_dead_letter_topic,
         }
 
 

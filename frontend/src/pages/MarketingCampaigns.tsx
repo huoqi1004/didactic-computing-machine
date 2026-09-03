@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Megaphone,
   Users,
@@ -21,6 +21,8 @@ import {
   inputClass,
 } from '../components/ui'
 import { cn } from '../lib/utils'
+import { apiService } from '../services/api'
+import Can from '../components/Can'
 
 /* ===================== 类型定义 ===================== */
 
@@ -58,22 +60,92 @@ const STATUS_CONFIG: Record<CampaignStatus, { label: string; variant: 'warning' 
 const fmtMoney = (n: number) => `¥${n.toLocaleString('zh-CN')}`
 const fmtNum = (n: number) => n.toLocaleString('zh-CN')
 
-/* ===================== Mock 数据 ===================== */
+/* ===================== 后端统计类型 ===================== */
 
-const initialCampaigns: Campaign[] = [
-  { id: 'C-001', name: '夏季数字化转型沙龙巡展', type: 'mixed', status: 'running', startDate: '2026-06-15', endDate: '2026-08-30', budget: 480000, reach: 3260, conversion: 86, roi: 312, description: '面向制造业 CIO 的全国巡回沙龙，覆盖 8 个城市。' },
-  { id: 'C-002', name: '智云 SaaS 新品线上发布会', type: 'online', status: 'ended', startDate: '2026-05-20', endDate: '2026-06-10', budget: 180000, reach: 5860, conversion: 142, roi: 408, description: '新品线上直播发布会，联合多家媒体推广。' },
-  { id: 'C-003', name: '金融行业解决方案推广', type: 'online', status: 'running', startDate: '2026-07-01', endDate: '2026-09-30', budget: 320000, reach: 2180, conversion: 64, roi: 265, description: '面向银行、证券客户的内容营销与精准投放。' },
-  { id: 'C-004', name: '华南区域客户答谢会', type: 'offline', status: 'running', startDate: '2026-07-18', endDate: '2026-07-31', budget: 260000, reach: 380, conversion: 58, roi: 198, description: '华南大客户线下答谢与需求挖掘活动。' },
-  { id: 'C-005', name: '智能制造白皮书发布', type: 'online', status: 'planning', startDate: '2026-08-15', endDate: '2026-09-15', budget: 150000, reach: 0, conversion: 0, roi: 0, description: '行业白皮书内容营销，规划阶段。' },
-  { id: 'C-006', name: '春季渠道合作伙伴大会', type: 'mixed', status: 'ended', startDate: '2026-03-10', endDate: '2026-04-10', budget: 420000, reach: 900, conversion: 36, roi: 156, description: '渠道招募与赋能大会，已圆满结束。' },
-]
+/** 后端营销统计响应结构（字段均为可选，兼容降级） */
+interface MarketingStats {
+  campaigns?: number
+  active_campaigns?: number
+  completed_campaigns?: number
+  planning_campaigns?: number
+  leads?: number
+  new_leads?: number
+  qualified_leads?: number
+  total_budget?: number
+  total_spend?: number
+  total_revenue?: number
+}
+
+/* ===================== 数据映射 ===================== */
+
+/** 将后端营销活动数据（snake_case）映射为前端 Campaign 结构 */
+function mapCampaign(raw: any): Campaign {
+  const rawStatus = String(raw.status ?? 'planning')
+  let status: CampaignStatus = 'planning'
+  if (rawStatus === 'active') status = 'running'
+  else if (rawStatus === 'completed') status = 'ended'
+
+  const channels: string[] = Array.isArray(raw.channels) ? raw.channels : []
+  let type: CampaignType = 'mixed'
+  if (channels.length > 0) {
+    const hasOffline = channels.some((c) => /展会|线下|沙龙|答谢|大会|巡展|线下活动/.test(String(c)))
+    const hasOnline = channels.some((c) => /线上|直播|广告|邮件|社交|媒体|KOL/.test(String(c)))
+    if (hasOffline && !hasOnline) type = 'offline'
+    else if (hasOnline && !hasOffline) type = 'online'
+  }
+
+  const budget = Number(raw.budget) || 0
+  const actualSpend = Number(raw.actual_spend) || 0
+  const revenue = Number(raw.revenue) || 0
+  const reach = Number(raw.leads_generated) || 0
+  const roi = actualSpend > 0 ? Math.round(((revenue - actualSpend) / actualSpend) * 100) : 0
+
+  return {
+    id: String(raw.campaign_id ?? raw.id ?? ''),
+    name: String(raw.name ?? '—'),
+    type,
+    status,
+    startDate: String(raw.start_date ?? ''),
+    endDate: String(raw.end_date ?? ''),
+    budget,
+    reach,
+    conversion: 0,
+    roi,
+    description: String(raw.target_audience ?? raw.description ?? '暂无描述'),
+  }
+}
 
 /* ===================== 主组件 ===================== */
 
 export default function MarketingCampaigns() {
-  const [campaigns, setCampaigns] = useState<Campaign[]>(initialCampaigns)
+  const [campaigns, setCampaigns] = useState<Campaign[]>([])
+  const [stats, setStats] = useState<MarketingStats | null>(null)
+  const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const [list, marketingStats] = await Promise.all([
+      apiService.getMarketingCampaigns(),
+      apiService.getMarketingStats(),
+    ])
+    setCampaigns((Array.isArray(list) ? list : []).map(mapCampaign))
+    setStats(marketingStats ?? null)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  const runningCount = campaigns.filter((c) => c.status === 'running').length
+  const totalReach = stats?.leads ?? campaigns.reduce((s, c) => s + c.reach, 0)
+  const totalConversion = campaigns.reduce((s, c) => s + c.conversion, 0)
+  const conversionRate = totalReach > 0 ? ((totalConversion / totalReach) * 100).toFixed(2) : '0.0'
+  const avgRoi =
+    campaigns.length > 0
+      ? Math.round(campaigns.reduce((s, c) => s + c.roi, 0) / campaigns.length)
+      : 0
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -82,18 +154,20 @@ export default function MarketingCampaigns() {
         description="营销活动策划、执行与效果追踪"
         icon={<Megaphone className="w-5 h-5" />}
         actions={
-          <button className="btn-primary" onClick={() => setShowCreate(true)}>
-            <Plus className="w-4 h-4" /> 创建活动
-          </button>
+          <Can resource="marketing" action="create">
+            <button className="btn-primary" onClick={() => setShowCreate(true)}>
+              <Plus className="w-4 h-4" /> 创建活动
+            </button>
+          </Can>
         }
       />
 
       {/* 统计卡片 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="进行中活动" value={campaigns.filter((c) => c.status === 'running').length} icon={<Megaphone className="w-5 h-5" />} trend="持续监控中" variant="primary" />
-        <StatCard label="总触达" value="12,580" icon={<Users className="w-5 h-5" />} trend="环比 +18%" trendUp variant="primary" />
-        <StatCard label="总转化" value={386} icon={<Target className="w-5 h-5" />} trend="转化率 3.07%" trendUp variant="accent" />
-        <StatCard label="平均 ROI" value="285%" icon={<TrendingUp className="w-5 h-5" />} trend="高于行业均值" trendUp variant="accent" />
+        <StatCard label="进行中活动" value={runningCount} icon={<Megaphone className="w-5 h-5" />} trend="持续监控中" variant="primary" />
+        <StatCard label="总触达" value={fmtNum(totalReach)} icon={<Users className="w-5 h-5" />} trend="环比 +18%" trendUp variant="primary" />
+        <StatCard label="总转化" value={totalConversion} icon={<Target className="w-5 h-5" />} trend={`转化率 ${conversionRate}%`} trendUp variant="accent" />
+        <StatCard label="平均 ROI" value={`${avgRoi}%`} icon={<TrendingUp className="w-5 h-5" />} trend="高于行业均值" trendUp variant="accent" />
       </div>
 
       {/* 活动卡片网格 */}

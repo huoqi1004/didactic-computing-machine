@@ -41,6 +41,14 @@ class SagaStep:
         self.result: Optional[Any] = None
         self.executed = False
 
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "is_critical": self.is_critical,
+            "executed": self.executed,
+            "result": str(self.result) if self.result is not None else None,
+        }
+
 
 class Saga:
     """
@@ -75,6 +83,7 @@ class Saga:
 
         # 发布Saga开始事件
         await self._publish_saga_event("saga.started")
+        await self.persist()
 
         for i, step in enumerate(self.steps):
             self.current_step_index = i
@@ -89,6 +98,7 @@ class Saga:
 
                 await self._publish_saga_event("saga.step_completed",
                                                 step_name=step.name, result=str(step.result))
+                await self.persist()
 
             except Exception as e:
                 self.error = e
@@ -96,12 +106,14 @@ class Saga:
                             saga_id=self.saga_id, step=step.name, error=str(e))
                 await self._publish_saga_event("saga.step_failed",
                                                 step_name=step.name, error=str(e))
+                await self.persist()
                 # 执行补偿
                 await self._compensate()
                 return False
 
         self.state = SagaState.COMPLETED
         await self._publish_saga_event("saga.completed")
+        await self.persist()
         logger.info("saga.completed", saga_id=self.saga_id, name=self.name)
         return True
 
@@ -111,6 +123,7 @@ class Saga:
         logger.info("saga.compensating", saga_id=self.saga_id)
 
         await self._publish_saga_event("saga.compensating")
+        await self.persist()
 
         # 逆序执行补偿
         for i in range(self.current_step_index, -1, -1):
@@ -131,6 +144,7 @@ class Saga:
 
         self.state = SagaState.COMPENSATED
         await self._publish_saga_event("saga.compensated")
+        await self.persist()
 
     async def _publish_saga_event(self, event_subtype: str, **extra):
         """发布Saga追踪事件"""
@@ -147,6 +161,94 @@ class Saga:
             },
         )
         await event_bus.publish(event)
+
+    async def persist(self):
+        """
+        将Saga状态持久化到数据库 sagas 表。
+
+        失败时仅记录警告，不影响内存中的Saga执行（降级到内存模式）。
+        """
+        try:
+            from app.core import database as db_module
+            from sqlalchemy import text
+            import orjson
+
+            engine = db_module.get_engine()
+            if engine is None:
+                return
+
+            steps_json = orjson.dumps([s.to_dict() for s in self.steps]).decode()
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text("""
+                        INSERT INTO sagas (saga_id, saga_type, status, steps, current_step, created_at, updated_at)
+                        VALUES (:saga_id, :saga_type, :status, CAST(:steps AS JSON), :current_step, NOW(6), NOW(6))
+                        ON DUPLICATE KEY UPDATE
+                            status = VALUES(status),
+                            steps = VALUES(steps),
+                            current_step = VALUES(current_step),
+                            updated_at = NOW(6)
+                    """),
+                    {
+                        "saga_id": self.saga_id,
+                        "saga_type": self.name,
+                        "status": self.state.value,
+                        "steps": steps_json,
+                        "current_step": self.current_step_index,
+                    },
+                )
+
+            logger.debug("saga.persisted", saga_id=self.saga_id, state=self.state.value)
+
+        except Exception as e:
+            logger.warning("saga.persist_failed",
+                          saga_id=self.saga_id, error=str(e),
+                          degraded="memory_only")
+
+    @staticmethod
+    async def recover(saga_id: str) -> Optional[dict]:
+        """
+        从数据库恢复Saga状态信息。
+
+        返回包含 saga_id, saga_type, status, steps, current_step 的字典，
+        数据库不可用时返回 None。
+        """
+        try:
+            from app.core import database as db_module
+            from sqlalchemy import text
+            import orjson
+
+            engine = db_module.get_engine()
+            if engine is None:
+                return None
+
+            async with engine.connect() as conn:
+                result = await conn.execute(
+                    text("""
+                        SELECT saga_id, saga_type, status, steps, current_step
+                        FROM sagas WHERE saga_id = :saga_id
+                    """),
+                    {"saga_id": saga_id},
+                )
+                row = result.fetchone()
+
+            if row is None:
+                return None
+
+            steps_data = row[3] if isinstance(row[3], (list, dict)) else orjson.loads(row[3])
+            return {
+                "saga_id": row[0],
+                "saga_type": row[1],
+                "status": row[2],
+                "steps": steps_data,
+                "current_step": row[4],
+            }
+
+        except Exception as e:
+            logger.warning("saga.recover_failed",
+                          saga_id=saga_id, error=str(e))
+            return None
 
 
 class SagaCoordinator:
@@ -200,6 +302,52 @@ class SagaCoordinator:
             "failed": failed,
             "success_rate": successful / completed if completed > 0 else 0,
         }
+
+    async def recover_incomplete_sagas(self) -> list[dict]:
+        """
+        从数据库恢复未完成的Saga列表（应用重启后调用）。
+
+        返回处于 running / started / compensating 状态的Saga信息列表，
+        数据库不可用时返回空列表。
+        """
+        try:
+            from app.core import database as db_module
+            from sqlalchemy import text
+            import orjson
+
+            engine = db_module.get_engine()
+            if engine is None:
+                return []
+
+            async with engine.connect() as conn:
+                result = await conn.execute(
+                    text("""
+                        SELECT saga_id, saga_type, status, steps, current_step
+                        FROM sagas
+                        WHERE status IN ('running', 'started', 'compensating')
+                        ORDER BY updated_at ASC
+                    """),
+                )
+                rows = result.fetchall()
+
+            recovered = []
+            for row in rows:
+                steps_data = row[3] if isinstance(row[3], (list, dict)) else orjson.loads(row[3])
+                recovered.append({
+                    "saga_id": row[0],
+                    "saga_type": row[1],
+                    "status": row[2],
+                    "steps": steps_data,
+                    "current_step": row[4],
+                })
+
+            logger.info("saga.recovery_complete",
+                       recovered_count=len(recovered))
+            return recovered
+
+        except Exception as e:
+            logger.warning("saga.recovery_failed", error=str(e))
+            return []
 
 
 # 全局Saga协调器单例

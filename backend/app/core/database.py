@@ -138,6 +138,12 @@ def get_engine():
     return _engine
 
 
+def _is_mysql_engine(engine: Any = None) -> bool:
+    """检测引擎是否为 MySQL 后端（用于 SQL 方言切换）"""
+    url = (settings.mysql_url or "").lower()
+    return "mysql" in url
+
+
 def get_session_factory():
     """获取 MySQL 会话工厂（需先 ``init_db``），未初始化返回 ``None``"""
     return _session_factory
@@ -189,6 +195,80 @@ async def check_db_connection() -> bool:
     except Exception as e:
         logger.warning("database.connection_failed", error=str(e), backend="mysql")
         return False
+
+
+async def bootstrap_schema() -> dict:
+    """
+    建库兜底（评估报告 C-01）：检查目标库的表数量，空库时用 ORM 元数据
+    ``Base.metadata.create_all`` 一次性建出全部业务表。
+
+    背景：全仓库此前没有任何有效的建表路径（alembic 迁移为空壳、
+    migrations.py 仅 4 张系统表、init-db.sql 为旧版遗留表），
+    全新环境部署后业务表不存在，系统会"静默降级"到内存模式。
+
+    策略：
+    - 非空库：跳过（不触碰存量结构，避免与存量数据/未来 alembic 迁移冲突）
+    - 空库：以 ``app/db/models.py`` 为唯一事实源建出全部表
+
+    Returns:
+        {"existed": bool, "created": int, "table_count": int}
+        - existed: 目标库原本就有业务表
+        - created: 本次新建的表数量（空库兜底时 > 0）
+    """
+    from sqlalchemy import text
+
+    engine = get_engine() or await init_db()
+    if engine is None:
+        logger.warning("database.bootstrap_schema_no_engine")
+        return {"existed": False, "created": 0, "table_count": 0}
+
+    try:
+        # 导入 models 模块，确保所有表模型注册到 Base.metadata
+        from app.db.models import Base  # noqa: F401
+
+        async with engine.connect() as conn:
+            if _is_mysql_engine():
+                # 从连接 URL 提取库名（mysql+aiomysql://user:pass@host:port/dbname?...）
+                db_name = (settings.mysql_url or "").rsplit("/", 1)[-1]
+                db_name = db_name.split("?")[0]
+                result = await conn.execute(
+                    text(
+                        "SELECT COUNT(*) FROM information_schema.tables "
+                        "WHERE table_schema = :db AND table_type = 'BASE TABLE'"
+                    ),
+                    {"db": db_name},
+                )
+            else:  # sqlite 等其他后端（测试环境）
+                result = await conn.execute(
+                    text("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+                )
+            table_count = int(result.scalar() or 0)
+
+        if table_count > 0:
+            # 非空库：不触碰存量结构
+            logger.debug(
+                "database.bootstrap_schema_existing",
+                table_count=table_count,
+            )
+            return {"existed": True, "created": 0, "table_count": table_count}
+
+        # 空库：用 ORM 元数据建出全部表
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        created = len(Base.metadata.tables)
+        logger.info(
+            "database.bootstrap_schema_created",
+            tables=created,
+            source="app.db.models.Base.metadata",
+        )
+        return {"existed": False, "created": created, "table_count": created}
+    except Exception as e:
+        logger.error(
+            "database.bootstrap_schema_failed",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        return {"existed": False, "created": 0, "table_count": 0, "error": str(e)}
 
 
 # ===========================================================================

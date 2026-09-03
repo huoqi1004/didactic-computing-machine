@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Briefcase, Users, UserCheck, UserPlus, UserMinus, Plus, Eye } from 'lucide-react'
 import {
   PageHeader,
@@ -9,6 +9,8 @@ import {
   StatCard,
   type Column,
 } from '../components/ui'
+import { apiService } from '../services/api'
+import Can from '../components/Can'
 
 /* ===================== 类型定义 ===================== */
 
@@ -55,27 +57,79 @@ const STATUS_LABEL: Record<CustomerStatus, string> = {
 
 const fmtMoney = (n: number) => `¥${n.toLocaleString('zh-CN')}`
 
-/* ===================== Mock 数据 ===================== */
+/* ===================== CRM 统计类型 ===================== */
 
-const mockCustomers: Customer[] = [
-  { id: '1', code: 'CUST-2024-001', name: '上海智云科技有限公司', contact: '张明', phone: '138-0000-1001', industry: '信息技术', level: 'S', status: 'active', address: '上海市浦东新区张江高科技园区', email: 'zhangming@zhiyun.com', revenue: 2860000, createdAt: '2023-03-15', lastContact: '2026-07-25', remark: '核心战略客户，年采购额稳定增长，合作意愿强。' },
-  { id: '2', code: 'CUST-2024-002', name: '北京华信数据股份', contact: '李芳', phone: '139-0000-1002', industry: '金融服务', level: 'A', status: 'active', address: '北京市朝阳区国贸中心', email: 'lifang@huaxin.com', revenue: 1680000, createdAt: '2023-06-22', lastContact: '2026-07-20', remark: '重点客户，金融数据解决方案合作中。' },
-  { id: '3', code: 'CUST-2024-003', name: '深圳前海智能制造', contact: '王强', phone: '137-0000-1003', industry: '智能制造', level: 'A', status: 'active', address: '深圳市南山区科技园', email: 'wangqiang@qianhai.com', revenue: 1320000, createdAt: '2023-08-10', lastContact: '2026-07-22', remark: '产线数字化改造项目进行中。' },
-  { id: '4', code: 'CUST-2024-004', name: '广州绿源生物科技', contact: '赵丽', phone: '136-0000-1004', industry: '生物医药', level: 'B', status: 'dormant', address: '广州市黄埔区科学城', email: 'zhaoli@lvyuan.com', revenue: 580000, createdAt: '2023-11-05', lastContact: '2026-05-18', remark: '近两月无新订单，需主动跟进激活。' },
-  { id: '5', code: 'CUST-2024-005', name: '杭州数联零售集团', contact: '陈浩', phone: '135-0000-1005', industry: '零售连锁', level: 'S', status: 'active', address: '杭州市余杭区未来科技城', email: 'chenhao@shulian.com', revenue: 3200000, createdAt: '2022-12-01', lastContact: '2026-07-26', remark: '全国门店数字化升级主力供应商。' },
-  { id: '6', code: 'CUST-2024-006', name: '成都西部物流股份', contact: '孙伟', phone: '134-0000-1006', industry: '物流运输', level: 'B', status: 'active', address: '成都市龙泉驿区物流园', email: 'sunwei@xibu.com', revenue: 760000, createdAt: '2024-01-18', lastContact: '2026-07-15', remark: '仓储管理系统续约中。' },
-  { id: '7', code: 'CUST-2024-007', name: '武汉光谷电子', contact: '周婷', phone: '133-0000-1007', industry: '电子信息', level: 'C', status: 'churned', address: '武汉市东湖高新区', email: 'zhouting@guanggu.com', revenue: 120000, createdAt: '2023-04-20', lastContact: '2026-02-10', remark: '合同到期未续约，已流失，建议制定挽回方案。' },
-  { id: '8', code: 'CUST-2024-008', name: '南京建工集团', contact: '吴磊', phone: '132-0000-1008', industry: '建筑工程', level: 'B', status: 'dormant', address: '南京市建邺区河西新城', email: 'wulei@jiangong.com', revenue: 430000, createdAt: '2023-09-12', lastContact: '2026-06-05', remark: '项目验收阶段，后续待启动新需求。' },
-  { id: '9', code: 'CUST-2024-009', name: '苏州工业园区能源', contact: '郑凯', phone: '131-0000-1009', industry: '能源电力', level: 'A', status: 'active', address: '苏州市工业园区独墅湖', email: 'zhengkai@nengyuan.com', revenue: 1950000, createdAt: '2023-02-28', lastContact: '2026-07-24', remark: '智慧能源管理平台长期合作。' },
-  { id: '10', code: 'CUST-2024-010', name: '重庆山城食品', contact: '黄丽', phone: '130-0000-1010', industry: '食品饮料', level: 'C', status: 'active', address: '重庆市渝北区食品城', email: 'huangli@shancheng.com', revenue: 280000, createdAt: '2024-03-08', lastContact: '2026-07-19', remark: '供应链系统新签客户，处于培育期。' },
-  { id: '11', code: 'CUST-2024-011', name: '天津港通贸易', contact: '林峰', phone: '188-0000-1011', industry: '进出口贸易', level: 'B', status: 'dormant', address: '天津市滨海新区', email: 'linfeng@tongmao.com', revenue: 510000, createdAt: '2023-07-30', lastContact: '2026-05-22', remark: '受外贸环境影响，项目暂缓推进。' },
-  { id: '12', code: 'CUST-2024-012', name: '青岛海蓝新材料', contact: '高翔', phone: '199-0000-1012', industry: '新材料', level: 'A', status: 'active', address: '青岛市崂山区新材料产业园', email: 'gaoxiang@hailan.com', revenue: 1430000, createdAt: '2023-05-14', lastContact: '2026-07-23', remark: '研发数据中台项目交付中。' },
-]
+interface CRMStats {
+  customers?: number
+  opportunities?: number
+  open_opportunities?: number
+  won_opportunities?: number
+  lost_opportunities?: number
+  contacts?: number
+  total_pipeline_amount?: number
+  total_won_amount?: number
+  win_rate?: number
+  segments?: Record<string, number>
+}
+
+/* ===================== 数据映射 ===================== */
+
+/** 将后端返回的客户数据映射为前端 Customer 结构（兼容 snake_case / camelCase） */
+function mapCustomer(raw: Record<string, unknown>): Customer {
+  const rawLevel = String(raw.level ?? raw.segment ?? 'C').toUpperCase()
+  const level: CustomerLevel = (['S', 'A', 'B', 'C'] as const).some((v) => v === rawLevel)
+    ? (rawLevel as CustomerLevel)
+    : 'C'
+  const rawStatus = String(raw.status ?? 'active')
+  let status: CustomerStatus = 'active'
+  if (rawStatus === 'dormant' || rawStatus === 'inactive') status = 'dormant'
+  else if (rawStatus === 'churned' || rawStatus === 'lost') status = 'churned'
+  return {
+    id: String(raw.id ?? raw.customer_id ?? ''),
+    code: String(raw.code ?? raw.customer_id ?? ''),
+    name: String(raw.name ?? '—'),
+    contact: String(raw.contact ?? raw.contact_name ?? '—'),
+    phone: String(raw.phone ?? raw.contact_phone ?? '—'),
+    industry: String(raw.industry ?? ''),
+    level,
+    status,
+    address: String(raw.address ?? ''),
+    email: String(raw.email ?? ''),
+    revenue: Number(raw.revenue) || 0,
+    createdAt: String(raw.created_at ?? raw.createdAt ?? ''),
+    lastContact: String(raw.last_contact ?? raw.lastContact ?? raw.updated_at ?? ''),
+    remark: String(raw.remark ?? ''),
+  }
+}
 
 /* ===================== 主组件 ===================== */
 
 export default function CustomerManagement() {
   const [selected, setSelected] = useState<Customer | null>(null)
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [stats, setStats] = useState<CRMStats | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const [list, crmStats] = await Promise.all([
+      apiService.getCustomers(),
+      apiService.getCRMStats(),
+    ])
+    setCustomers((Array.isArray(list) ? list : []).map(mapCustomer))
+    setStats(crmStats ?? null)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  const currentMonth = new Date().toISOString().slice(0, 7)
+  const totalCustomers = stats?.customers ?? customers.length
+  const activeCustomers = customers.filter((c) => c.status === 'active').length
+  const newThisMonth = customers.filter((c) => c.createdAt.startsWith(currentMonth)).length
+  const churnedCustomers = customers.filter((c) => c.status === 'churned').length
 
   const columns: Column<Customer>[] = [
     {
@@ -120,15 +174,21 @@ export default function CustomerManagement() {
       label: '操作',
       align: 'center',
       render: (r) => (
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            setSelected(r)
-          }}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 text-xs font-medium transition-colors"
+        <Can
+          resource="customer"
+          action="update"
+          fallback={<span className="text-xs text-slate-600">—</span>}
         >
-          <Eye className="w-3.5 h-3.5" /> 查看
-        </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelected(r)
+            }}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 text-xs font-medium transition-colors"
+          >
+            <Eye className="w-3.5 h-3.5" /> 查看
+          </button>
+        </Can>
       ),
     },
   ]
@@ -140,25 +200,28 @@ export default function CustomerManagement() {
         description="客户档案、分级与全生命周期管理"
         icon={<Briefcase className="w-5 h-5" />}
         actions={
-          <button className="btn-primary">
-            <Plus className="w-4 h-4" /> 新增客户
-          </button>
+          <Can resource="customer" action="create">
+            <button className="btn-primary">
+              <Plus className="w-4 h-4" /> 新增客户
+            </button>
+          </Can>
         }
       />
 
       {/* 统计卡片 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="总客户数" value={248} icon={<Users className="w-5 h-5" />} trend="较上月 +2.1%" trendUp variant="primary" />
-        <StatCard label="活跃客户" value={186} icon={<UserCheck className="w-5 h-5" />} trend="活跃率 75%" trendUp variant="accent" />
-        <StatCard label="本月新增" value={12} icon={<UserPlus className="w-5 h-5" />} trend="环比 +3 家" trendUp variant="primary" />
-        <StatCard label="流失客户" value={3} icon={<UserMinus className="w-5 h-5" />} trend="需重点挽回" variant="danger" />
+        <StatCard label="总客户数" value={totalCustomers} icon={<Users className="w-5 h-5" />} trend="较上月 +2.1%" trendUp variant="primary" />
+        <StatCard label="活跃客户" value={activeCustomers} icon={<UserCheck className="w-5 h-5" />} trend="活跃率 75%" trendUp variant="accent" />
+        <StatCard label="本月新增" value={newThisMonth} icon={<UserPlus className="w-5 h-5" />} trend="环比 +3 家" trendUp variant="primary" />
+        <StatCard label="流失客户" value={churnedCustomers} icon={<UserMinus className="w-5 h-5" />} trend="需重点挽回" variant="danger" />
       </div>
 
       {/* 客户列表 */}
       <Card title="客户列表">
         <DataTable
           columns={columns}
-          data={mockCustomers}
+          data={customers}
+          loading={loading}
           searchKeys={['name', 'contact']}
           searchPlaceholder="搜索客户名称、联系人..."
           onRowClick={(r) => setSelected(r)}

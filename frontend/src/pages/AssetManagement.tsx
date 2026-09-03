@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Boxes,
   PackageCheck,
@@ -19,6 +19,8 @@ import {
   inputClass,
   type Column,
 } from '../components/ui'
+import { apiService } from '../services/api'
+import Can from '../components/Can'
 
 /* ===================== 类型定义 ===================== */
 
@@ -58,159 +60,83 @@ const ASSET_STATUS_CONFIG: Record<
   scrapped: { label: '已报废', variant: 'danger' },
 }
 
-/* ===================== Mock 数据 ===================== */
+/** 后端资产类别 → 前端 AssetCategory 映射 */
+const ASSET_CATEGORY_MAP: Record<string, AssetCategory> = {
+  it_equipment: 'it',
+  office_equipment: 'furniture',
+  machinery: 'production',
+  vehicle: 'vehicle',
+  property: 'property',
+  real_estate: 'property',
+}
 
-const ASSETS: Asset[] = [
-  {
-    id: '1',
-    code: 'AST-IT-0001',
-    name: '戴尔 PowerEdge R750 服务器',
-    category: 'it',
-    user: '陈强',
-    location: '机房 A-01',
-    purchase_date: '2024-03-15',
-    original_value: 86000,
-    net_value: 51600,
-    status: 'in_use',
-  },
-  {
-    id: '2',
-    code: 'AST-IT-0002',
-    name: 'MacBook Pro 16 寸',
-    category: 'it',
-    user: '张明',
-    location: '研发部 3F',
-    purchase_date: '2025-06-20',
-    original_value: 22999,
-    net_value: 18399,
-    status: 'in_use',
-  },
-  {
-    id: '3',
-    code: 'AST-FN-0105',
-    name: '人体工学办公椅（赫曼米勒）',
-    category: 'furniture',
-    user: '李华',
-    location: '行政部 5F',
-    purchase_date: '2023-09-10',
-    original_value: 12800,
-    net_value: 7680,
-    status: 'in_use',
-  },
-  {
-    id: '4',
-    code: 'AST-PD-0201',
-    name: 'CNC 数控加工中心',
-    category: 'production',
-    user: '孙伟',
-    location: '车间 B-03',
-    purchase_date: '2022-01-08',
-    original_value: 680000,
-    net_value: 340000,
-    status: 'maintenance',
-  },
-  {
-    id: '5',
-    code: 'AST-VH-0030',
-    name: '丰田叉车 8FGU25',
-    category: 'vehicle',
-    user: '仓库组',
-    location: '仓库 C 区',
-    purchase_date: '2023-04-22',
-    original_value: 156000,
-    net_value: 109200,
-    status: 'in_use',
-  },
-  {
-    id: '6',
-    code: 'AST-PR-0001',
-    name: '研发中心办公楼',
-    category: 'property',
-    user: '行政部',
-    location: '科技园 3 号楼',
-    purchase_date: '2020-12-01',
-    original_value: 5200000,
-    net_value: 4680000,
-    status: 'in_use',
-  },
-  {
-    id: '7',
-    code: 'AST-IT-0003',
-    name: '联想 ThinkPad X1 Carbon',
-    category: 'it',
-    user: '—',
-    location: 'IT 仓库',
-    purchase_date: '2024-11-30',
-    original_value: 13999,
-    net_value: 10499,
-    status: 'idle',
-  },
-  {
-    id: '8',
-    code: 'AST-PD-0202',
-    name: '注塑机海天 MA2500',
-    category: 'production',
-    user: '孙伟',
-    location: '车间 B-05',
-    purchase_date: '2021-07-15',
-    original_value: 420000,
-    net_value: 168000,
-    status: 'in_use',
-  },
-  {
-    id: '9',
-    code: 'AST-IT-0004',
-    name: '华为 24 口千兆交换机',
-    category: 'it',
-    user: '陈强',
-    location: '机房 A-02',
-    purchase_date: '2023-02-28',
-    original_value: 8500,
-    net_value: 4250,
-    status: 'scrapped',
-  },
-  {
-    id: '10',
-    code: 'AST-FN-0106',
-    name: '电动升降办公桌',
-    category: 'furniture',
-    user: '王芳',
-    location: '市场部 4F',
-    purchase_date: '2024-08-05',
-    original_value: 4600,
-    net_value: 3680,
-    status: 'in_use',
-  },
-  {
-    id: '11',
-    code: 'AST-VH-0031',
-    name: '别克 GL8 商务车',
-    category: 'vehicle',
-    user: '行政部',
-    location: '地下车库',
-    purchase_date: '2024-05-18',
-    original_value: 289000,
-    net_value: 231200,
-    status: 'in_use',
-  },
-  {
-    id: '12',
-    code: 'AST-PD-0203',
-    name: '激光切割机',
-    category: 'production',
-    user: '—',
-    location: '车间 B-06',
-    purchase_date: '2019-10-12',
-    original_value: 380000,
-    net_value: 76000,
-    status: 'idle',
-  },
-]
+/** 后端资产统计响应结构（字段均为可选，兼容降级） */
+interface AssetStats {
+  total_assets?: number
+  in_use?: number
+  disposed?: number
+  total_original_value?: number
+  total_net_value?: number
+  total_accumulated_depreciation?: number
+}
+
+/* ===================== 数据映射 ===================== */
+
+/** 将后端资产数据（snake_case）映射为前端 Asset 结构 */
+function mapAsset(raw: any): Asset {
+  const rawCategory = String(raw.category ?? '')
+  const category: AssetCategory = ASSET_CATEGORY_MAP[rawCategory] ?? 'furniture'
+  const rawStatus = String(raw.status ?? 'in_use')
+  let status: AssetStatus = 'in_use'
+  if (rawStatus === 'idle') {
+    status = 'idle'
+  } else if (rawStatus === 'disposed' || rawStatus === 'scrapped') {
+    status = 'scrapped'
+  } else if (rawStatus === 'maintenance') {
+    status = 'maintenance'
+  }
+  return {
+    id: String(raw.asset_id ?? raw.id ?? ''),
+    code: String(raw.code ?? raw.asset_id ?? raw.id ?? ''),
+    name: String(raw.name ?? '—'),
+    category,
+    user: String(raw.user ?? raw.department ?? '—'),
+    location: String(raw.location ?? '—'),
+    purchase_date: String(raw.purchase_date ?? ''),
+    original_value: Number(raw.original_value ?? 0),
+    net_value: Number(raw.net_value ?? 0),
+    status,
+  }
+}
 
 /* ===================== 主组件 ===================== */
 
 export default function AssetManagement() {
+  const [assets, setAssets] = useState<Asset[]>([])
+  const [stats, setStats] = useState<AssetStats | null>(null)
+  const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const [list, assetStats] = await Promise.all([
+      apiService.getAssets(),
+      apiService.getAssetStats(),
+    ])
+    setAssets((Array.isArray(list) ? list : []).map(mapAsset))
+    setStats(assetStats ?? null)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  const totalAssets = stats?.total_assets ?? 0
+  const inUseCount = stats?.in_use ?? 0
+  const idleCount = Math.max(0, totalAssets - inUseCount - (stats?.disposed ?? 0))
+  const totalValue = stats?.total_original_value ?? 0
+  const inUseRatio = totalAssets > 0 ? (inUseCount / totalAssets) * 100 : 0
 
   const columns: Column<Asset>[] = [
     {
@@ -328,21 +254,21 @@ export default function AssetManagement() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="资产总数"
-          value="1,286"
+          value={totalAssets}
           icon={<Boxes className="w-5 h-5" />}
           variant="primary"
         />
         <StatCard
           label="在用资产"
-          value="1,082"
+          value={inUseCount}
           icon={<PackageCheck className="w-5 h-5" />}
-          trend="84.1%"
+          trend={`${inUseRatio.toFixed(1)}%`}
           trendUp
           variant="accent"
         />
         <StatCard
           label="闲置资产"
-          value="86"
+          value={idleCount}
           icon={<PackageMinus className="w-5 h-5" />}
           trend="待调配"
           trendUp={false}
@@ -350,7 +276,7 @@ export default function AssetManagement() {
         />
         <StatCard
           label="资产总值"
-          value="¥8,560,000"
+          value={`¥${totalValue.toLocaleString('zh-CN')}`}
           icon={<Wallet className="w-5 h-5" />}
           variant="primary"
         />
@@ -360,7 +286,8 @@ export default function AssetManagement() {
       <Card title="资产列表">
         <DataTable
           columns={columns}
-          data={ASSETS}
+          data={assets}
+          loading={loading}
           pageSize={10}
           searchKeys={['name', 'code']}
           searchPlaceholder="搜索资产名称/编号..."

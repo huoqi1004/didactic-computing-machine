@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Wallet,
   CheckCircle2,
@@ -16,6 +16,8 @@ import {
 } from 'lucide-react'
 import { apiService } from '../services/api'
 import { formatCurrency, formatNumber, formatDateTime, cn } from '../lib/utils'
+import ExportButton from '../components/ExportButton'
+import Can from '../components/Can'
 
 /* ===================== 类型定义 ===================== */
 
@@ -123,6 +125,74 @@ export default function Reimbursement() {
     return matchStatus && matchSearch
   })
 
+  /* ===================== 导出数据构造 ===================== */
+
+  // 导出数据：报销清单（PDF basic 模板）
+  const exportListData = useMemo(
+    () => ({
+      title: '报销清单汇总',
+      paragraphs: [
+        `报销总数：${reimbursements.length} 笔`,
+        `待处理：${stats?.pending_count ?? 0} 笔`,
+        `已付款金额：${formatCurrency(stats?.total_paid_amount ?? 0)}`,
+      ],
+      table: {
+        headers: ['报销单号', '员工', '部门', '类别', '描述', '金额', '项目', '状态'],
+        rows: reimbursements.map((r) => [
+          r.reimbursement_no,
+          r.employee_name || '—',
+          r.department || '—',
+          CATEGORY_LABELS[r.category] || r.category,
+          r.description || '—',
+          formatCurrency(r.amount),
+          r.project_name || '—',
+          REIMB_STATUS_CONFIG[r.status]?.label || r.status,
+        ]),
+      },
+    }),
+    [reimbursements, stats],
+  )
+
+  // 导出数据：报销管理报告（DOCX report 模板）
+  const exportReportData = useMemo(() => {
+    const today = new Date()
+    const dateStr = today.toISOString().slice(0, 10)
+    const totalAmount = reimbursements.reduce((sum, r) => sum + r.amount, 0)
+    const paidCount = reimbursements.filter((r) => r.status === 'paid').length
+    const pendingCount = reimbursements.filter(
+      (r) => r.status === 'pending' || r.status === 'verified' || r.status === 'approved',
+    ).length
+    return {
+      title: '报销管理报告',
+      report_no: `RPT-REIMB-${dateStr}`,
+      date: dateStr,
+      summary: `本期共处理报销 ${reimbursements.length} 笔，总金额 ${formatCurrency(
+        totalAmount,
+      )}。其中已付款 ${paidCount} 笔，待处理 ${pendingCount} 笔。`,
+      sections: [
+        {
+          heading: '报销明细',
+          content: `共计 ${reimbursements.length} 笔报销记录，明细如下：`,
+          table: {
+            headers: ['报销单号', '员工', '部门', '类别', '描述', '金额', '项目', '状态'],
+            rows: reimbursements.map((r) => [
+              r.reimbursement_no,
+              r.employee_name || '—',
+              r.department || '—',
+              CATEGORY_LABELS[r.category] || r.category,
+              r.description || '—',
+              formatCurrency(r.amount),
+              r.project_name || '—',
+              REIMB_STATUS_CONFIG[r.status]?.label || r.status,
+            ]),
+          },
+        },
+      ],
+      conclusion:
+        '建议持续关注待处理报销的审批进度，确保报销款项及时支付，同时加强票据核验管理，规范报销流程。',
+    }
+  }, [reimbursements])
+
   const handleVerify = async (id: string) => {
     setActionLoading(id)
     await apiService.verifyReimbursement(id)
@@ -165,18 +235,48 @@ export default function Reimbursement() {
             <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
             刷新
           </button>
-          <button onClick={() => setShowProjectForm(true)} className="btn-ghost">
-            <FolderPlus className="w-4 h-4" />
-            注册项目
-          </button>
-          <button onClick={() => setShowEmployeeForm(true)} className="btn-ghost">
-            <UserPlus className="w-4 h-4" />
-            注册员工
-          </button>
-          <button onClick={() => setShowSubmitForm(true)} className="btn-accent">
-            <Plus className="w-4 h-4" />
-            提交报销
-          </button>
+          <Can resource="reimbursement" action="create">
+            <button onClick={() => setShowProjectForm(true)} className="btn-ghost">
+              <FolderPlus className="w-4 h-4" />
+              注册项目
+            </button>
+          </Can>
+          <Can resource="reimbursement" action="create">
+            <button onClick={() => setShowEmployeeForm(true)} className="btn-ghost">
+              <UserPlus className="w-4 h-4" />
+              注册员工
+            </button>
+          </Can>
+          <Can resource="reimbursement" action="create">
+            <button onClick={() => setShowSubmitForm(true)} className="btn-accent">
+              <Plus className="w-4 h-4" />
+              提交报销
+            </button>
+          </Can>
+          <Can resource="document" action="create">
+            <ExportButton
+              agentId="reimbursement"
+              templateType="basic"
+              filename="报销清单汇总"
+              data={exportListData}
+              title="报销清单汇总"
+              formats={['pdf']}
+              label="导出报销清单"
+              size="sm"
+            />
+          </Can>
+          <Can resource="document" action="create">
+            <ExportButton
+              agentId="reimbursement"
+              templateType="report"
+              filename="报销管理报告"
+              data={exportReportData}
+              title="报销管理报告"
+              formats={['docx']}
+              label="导出报销报告"
+              size="sm"
+            />
+          </Can>
         </div>
       </div>
 
@@ -340,18 +440,28 @@ export default function Reimbursement() {
                       <div className="flex items-center justify-center gap-1">
                         {/* 待核验 -> 核验 */}
                         {r.status === 'pending' && (
-                          <button
-                            onClick={() => handleVerify(r.reimbursement_id)}
-                            disabled={actionLoading === r.reimbursement_id}
-                            className="p-1.5 rounded-md bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 transition-colors disabled:opacity-50"
-                            title="核验"
+                          <Can
+                            resource="reimbursement"
+                            action="update"
+                            fallback={<span className="text-xs text-slate-600">—</span>}
                           >
-                            <FileCheck className="w-3.5 h-3.5" />
-                          </button>
+                            <button
+                              onClick={() => handleVerify(r.reimbursement_id)}
+                              disabled={actionLoading === r.reimbursement_id}
+                              className="p-1.5 rounded-md bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 transition-colors disabled:opacity-50"
+                              title="核验"
+                            >
+                              <FileCheck className="w-3.5 h-3.5" />
+                            </button>
+                          </Can>
                         )}
                         {/* 已核验 -> 审批通过/拒绝 */}
                         {r.status === 'verified' && (
-                          <>
+                          <Can
+                            resource="reimbursement"
+                            action="approve"
+                            fallback={<span className="text-xs text-slate-600">—</span>}
+                          >
                             <button
                               onClick={() => handleApprove(r.reimbursement_id, true)}
                               disabled={actionLoading === r.reimbursement_id}
@@ -368,18 +478,24 @@ export default function Reimbursement() {
                             >
                               <XCircle className="w-3.5 h-3.5" />
                             </button>
-                          </>
+                          </Can>
                         )}
                         {/* 已审批 -> 付款 */}
                         {r.status === 'approved' && (
-                          <button
-                            onClick={() => handlePay(r.reimbursement_id)}
-                            disabled={actionLoading === r.reimbursement_id}
-                            className="p-1.5 rounded-md bg-accent/10 hover:bg-accent/20 text-accent transition-colors disabled:opacity-50"
-                            title="付款"
+                          <Can
+                            resource="reimbursement"
+                            action="approve"
+                            fallback={<span className="text-xs text-slate-600">—</span>}
                           >
-                            <Banknote className="w-3.5 h-3.5" />
-                          </button>
+                            <button
+                              onClick={() => handlePay(r.reimbursement_id)}
+                              disabled={actionLoading === r.reimbursement_id}
+                              className="p-1.5 rounded-md bg-accent/10 hover:bg-accent/20 text-accent transition-colors disabled:opacity-50"
+                              title="付款"
+                            >
+                              <Banknote className="w-3.5 h-3.5" />
+                            </button>
+                          </Can>
                         )}
                         {(r.status === 'paid' || r.status === 'rejected') && (
                           <span className="text-xs text-slate-600">—</span>

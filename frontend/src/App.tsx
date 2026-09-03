@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
+import ErrorBoundary from './components/ErrorBoundary'
 
 // 总览页面
 import Dashboard from './pages/Dashboard'
@@ -52,6 +53,12 @@ import ApprovalWorkflow from './pages/ApprovalWorkflow'
 import KnowledgeBase from './pages/KnowledgeBase'
 import CIOAdmin from './pages/CIOAdmin'
 
+// 文档中心
+import DocumentGeneration from './pages/DocumentGeneration'
+
+// 内部通讯
+import Messaging from './pages/Messaging'
+
 // 登录页
 import Login from './pages/Login'
 
@@ -90,6 +97,7 @@ function App() {
         element={
           <ProtectedRoute>
             <Layout>
+              <ErrorBoundary>
               <Routes>
                 {/* 总览 */}
                 <Route path="/" element={<Dashboard />} />
@@ -133,6 +141,12 @@ function App() {
                 {/* 知识库 */}
                 <Route path="/knowledge" element={<ProtectedRoute resource="knowledge" action="read"><KnowledgeBase /></ProtectedRoute>} />
 
+                {/* 文档中心 */}
+                <Route path="/documents" element={<ProtectedRoute resource="document" action="read"><DocumentGeneration /></ProtectedRoute>} />
+
+                {/* 内部通讯 */}
+                <Route path="/messaging" element={<ProtectedRoute resource="message" action="read"><Messaging /></ProtectedRoute>} />
+
                 {/* 系统管理 */}
                 <Route path="/security" element={<ProtectedRoute resource="security" action="read"><Security /></ProtectedRoute>} />
                 <Route path="/roles" element={<ProtectedRoute resource="role" action="read"><RoleManagement /></ProtectedRoute>} />
@@ -143,6 +157,7 @@ function App() {
                 {/* 兜底 */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
+              </ErrorBoundary>
             </Layout>
           </ProtectedRoute>
         }

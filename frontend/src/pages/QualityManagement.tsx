@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from 'react'
 import {
   BadgeCheck,
   Percent,
@@ -19,6 +20,8 @@ import {
   type Column,
 } from '../components/ui'
 import { cn } from '../lib/utils'
+import { apiService } from '../services/api'
+import Can from '../components/Can'
 
 /* ===================== 类型定义 ===================== */
 
@@ -74,141 +77,130 @@ interface QualityMetric {
   icon: typeof TrendingUp
 }
 
-const QUALITY_METRICS: QualityMetric[] = [
-  { label: '来料合格率', value: '99.2%', trend: '0.3%', trendUp: true, icon: TrendingUp },
-  { label: '过程合格率', value: '98.8%', trend: '0.5%', trendUp: true, icon: TrendingUp },
-  { label: '出货合格率', value: '99.5%', trend: '0.1%', trendUp: true, icon: TrendingUp },
-  { label: '客户投诉率', value: '0.12%', trend: '0.04%', trendUp: false, icon: TrendingDown },
-]
+/* ===================== 后端统计类型 ===================== */
 
-/* ===================== Mock 缺陷数据 ===================== */
+/** 后端质量统计响应结构（字段均为可选，兼容降级） */
+interface QualityStats {
+  total_inspections?: number
+  completed?: number
+  pending?: number
+  passed?: number
+  failed?: number
+  pass_rate?: number
+  defect_rate?: number
+  by_type?: Record<string, { total: number; passed: number; failed: number }>
+  total_standards?: number
+  active_standards?: number
+  total_improvements?: number
+  improvements_by_status?: Record<string, number>
+  total_defects?: number
+  defect_rate_threshold?: number
+}
 
-const DEFECTS: Defect[] = [
-  {
-    id: '1',
-    code: 'DEF-2026-001',
-    description: 'PCB 板焊接虚焊，批次 BX-0721',
-    source: 'incoming',
-    severity: 'major',
-    status: 'processing',
-    owner: '张工',
-    found_date: '2026-07-25',
-  },
-  {
-    id: '2',
-    code: 'DEF-2026-002',
-    description: '外壳表面划痕，色差超公差',
-    source: 'process',
-    severity: 'cosmetic',
-    status: 'pending',
-    owner: '李工',
-    found_date: '2026-07-26',
-  },
-  {
-    id: '3',
-    code: 'DEF-2026-003',
-    description: '电源模块输出电压波动超标',
-    source: 'incoming',
-    severity: 'critical',
-    status: 'processing',
-    owner: '王工',
-    found_date: '2026-07-24',
-  },
-  {
-    id: '4',
-    code: 'DEF-2026-004',
-    description: '客户反馈设备偶发重启',
-    source: 'customer',
-    severity: 'major',
-    status: 'processing',
-    owner: '赵工',
-    found_date: '2026-07-22',
-  },
-  {
-    id: '5',
-    code: 'DEF-2026-005',
-    description: '密封圈尺寸偏差，导致防水测试不合格',
-    source: 'incoming',
-    severity: 'minor',
-    status: 'closed',
-    owner: '孙工',
-    found_date: '2026-07-20',
-  },
-  {
-    id: '6',
-    code: 'DEF-2026-006',
-    description: '装配工序螺丝扭矩不足',
-    source: 'process',
-    severity: 'minor',
-    status: 'closed',
-    owner: '周工',
-    found_date: '2026-07-19',
-  },
-  {
-    id: '7',
-    code: 'DEF-2026-007',
-    description: '客户投诉包装破损，产品外观受损',
-    source: 'customer',
-    severity: 'cosmetic',
-    status: 'pending',
-    owner: '吴工',
-    found_date: '2026-07-27',
-  },
-  {
-    id: '8',
-    code: 'DEF-2026-008',
-    description: '芯片批次热稳定性不达标',
-    source: 'incoming',
-    severity: 'critical',
-    status: 'pending',
-    owner: '郑工',
-    found_date: '2026-07-28',
-  },
-  {
-    id: '9',
-    code: 'DEF-2026-009',
-    description: '软件界面响应延迟超 2 秒',
-    source: 'customer',
-    severity: 'major',
-    status: 'closed',
-    owner: '钱工',
-    found_date: '2026-07-18',
-  },
-  {
-    id: '10',
-    code: 'DEF-2026-010',
-    description: '标签印刷模糊，条码无法识别',
-    source: 'process',
-    severity: 'cosmetic',
-    status: 'processing',
-    owner: '冯工',
-    found_date: '2026-07-26',
-  },
-  {
-    id: '11',
-    code: 'DEF-2026-011',
-    description: '电机轴承异响，转速不稳',
-    source: 'incoming',
-    severity: 'major',
-    status: 'pending',
-    owner: '陈工',
-    found_date: '2026-07-27',
-  },
-  {
-    id: '12',
-    code: 'DEF-2026-012',
-    description: '出厂检测漏检，绝缘电阻未达标',
-    source: 'process',
-    severity: 'critical',
-    status: 'processing',
-    owner: '褚工',
-    found_date: '2026-07-25',
-  },
-]
+/* ===================== 数据映射 ===================== */
+
+/** 后端检验类型映射为前端缺陷来源 */
+function mapInspectionTypeToSource(raw: string): DefectSource {
+  if (raw === 'process') return 'process'
+  if (raw === 'finished') return 'customer'
+  return 'incoming'
+}
+
+/** 从缺陷列表中提取最高严重等级 */
+function extractSeverity(defects: any[], result: string): DefectSeverity {
+  if (defects && defects.length > 0) {
+    for (const d of defects) {
+      const sev = String(d.severity ?? '').toLowerCase()
+      if (sev === 'critical') return 'critical'
+    }
+    for (const d of defects) {
+      const sev = String(d.severity ?? '').toLowerCase()
+      if (sev === 'major') return 'major'
+    }
+    for (const d of defects) {
+      const sev = String(d.severity ?? '').toLowerCase()
+      if (sev === 'minor') return 'minor'
+    }
+    return 'cosmetic'
+  }
+  // 无缺陷时根据结果推断
+  return result === 'failed' ? 'major' : 'cosmetic'
+}
+
+/** 后端检验状态映射为前端缺陷状态 */
+function mapInspectionStatus(raw: string, result: string): DefectStatus {
+  if (raw === 'completed') {
+    return result === 'failed' ? 'processing' : 'closed'
+  }
+  return 'pending'
+}
+
+/** 将后端质检记录映射为前端 Defect 结构 */
+function mapInspectionToDefect(raw: any): Defect {
+  const inspectionType = String(raw.inspection_type ?? 'incoming')
+  const result = String(raw.result ?? 'pending')
+  const defects = Array.isArray(raw.defects) ? raw.defects : []
+  const createdAt = String(raw.created_at ?? '')
+  const dateStr = createdAt ? createdAt.slice(0, 10) : ''
+
+  // 构建描述：产品 + 批次 + 备注
+  const parts = [
+    String(raw.product ?? ''),
+    raw.batch ? `批次 ${raw.batch}` : '',
+    String(raw.notes ?? ''),
+  ].filter(Boolean)
+
+  return {
+    id: String(raw.inspection_id ?? raw.id ?? ''),
+    code: String(raw.inspection_id ?? raw.id ?? ''),
+    description: parts.join('，') || '—',
+    source: mapInspectionTypeToSource(inspectionType),
+    severity: extractSeverity(defects, result),
+    status: mapInspectionStatus(String(raw.status ?? 'pending'), result),
+    owner: String(raw.inspector ?? '—'),
+    found_date: dateStr,
+  }
+}
 
 /* ===================== 主组件 ===================== */
 
 export default function QualityManagement() {
+  const [defects, setDefects] = useState<Defect[]>([])
+  const [stats, setStats] = useState<QualityStats | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const [inspectionList, qualityStats] = await Promise.all([
+      apiService.getQualityInspections(),
+      apiService.getQualityStats(),
+    ])
+    setDefects((Array.isArray(inspectionList) ? inspectionList : []).map(mapInspectionToDefect))
+    setStats(qualityStats ?? null)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  // 从 stats.by_type 计算各类合格率
+  const byType = stats?.by_type ?? {}
+  const computePassRate = (type: string): string => {
+    const t = byType[type]
+    if (t && t.total > 0) {
+      return `${((t.passed / t.total) * 100).toFixed(1)}%`
+    }
+    return '—'
+  }
+
+  const qualityMetrics: QualityMetric[] = [
+    { label: '来料合格率', value: computePassRate('incoming'), trend: '实时统计', trendUp: true, icon: TrendingUp },
+    { label: '过程合格率', value: computePassRate('process'), trend: '实时统计', trendUp: true, icon: TrendingUp },
+    { label: '成品合格率', value: computePassRate('finished'), trend: '实时统计', trendUp: true, icon: TrendingUp },
+    { label: '不合格率', value: stats?.defect_rate != null ? `${(stats.defect_rate * 100).toFixed(2)}%` : '—', trend: '实时统计', trendUp: false, icon: TrendingDown },
+  ]
+
   const columns: Column<Defect>[] = [
     {
       key: 'code',
@@ -268,10 +260,16 @@ export default function QualityManagement() {
       label: '操作',
       align: 'center',
       render: () => (
-        <button className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-xs">
-          <Eye className="w-3.5 h-3.5" />
-          处理
-        </button>
+        <Can
+          resource="quality"
+          action="update"
+          fallback={<span className="text-xs text-slate-600">—</span>}
+        >
+          <button className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-xs">
+            <Eye className="w-3.5 h-3.5" />
+            处理
+          </button>
+        </Can>
       ),
     },
   ]
@@ -288,31 +286,31 @@ export default function QualityManagement() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="合格率"
-          value="98.6%"
+          value={stats?.pass_rate != null ? `${(stats.pass_rate * 100).toFixed(1)}%` : '—'}
           icon={<Percent className="w-5 h-5" />}
-          trend="0.4%"
+          trend="实时计算"
           trendUp
           variant="accent"
         />
         <StatCard
-          label="待处理缺陷"
-          value="8"
+          label="不合格数"
+          value={stats?.failed ?? defects.filter((d) => d.status === 'processing').length}
           icon={<Bug className="w-5 h-5" />}
-          trend="较上周 +2"
+          trend="需关注"
           trendUp={false}
           variant="warning"
         />
         <StatCard
-          label="本月审计"
-          value="3"
+          label="待检验"
+          value={stats?.pending ?? defects.filter((d) => d.status === 'pending').length}
           icon={<ClipboardCheck className="w-5 h-5" />}
           variant="primary"
         />
         <StatCard
-          label="CAPA 数量"
-          value="5"
+          label="质检总数"
+          value={stats?.total_inspections ?? defects.length}
           icon={<Wrench className="w-5 h-5" />}
-          trend="待闭环 2"
+          trend="全量记录"
           trendUp={false}
           variant="danger"
         />
@@ -321,7 +319,7 @@ export default function QualityManagement() {
       {/* 质量指标卡片 */}
       <Card title="质量指标概览">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {QUALITY_METRICS.map((metric) => {
+          {qualityMetrics.map((metric) => {
             const Icon = metric.icon
             return (
               <div
@@ -362,7 +360,8 @@ export default function QualityManagement() {
       <Card title="缺陷列表">
         <DataTable
           columns={columns}
-          data={DEFECTS}
+          data={defects}
+          loading={loading}
           pageSize={10}
           searchKeys={['code', 'description']}
           searchPlaceholder="搜索缺陷编号/描述..."

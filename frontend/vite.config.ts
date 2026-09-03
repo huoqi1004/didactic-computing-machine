@@ -15,7 +15,7 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8004',
+        target: 'http://localhost:8000',
         changeOrigin: true,
         // WebSocket 升级支持
         ws: true,

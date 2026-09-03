@@ -32,12 +32,12 @@ data:
   ERP_CURRENT_DOMAIN: "agent_execution"
 
   # 持久化后端配置
-  ERP_DB_BACKEND: "postgres"
+  ERP_DB_BACKEND: "mysql"
   ERP_CACHE_BACKEND: "redis"
 
   # 数据库连接配置（主机名使用 K8s Service DNS）
   # 格式: <service>.<namespace>.svc.cluster.local
-  ERP_POSTGRES_URL: "postgresql+asyncpg://erp_user:erp_password@postgres.data-knowledge.svc.cluster.local:5432/erp_db"
+  ERP_MYSQL_URL: "mysql+aiomysql://erp:erp_password@mysql.data-knowledge.svc.cluster.local:3306/erp_db?charset=utf8mb4"
 
   # Redis 连接配置
   ERP_REDIS_URL: "redis://redis.data-knowledge.svc.cluster.local:6379/0"

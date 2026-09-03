@@ -12,10 +12,11 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# 安装系统依赖 (PostgreSQL客户端库、构建工具、curl用于健康检查)
+# 安装系统依赖 (MySQL客户端库、构建工具、curl用于健康检查)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    libpq-dev \
+    default-libmysqlclient-dev \
+    pkg-config \
     curl \
     && rm -rf /var/lib/apt/lists/*
 

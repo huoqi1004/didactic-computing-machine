@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   FileText,
   Clock,
@@ -8,6 +8,7 @@ import {
   Eye,
   ShieldCheck,
   XCircle,
+  Play,
 } from 'lucide-react'
 import {
   PageHeader,
@@ -19,6 +20,8 @@ import {
   type Column,
 } from '../components/ui'
 import { cn } from '../lib/utils'
+import { apiService } from '../services/api'
+import Can from '../components/Can'
 
 /* ===================== 类型定义 ===================== */
 
@@ -51,31 +54,80 @@ const STATUS_CONFIG: Record<
   terminated: { variant: 'danger', label: '已终止' },
 }
 
+/** 后端合同状态 → 前端 ContractStatus 映射 */
+const CONTRACT_STATUS_MAP: Record<string, ContractStatus> = {
+  draft: 'draft',
+  reviewing: 'reviewing',
+  approved: 'active',
+  executing: 'active',
+  completed: 'active',
+  expired: 'expired',
+  terminated: 'terminated',
+}
+
+/** 后端合同统计响应结构（字段均为可选，兼容降级） */
+interface ContractStats {
+  contracts_total?: number
+  contracts_executing?: number
+  contracts_completed?: number
+  contracts_expiring_30d?: number
+  total_contract_value?: number
+  status_distribution?: Record<string, number>
+  type_distribution?: Record<string, number>
+}
+
 const fmtMoney = (n: number) => `¥${n.toLocaleString('zh-CN')}`
 
-/* ===================== Mock 数据 ===================== */
+/* ===================== 数据映射 ===================== */
 
-const initialContracts: Contract[] = [
-  { id: '1', code: 'HT-2026-001', name: '智云数据中台年度服务合同', partyA: '上海智云科技有限公司', partyB: '本公司', amount: 2860000, signDate: '2026-01-15', expireDate: '2027-01-14', status: 'active', content: '提供数据中台建设与年度运维服务，含 7×24 技术支持。', owner: '张明' },
-  { id: '2', code: 'HT-2026-002', name: '华信风控系统采购合同', partyA: '北京华信数据股份', partyB: '本公司', amount: 520000, signDate: '2026-02-20', expireDate: '2026-08-19', status: 'reviewing', content: '风控系统软件授权及实施部署服务。', owner: '李芳' },
-  { id: '3', code: 'HT-2026-003', name: '前海产线改造项目合同', partyA: '深圳前海智能制造', partyB: '本公司', amount: 1280000, signDate: '2026-03-10', expireDate: '2026-12-31', status: 'active', content: '智能制造产线数字化改造，分三期交付。', owner: '王强' },
-  { id: '4', code: 'HT-2026-004', name: '数联门店数字化合同', partyA: '杭州数联零售集团', partyB: '本公司', amount: 680000, signDate: '2025-09-01', expireDate: '2026-08-31', status: 'active', content: '全国 200 家门店数字化系统建设。', owner: '陈浩' },
-  { id: '5', code: 'HT-2026-005', name: '西部仓储管理系统合同', partyA: '成都西部物流股份', partyB: '本公司', amount: 320000, signDate: '2026-04-05', expireDate: '2027-04-04', status: 'draft', content: '仓储管理系统 SaaS 订阅及定制开发。', owner: '孙伟' },
-  { id: '6', code: 'HT-2026-006', name: '光谷电子采购平台合同', partyA: '武汉光谷电子', partyB: '本公司', amount: 180000, signDate: '2025-06-15', expireDate: '2026-06-14', status: 'expired', content: '电子采购平台年度服务，合同已到期。', owner: '周婷' },
-  { id: '7', code: 'HT-2026-007', name: '建工集团 ERP 实施合同', partyA: '南京建工集团', partyB: '本公司', amount: 460000, signDate: '2026-05-18', expireDate: '2026-11-17', status: 'active', content: 'ERP 系统实施及培训服务。', owner: '吴磊' },
-  { id: '8', code: 'HT-2026-008', name: '能源管理平台续约合同', partyA: '苏州工业园区能源', partyB: '本公司', amount: 720000, signDate: '2026-06-01', expireDate: '2027-05-31', status: 'reviewing', content: '智慧能源管理平台年度续约，含功能升级。', owner: '郑凯' },
-  { id: '9', code: 'HT-2026-009', name: '海蓝数据中台合同', partyA: '青岛海蓝新材料', partyB: '本公司', amount: 540000, signDate: '2026-03-22', expireDate: '2026-09-21', status: 'active', content: '研发数据中台建设，含数据治理服务。', owner: '高翔' },
-  { id: '10', code: 'HT-2025-088', name: '山城供应链系统合同', partyA: '重庆山城食品', partyB: '本公司', amount: 260000, signDate: '2025-03-08', expireDate: '2026-03-07', status: 'terminated', content: '因业务调整，合同提前终止。', owner: '黄丽' },
-  { id: '11', code: 'HT-2026-010', name: '港通贸易平台合同', partyA: '天津港通贸易', partyB: '本公司', amount: 380000, signDate: '2026-04-12', expireDate: '2027-04-11', status: 'draft', content: '贸易管理平台开发合同，待法务审核。', owner: '林峰' },
-  { id: '12', code: 'HT-2026-011', name: '山城食品供应链续约', partyA: '重庆山城食品', partyB: '本公司', amount: 295000, signDate: '2026-03-08', expireDate: '2027-03-07', status: 'reviewing', content: '供应链系统年度续约合同。', owner: '黄丽' },
-]
+/** 将后端合同数据（snake_case）映射为前端 Contract 结构 */
+function mapContract(raw: any): Contract {
+  const rawStatus = String(raw.status ?? 'draft')
+  const status: ContractStatus = CONTRACT_STATUS_MAP[rawStatus] ?? 'active'
+  return {
+    id: String(raw.contract_id ?? raw.id ?? ''),
+    code: String(raw.code ?? raw.contract_id ?? raw.id ?? ''),
+    name: String(raw.title ?? raw.name ?? '—'),
+    partyA: String(raw.party_a ?? raw.partyA ?? raw.counterparty ?? '—'),
+    partyB: String(raw.party_b ?? raw.partyB ?? '本公司'),
+    amount: Number(raw.amount ?? 0),
+    signDate: String(raw.sign_date ?? raw.signDate ?? raw.start_date ?? ''),
+    expireDate: String(raw.expire_date ?? raw.expireDate ?? raw.end_date ?? ''),
+    status,
+    content: String(raw.content ?? raw.terms ?? ''),
+    owner: String(raw.owner ?? raw.approved_by ?? raw.department ?? '—'),
+  }
+}
 
 /* ===================== 主组件 ===================== */
 
 export default function ContractManagement() {
-  const [contracts, setContracts] = useState<Contract[]>(initialContracts)
+  const [contracts, setContracts] = useState<Contract[]>([])
+  const [stats, setStats] = useState<ContractStats | null>(null)
+  const [loading, setLoading] = useState(true)
   const [detail, setDetail] = useState<Contract | null>(null)
   const [review, setReview] = useState<Contract | null>(null)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const [list, contractStats] = await Promise.all([
+      apiService.getContracts(),
+      apiService.getContractStats(),
+    ])
+    setContracts((Array.isArray(list) ? list : []).map(mapContract))
+    setStats(contractStats ?? null)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  const statusDist = stats?.status_distribution ?? {}
+  const activeCount = (statusDist.approved ?? 0) + (statusDist.executing ?? 0)
+  const pendingCount = (statusDist.draft ?? 0) + (statusDist.reviewing ?? 0)
+  const expiringCount = stats?.contracts_expiring_30d ?? 0
+  const totalValue = stats?.total_contract_value ?? 0
 
   const handleReview = (id: string, action: 'approve' | 'reject') => {
     setContracts((prev) =>
@@ -181,10 +233,10 @@ export default function ContractManagement() {
 
       {/* 统计卡片 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="有效合同" value={contracts.filter((c) => c.status === 'active').length} icon={<FileText className="w-5 h-5" />} trend="持续增长" trendUp variant="primary" />
-        <StatCard label="待审核" value={contracts.filter((c) => c.status === 'draft' || c.status === 'reviewing').length} icon={<Clock className="w-5 h-5" />} trend="需及时处理" variant="warning" />
-        <StatCard label="即将到期" value={12} icon={<AlertTriangle className="w-5 h-5" />} trend="30 天内" variant="warning" />
-        <StatCard label="合同总金额" value="¥28,560,000" icon={<Wallet className="w-5 h-5" />} trend="较去年 +15.6%" trendUp variant="primary" />
+        <StatCard label="有效合同" value={activeCount} icon={<FileText className="w-5 h-5" />} trend="持续增长" trendUp variant="primary" />
+        <StatCard label="待审核" value={pendingCount} icon={<Clock className="w-5 h-5" />} trend="需及时处理" variant="warning" />
+        <StatCard label="即将到期" value={expiringCount} icon={<AlertTriangle className="w-5 h-5" />} trend="30 天内" variant="warning" />
+        <StatCard label="合同总金额" value={fmtMoney(totalValue)} icon={<Wallet className="w-5 h-5" />} trend="较去年 +15.6%" trendUp variant="primary" />
       </div>
 
       {/* 合同列表 */}
@@ -192,6 +244,7 @@ export default function ContractManagement() {
         <DataTable
           columns={columns}
           data={contracts}
+          loading={loading}
           searchKeys={['code', 'name']}
           searchPlaceholder="搜索合同编号、合同名称..."
           pageSize={10}

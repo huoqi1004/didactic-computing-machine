@@ -139,7 +139,7 @@ export default function Conversation() {
           )}
           {chatAgents.map((agent) => (
             <AgentListItem
-              key={agent.id}
+              key={agent.id || Math.random()}
               agent={agent}
               active={agent.id === activeAgentId}
               onClick={() => {
@@ -157,7 +157,7 @@ export default function Conversation() {
               快捷指令
             </p>
             <div className="flex flex-wrap gap-1.5">
-              {activeAgent.quickCommands.map((cmd) => (
+              {(activeAgent.quickCommands || []).map((cmd) => (
                 <button
                   key={cmd}
                   onClick={() => handleQuickCommand(cmd)}
@@ -266,7 +266,7 @@ export default function Conversation() {
 /* ============ 子组件 ============ */
 
 function AgentAvatar({ agent, size = 'sm' }: { agent: ChatAgent; size?: 'sm' | 'md' }) {
-  const Icon = AGENT_ICON_MAP[agent.icon] || Package
+  const Icon = (agent?.icon && AGENT_ICON_MAP[agent.icon]) || Package
   const sizeClass = size === 'md' ? 'w-9 h-9' : 'w-8 h-8'
   const iconClass = size === 'md' ? 'w-5 h-5' : 'w-4 h-4'
   return (
@@ -339,6 +339,9 @@ function MessageBubble({
   message: ChatMessage
   agentIcon?: string
 }) {
+  if (!message || !message.role) {
+    return null
+  }
   const isUser = message.role === 'user'
   const Icon = isUser ? User : AGENT_ICON_MAP[agentIcon || 'Package'] || Package
 
@@ -381,7 +384,7 @@ function MessageBubble({
         </div>
 
         {/* 思考过程折叠面板 */}
-        {!isUser && message.thinkingProcess && message.thinkingProcess.length > 0 && (
+        {!isUser && message.thinkingProcess && Array.isArray(message.thinkingProcess) && message.thinkingProcess.length > 0 && (
           <ThinkingProcess steps={message.thinkingProcess} />
         )}
 
@@ -422,6 +425,9 @@ function ThinkingProcess({ steps }: { steps: string[] }) {
 }
 
 function DataCard({ card }: { card: DataCardType }) {
+  if (!card || !card.type) {
+    return null
+  }
   const Icon = card.type === 'table' ? Table2 : card.type === 'stats' ? BarChart3 : ListOrdered
 
   return (

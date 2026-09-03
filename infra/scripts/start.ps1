@@ -61,7 +61,7 @@ function Write-Services {
     Write-Host "  Prometheus:   http://localhost:9090" -ForegroundColor White
     Write-Host "  Grafana:      http://localhost:3001 (admin/admin)" -ForegroundColor White
     Write-Host ""
-    Write-Host "  PostgreSQL:   localhost:5432 (erp_db / erp_user / erp_password)" -ForegroundColor White
+    Write-Host "  MySQL:        localhost:3306 (erp_db / erp / erp_password)" -ForegroundColor White
     Write-Host "  Redis:        localhost:6379" -ForegroundColor White
     Write-Host ""
     Write-Host "============================================" -ForegroundColor Green
@@ -255,7 +255,7 @@ function Show-Help {
     Write-Host "  restart    重启所有服务"
     Write-Host "  build      重新构建并启动所有服务"
     Write-Host "  logs       查看所有服务日志"
-    Write-Host "  logs <服务名>  查看指定服务日志 (backend/frontend/postgres/redis/prometheus/grafana)"
+    Write-Host "  logs <服务名>  查看指定服务日志 (backend/frontend/mysql/redis/prometheus/grafana)"
     Write-Host "  status     查看服务状态"
     Write-Host "  cleanup    删除所有容器和数据卷 (危险操作)"
     Write-Host "  help       显示帮助信息"

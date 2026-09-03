@@ -676,19 +676,30 @@ async def get_performance_stats(
 # 薪酬路由
 # =============================================================================
 
+def _mask_bank_account(account: str) -> str:
+    """银行卡号脱敏：仅保留尾4位（评估报告 D-01 止血措施）"""
+    if not account:
+        return ""
+    return f"************{account[-4:]}" if len(account) >= 4 else "************"
+
+
 @router.get("/payroll/structure/{employee_id}", summary="获取薪资结构")
 async def get_salary_structure(
     employee_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("payroll", "read")),
 ):
-    """获取员工薪资结构"""
+    """获取员工薪资结构（需 payroll:read 权限；银行卡号脱敏返回）"""
     agent = get_payroll_agent()
     if agent is None:
         raise HTTPException(status_code=503, detail="Payroll Agent 未启动")
     structure = agent.get_salary_structure(employee_id)
     if structure is None:
         raise HTTPException(status_code=404, detail=f"薪资结构不存在: {employee_id}")
-    return structure
+    # 脱敏返回：不泄露完整银行账号（写接口 /payroll/structure 的原始数据不受影响）
+    masked = dict(structure)
+    if masked.get("bank_account"):
+        masked["bank_account"] = _mask_bank_account(str(masked["bank_account"]))
+    return masked
 
 
 @router.post("/payroll/structure", summary="设置薪资结构")
@@ -747,9 +758,9 @@ async def batch_calculate_payroll(
 async def get_payroll_records(
     employee_id: Optional[str] = Query(None, description="按员工编号过滤"),
     period: Optional[str] = Query(None, description="按周期过滤 (如 2026-07)"),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("payroll", "read")),
 ):
-    """获取薪酬记录，可按员工和周期过滤"""
+    """获取薪酬记录，可按员工和周期过滤（需 payroll:read 权限）"""
     agent = get_payroll_agent()
     if agent is None:
         raise HTTPException(status_code=503, detail="Payroll Agent 未启动")
@@ -759,9 +770,9 @@ async def get_payroll_records(
 
 @router.get("/payroll/social-insurance", summary="获取社保配置")
 async def get_social_insurance_config(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("payroll", "read")),
 ):
-    """获取社保公积金费率配置"""
+    """获取社保公积金费率配置（需 payroll:read 权限）"""
     agent = get_payroll_agent()
     if agent is None:
         raise HTTPException(status_code=503, detail="Payroll Agent 未启动")

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Clock,
   TimerReset,
@@ -18,6 +18,7 @@ import {
   type Column,
 } from '../components/ui'
 import { cn } from '../lib/utils'
+import { apiService } from '../services/api'
 
 /* ===================== 类型定义 ===================== */
 
@@ -45,30 +46,66 @@ const statusConfig: Record<
   absent: { label: '缺勤', variant: 'danger' },
 }
 
-/* ===================== Mock 数据 ===================== */
+/* ===================== 数据映射 ===================== */
 
-const attendanceRecords: AttendanceRecord[] = [
-  { id: 'EMP-001', name: '张伟', department: '技术部', checkIn: '08:55', checkOut: '18:12', status: 'normal', workHours: 9.3 },
-  { id: 'EMP-002', name: '李娜', department: '产品部', checkIn: '09:02', checkOut: '18:30', status: 'late', workHours: 9.5 },
-  { id: 'EMP-003', name: '王强', department: '技术部', checkIn: '08:48', checkOut: '18:05', status: 'normal', workHours: 9.3 },
-  { id: 'EMP-004', name: '赵敏', department: '财务部', checkIn: '08:58', checkOut: '17:30', status: 'early', workHours: 8.5 },
-  { id: 'EMP-005', name: '刘洋', department: '销售部', checkIn: '09:18', checkOut: '18:40', status: 'late', workHours: 9.4 },
-  { id: 'EMP-006', name: '陈静', department: '人力资源部', checkIn: '08:45', checkOut: '18:20', status: 'normal', workHours: 9.6 },
-  { id: 'EMP-007', name: '杨光', department: '技术部', checkIn: '—', checkOut: '—', status: 'absent', workHours: 0 },
-  { id: 'EMP-008', name: '周婷', department: '市场部', checkIn: '08:52', checkOut: '18:08', status: 'normal', workHours: 9.3 },
-  { id: 'EMP-009', name: '孙磊', department: '运营部', checkIn: '09:12', checkOut: '18:25', status: 'late', workHours: 9.2 },
-  { id: 'EMP-010', name: '吴雪', department: '技术部', checkIn: '08:50', checkOut: '17:45', status: 'early', workHours: 8.9 },
-  { id: 'EMP-011', name: '郑凯', department: '销售部', checkIn: '—', checkOut: '—', status: 'absent', workHours: 0 },
-  { id: 'EMP-012', name: '黄丽', department: '财务部', checkIn: '08:56', checkOut: '18:15', status: 'normal', workHours: 9.3 },
-  { id: 'EMP-013', name: '林峰', department: '技术部', checkIn: '09:05', checkOut: '18:30', status: 'late', workHours: 9.4 },
-  { id: 'EMP-014', name: '何芳', department: '市场部', checkIn: '08:47', checkOut: '18:22', status: 'normal', workHours: 9.6 },
-]
+/** 解析 HH:MM 时间为分钟数 */
+function parseTimeMinutes(t: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(t)
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null
+}
+
+/** 根据上下班打卡时间计算工时（小时），无法解析时返回 0 */
+function computeWorkHours(checkIn: string, checkOut: string): number {
+  const ci = parseTimeMinutes(checkIn)
+  const co = parseTimeMinutes(checkOut)
+  if (ci == null || co == null) return 0
+  return Math.max(0, (co - ci) / 60)
+}
+
+/** 将后端返回的考勤记录映射为前端 AttendanceRecord 结构（兼容 snake_case / camelCase） */
+function mapAttendanceRecord(raw: Record<string, unknown>): AttendanceRecord {
+  const rawStatus = String(raw.status ?? 'normal')
+  let status: AttendanceStatus = 'normal'
+  if (rawStatus === 'late') status = 'late'
+  else if (rawStatus === 'early') status = 'early'
+  else if (rawStatus === 'absent' || rawStatus === 'leave') status = 'absent'
+  const checkIn = String(raw.check_in ?? raw.checkIn ?? '—')
+  const checkOut = String(raw.check_out ?? raw.checkOut ?? '—')
+  return {
+    id: String(raw.id ?? raw.employee_id ?? raw.record_id ?? ''),
+    name: String(raw.name ?? raw.employee_name ?? raw.employee_id ?? '—'),
+    department: String(raw.department ?? raw.dept ?? ''),
+    checkIn,
+    checkOut,
+    status,
+    workHours: Number(raw.work_hours ?? raw.workHours) || computeWorkHours(checkIn, checkOut),
+  }
+}
 
 /* ===================== 主组件 ===================== */
 
 export default function Attendance() {
   const today = new Date().toISOString().slice(0, 10)
   const [date, setDate] = useState(today)
+  const [records, setRecords] = useState<AttendanceRecord[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const fetchData = useCallback(async (d: string) => {
+    setLoading(true)
+    const list = await apiService.getAttendance({ start_date: d, end_date: d })
+    setRecords((Array.isArray(list) ? list : []).map(mapAttendanceRecord))
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData(date)
+  }, [date, fetchData])
+
+  const presentCount = records.filter((r) => r.status !== 'absent').length
+  const attendanceRate = records.length > 0 ? (presentCount / records.length) * 100 : 0
+  const lateCount = records.filter((r) => r.status === 'late').length
+  const absentCount = records.filter((r) => r.status === 'absent').length
+  const overtimeTotal = records.reduce((s, r) => s + Math.max(0, r.workHours - 8), 0)
 
   const columns: Column<AttendanceRecord>[] = [
     {
@@ -164,7 +201,7 @@ export default function Attendance() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="出勤率"
-          value="96.8%"
+          value={`${attendanceRate.toFixed(1)}%`}
           icon={<CalendarCheck className="w-5 h-5" />}
           variant="accent"
           trend="环比 +0.5%"
@@ -172,20 +209,20 @@ export default function Attendance() {
         />
         <StatCard
           label="今日迟到"
-          value={4}
+          value={lateCount}
           icon={<Clock className="w-5 h-5" />}
           variant="warning"
           trend="阈值 9:00"
         />
         <StatCard
           label="今日请假"
-          value={7}
+          value={absentCount}
           icon={<UserX className="w-5 h-5" />}
           variant="primary"
         />
         <StatCard
           label="加班总时长"
-          value="156 h"
+          value={`${Math.round(overtimeTotal)} h`}
           icon={<TimerReset className="w-5 h-5" />}
           variant="primary"
           trend="本周累计"
@@ -204,7 +241,8 @@ export default function Attendance() {
       >
         <DataTable
           columns={columns}
-          data={attendanceRecords}
+          data={records}
+          loading={loading}
           searchKeys={['name']}
           searchPlaceholder="搜索姓名..."
           pageSize={10}

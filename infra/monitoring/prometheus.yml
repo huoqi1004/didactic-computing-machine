@@ -39,18 +39,18 @@ scrape_configs:
           environment: 'production'
 
   # ----------------------------------------------------------
-  # PostgreSQL 数据库指标
+  # MySQL 数据库指标
   # 域: data-knowledge
-  # (需要部署 postgres-exporter, 当前预留配置)
+  # (需要部署 mysql-exporter, 当前预留配置)
   # ----------------------------------------------------------
-  # - job_name: 'postgres'
+  # - job_name: 'mysql'
   #   metrics_path: '/metrics'
   #   scrape_interval: 15s
   #   static_configs:
-  #     - targets: ['postgres-exporter:9187']
+  #     - targets: ['mysql-exporter:9104']
   #       labels:
   #         domain: 'data-knowledge'
-  #         service: 'postgresql'
+  #         service: 'mysql'
 
   # ----------------------------------------------------------
   # Redis 缓存指标

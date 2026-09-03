@@ -35,6 +35,7 @@ PUBLIC_PATHS = [
     r"^/openapi\.json",
     r"^/redoc",
     r"^/$",  # 根端点
+    r"^/api/v1/document/templates$",  # 文档模板列表（公开）
 ]
 
 # ========== 路径 → 权限映射规则 ==========
@@ -175,6 +176,10 @@ PERMISSION_RULES = [
     (r"^/api/v1/bi", "GET", "bi", "read"),
     (r"^/api/v1/esg", "GET", "esg", "read"),
     (r"^/api/v1/esg", "POST", "esg", "create"),
+    # 文档生成
+    (r"^/api/v1/document/generate", "POST", "document", "create"),
+    (r"^/api/v1/document/download", "GET", "document", "read"),
+    (r"^/api/v1/document/agents", "GET", "document", "read"),
 ]
 
 

@@ -194,6 +194,17 @@ class RBACEngine:
             logger.debug("rbac.fire_and_forget_no_loop")
             return
 
+        # 数据库会话工厂未初始化（应用导入/启动早期，init_db() 尚未执行）时，
+        # DB 写入必然失败，直接关闭协程跳过——数据仅保留在内存缓存中，
+        # 待 lifespan 中 init_db() 完成后由 persist_seed_data() 统一播种。
+        if get_session_factory() is None:
+            try:
+                coro.close()
+            except Exception:
+                pass
+            logger.debug("rbac.fire_and_forget_no_factory")
+            return
+
         task = loop.create_task(coro)
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)

@@ -15,9 +15,9 @@ import asyncio
 import json
 import structlog
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Callable
-from uuid import uuid4
+from uuid import uuid4, uuid5, NAMESPACE_DNS
 
 from app.core.config import settings, AgentState
 from app.core.event.bus import event_bus
@@ -101,8 +101,14 @@ class BaseAgent(ABC):
     """
 
     def __init__(self, name: str, domain: str, capabilities: list[str],
-                 security_clearance: str = "internal"):
-        self.agent_id = str(uuid4())
+                 security_clearance: str = "internal",
+                 persistent_id: Optional[str] = None):
+        # 持久化ID：显式传入 > 基于 name+domain 的确定性 UUID5
+        # 确定性 ID 保证 Agent 重启后 aggregate_id 不变，事件溯源重放才能生效
+        if persistent_id:
+            self.agent_id = persistent_id
+        else:
+            self.agent_id = str(uuid5(NAMESPACE_DNS, f"{domain}:{name}"))
         self.name = name
         self.domain = domain
         self.capabilities = capabilities
@@ -126,6 +132,11 @@ class BaseAgent(ABC):
         self._error_count = 0
         self._success_count = 0
 
+        # LLM失败冷却：连续失败达到阈值后暂停该Agent的LLM出站请求
+        # （llm_analyze失败不会触发熔断器，否则会停掉规则主干；用独立冷却保护成本）
+        self._llm_fail_count = 0
+        self._llm_cooldown_until: Optional[datetime] = None
+
         # 人在回路
         self._human_override = False
         self._pending_approvals: dict[str, asyncio.Future] = {}
@@ -136,6 +147,12 @@ class BaseAgent(ABC):
         # LLM认知引擎客户端（懒加载，首次调用llm_chat/llm_analyze时初始化）
         # 为None表示尚未初始化；LLM未启用时保持None，避免不必要的对象创建
         self._llm_client = None
+
+        # 事件溯源：状态版本跟踪
+        self._state_version: int = 0
+        self._replayed: bool = False
+        self._snapshot_interval: int = 50  # 每50个事件自动保存一次快照
+        self._events_since_snapshot: int = 0
 
         logger.info("agent.created", agent_id=self.agent_id, name=name, domain=domain)
 
@@ -187,6 +204,10 @@ class BaseAgent(ABC):
             risk_level="low",
         )
 
+        # 事件溯源：先从事件存储重放状态（Agent 重启不丢数据）
+        # 必须在发布 AGENT_REGISTERED 之前执行，以确保版本号连续
+        await self.replay_from_event_store()
+
         # 发布Agent注册事件
         await self._publish_event(
             EventType.AGENT_REGISTERED,
@@ -217,6 +238,10 @@ class BaseAgent(ABC):
         logger.info("agent.stopping", agent=self.name)
         self._stop_event.set()
         self.state = AgentState.TERMINATED
+
+        # 事件溯源：停止时保存最终快照
+        if self._state_version > 0:
+            await self.save_state_snapshot()
 
         if self._task:
             self._task.cancel()
@@ -335,7 +360,7 @@ class BaseAgent(ABC):
         event_bus.subscribe(sub)
 
     async def _publish_event(self, event_type: EventType, data: dict):
-        """发布事件"""
+        """发布事件到事件总线并持久化到事件存储"""
         event = Event(
             event_type=event_type,
             aggregate_id=f"agent:{self.agent_id}",
@@ -343,7 +368,160 @@ class BaseAgent(ABC):
             event_data=data,
             agent_id=self.identity.did if self.identity else None,
         )
+        # 递增版本号，使事件溯源可追踪
+        self._state_version += 1
+        event.version = self._state_version
+        self._events_since_snapshot += 1
+
+        # 持久化到事件存储（事件溯源基础）
+        from app.core.event.store import event_store
+        await event_store.append(event)
+
+        # 发布到事件总线（实时分发）
         await event_bus.publish(event)
+
+        # 自动快照：每 N 个事件保存一次
+        if self._events_since_snapshot >= self._snapshot_interval:
+            self._events_since_snapshot = 0
+            asyncio.create_task(self.save_state_snapshot())
+
+    # ========== 事件溯源 ==========
+
+    async def apply_event(self, event: Event):
+        """
+        应用历史事件重建状态（事件溯源重放）。
+
+        子类覆盖此方法，根据 event_type 和 event_data 恢复内部状态。
+        默认实现为空操作——仅恢复通用计数器。
+        """
+        if event.event_type == EventType.AGENT_DECISION_MADE:
+            decision = AgentDecision(
+                decision_type=event.event_data.get("decision_type", "unknown"),
+                reasoning=event.event_data.get("reasoning", ""),
+                action=event.event_data.get("action", ""),
+                confidence=event.event_data.get("confidence", 0.0),
+                requires_human_approval=event.event_data.get("requires_human_approval", False),
+                context=event.event_data.get("context"),
+            )
+            decision.decision_id = event.event_data.get("decision_id", str(uuid4()))
+            ts_str = event.event_data.get("timestamp")
+            if ts_str:
+                try:
+                    decision.timestamp = datetime.fromisoformat(ts_str)
+                except Exception:
+                    pass
+            self._decision_history.append(decision)
+        elif event.event_type == EventType.AGENT_STATE_CHANGED:
+            state_str = event.event_data.get("state", "")
+            if state_str == "running":
+                self._success_count += 1
+
+    async def replay_from_event_store(self):
+        """
+        从事件存储重放状态（Agent 重启后自动恢复）。
+
+        策略：
+        1. 加载最新快照（若存在），恢复到快照版本
+        2. 重放快照之后的所有事件，逐步恢复状态
+        3. 更新 _state_version 到最新
+        """
+        from app.core.event.store import event_store
+
+        aggregate_id = f"agent:{self.agent_id}"
+
+        try:
+            # 1. 尝试加载最新快照
+            snapshot = await event_store.get_latest_snapshot(aggregate_id)
+            if snapshot:
+                version, state = snapshot
+                self._restore_from_snapshot(state)
+                self._state_version = version
+                logger.info("agent.snapshot_loaded",
+                           agent=self.name, version=version)
+
+            # 2. 重放快照之后的事件
+            events = await event_store.get_events(
+                aggregate_id,
+                from_version=self._state_version + 1,
+            )
+
+            if events:
+                for event in events:
+                    await self.apply_event(event)
+                    self._state_version = event.version
+
+                logger.info("agent.replayed",
+                           agent=self.name,
+                           events_replayed=len(events),
+                           state_version=self._state_version)
+                self._replayed = True
+            elif snapshot is None:
+                logger.info("agent.no_history",
+                           agent=self.name, aggregate_id=aggregate_id)
+
+        except Exception as e:
+            logger.warning("agent.replay_failed",
+                          agent=self.name, error=str(e))
+
+    def _restore_from_snapshot(self, state: dict):
+        """
+        从快照恢复通用状态。子类可覆盖以恢复自定义状态。
+        """
+        self._success_count = state.get("success_count", 0)
+        self._error_count = state.get("error_count", 0)
+        # 恢复最近的决策历史（快照中最多保存100条）
+        self._decision_history.clear()
+        for d in state.get("decision_history", []):
+            try:
+                decision = AgentDecision(
+                    decision_type=d["decision_type"],
+                    reasoning=d["reasoning"],
+                    action=d["action"],
+                    confidence=d["confidence"],
+                    requires_human_approval=d.get("requires_human_approval", False),
+                    context=d.get("context"),
+                )
+                decision.decision_id = d.get("decision_id", str(uuid4()))
+                ts_str = d.get("timestamp")
+                if ts_str:
+                    decision.timestamp = datetime.fromisoformat(ts_str)
+                self._decision_history.append(decision)
+            except (KeyError, ValueError):
+                continue
+
+    def _get_snapshot_state(self) -> dict:
+        """
+        返回当前状态用于快照。子类可覆盖以添加自定义状态。
+        """
+        return {
+            "agent_id": self.agent_id,
+            "name": self.name,
+            "domain": self.domain,
+            "state": self.state.value,
+            "success_count": self._success_count,
+            "error_count": self._error_count,
+            "decision_history": [d.to_dict() for d in self._decision_history[-100:]],
+            "aggregate_type": "agent",
+        }
+
+    async def save_state_snapshot(self):
+        """将当前状态保存为快照到事件存储。"""
+        from app.core.event.store import event_store
+
+        aggregate_id = f"agent:{self.agent_id}"
+        state = self._get_snapshot_state()
+
+        try:
+            await event_store.save_snapshot(
+                aggregate_id=aggregate_id,
+                version=self._state_version,
+                snapshot=state,
+            )
+            logger.info("agent.snapshot_saved",
+                       agent=self.name, version=self._state_version)
+        except Exception as e:
+            logger.warning("agent.snapshot_save_failed",
+                          agent=self.name, error=str(e))
 
     async def request_authorization(self, intent: str, resource: str,
                                     data_level: SecurityLevel,
@@ -592,6 +770,21 @@ class BaseAgent(ABC):
             logger.debug("agent.llm_disabled", agent=self.name)
             return {"error": "llm_unavailable"}
 
+        # LLM冷却检查：连续失败达到阈值后，冷却期内直接拒绝，不发起出站请求
+        now = datetime.now(timezone.utc)
+        if self._llm_cooldown_until is not None:
+            if now < self._llm_cooldown_until:
+                logger.debug(
+                    "agent.llm_cooldown_active",
+                    agent=self.name,
+                    until=self._llm_cooldown_until.isoformat(),
+                )
+                return {"error": "llm_unavailable", "reason": "llm_cooldown"}
+            # 冷却结束，恢复尝试并重置失败计数
+            self._llm_cooldown_until = None
+            self._llm_fail_count = 0
+            logger.info("agent.llm_cooldown_expired", agent=self.name)
+
         client = self._get_llm_client()
         if client is None:
             logger.warning("agent.llm_unavailable", agent=self.name,
@@ -666,11 +859,27 @@ class BaseAgent(ABC):
                 "agent.llm_analyze_success",
                 agent=self.name, keys=list(parsed.keys()) if isinstance(parsed, dict) else None,
             )
+            # 调用成功，重置失败计数（冷却由下一次失败重新累计）
+            self._llm_fail_count = 0
             return parsed
         except Exception as e:
+            self._llm_fail_count += 1
+            cooldown_applied = False
+            if (
+                self._llm_cooldown_until is None
+                and self._llm_fail_count >= settings.llm_failure_cooldown_threshold
+            ):
+                self._llm_cooldown_until = datetime.now(timezone.utc) + timedelta(
+                    seconds=settings.llm_cooldown_seconds
+                )
+                cooldown_applied = True
             logger.warning(
                 "agent.llm_analyze_failed",
                 agent=self.name, error=str(e), error_type=type(e).__name__,
+                fail_count=self._llm_fail_count,
+                cooldown_until=(
+                    self._llm_cooldown_until.isoformat() if cooldown_applied else None
+                ),
             )
             return {"error": "llm_unavailable", "reason": str(e)}
 
@@ -733,6 +942,11 @@ class BaseAgent(ABC):
                 "error_count": self._error_count,
                 "decisions": len(self._decision_history),
                 "pending_approvals": len(self._pending_approvals),
+            },
+            "event_sourcing": {
+                "state_version": self._state_version,
+                "replayed": self._replayed,
+                "events_since_snapshot": self._events_since_snapshot,
             },
             "human_override": self._human_override,
             "last_health_check": self._last_health_check.isoformat(),

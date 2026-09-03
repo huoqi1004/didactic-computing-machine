@@ -24,7 +24,7 @@
 # 以下每个服务在 K8s 中将自动注入 Istio sidecar:
 #   - backend:   sidecar.istio.io/inject: "true" (agent-execution命名空间)
 #   - frontend:  sidecar.istio.io/inject: "true" (user-interaction命名空间)
-#   - postgres:  sidecar.istio.io/inject: "true" (data-knowledge命名空间)
+#   - mysql:     sidecar.istio.io/inject: "true" (data-knowledge命名空间)
 #   - redis:     sidecar.istio.io/inject: "true" (data-knowledge命名空间)
 # 详见: infra/k8s/ 和 infra/istio/ 目录
 # ============================================================
@@ -54,7 +54,7 @@ services:
       - erp-data-net     # 连接 data-knowledge 域 (数据存储访问)
       - erp-ui-net       # 连接 user-interaction 域 (为前端提供API)
     depends_on:
-      postgres:
+      mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -105,37 +105,39 @@ services:
           cpus: '0.5'
 
   # ----------------------------------------------------------
-  # PostgreSQL - 关系型数据库 (仅 data-knowledge 域)
+  # MySQL - 关系型数据库 (仅 data-knowledge 域)
   # [生产环境] K8s中此服务位于 data-knowledge 命名空间 (StatefulSet)
   # [生产环境] Istio sidecar 自动注入, 启用 STRICT mTLS
   # [生产环境] 授权策略: 仅允许 agent-execution 命名空间 (backend) 访问
-  # [生产环境] 持久化: 10Gi PVC (见 infra/k8s/postgres-statefulset.yaml)
+  # [生产环境] 持久化: 10Gi PVC (见 infra/k8s/mysql-statefulset.yaml)
   # ----------------------------------------------------------
-  postgres:
+  mysql:
     # [Istio Sidecar 占位] 生产环境中此服务将注入 istio-proxy sidecar
-    # StatefulSet 配置见 infra/k8s/postgres-statefulset.yaml
+    # StatefulSet 配置见 infra/k8s/mysql-statefulset.yaml
     # mTLS 策略见 infra/istio/peer-authentication.yaml (STRICT模式)
     # 授权策略见 infra/istio/authorization-policies.yaml (仅允许backend)
-    image: postgres:16-alpine
-    container_name: erp-postgres
+    image: mysql:8.0
+    container_name: erp-mysql
     ports:
-      - "5432:5432"
+      - "3306:3306"
     networks:
       - erp-data-net     # 仅连接 data-knowledge 域
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - mysql-data:/var/lib/mysql
       - ./infra/docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres_admin
-      POSTGRES_DB: postgres
+      MYSQL_ROOT_PASSWORD: root_admin
+      MYSQL_DATABASE: erp_db
+      MYSQL_USER: erp
+      MYSQL_PASSWORD: erp_password
       TZ: Asia/Shanghai
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --default-authentication-plugin=mysql_native_password
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root --password=$$MYSQL_ROOT_PASSWORD"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 30s
     restart: unless-stopped
     deploy:
       resources:
@@ -294,12 +296,12 @@ networks:
 # ============================================================
 # 持久化数据卷
 # [生产环境] K8s中使用 PersistentVolumeClaim (PVC)
-#   - postgres-data: 10Gi PVC (见 infra/k8s/postgres-statefulset.yaml)
+#   - mysql-data: 10Gi PVC (见 infra/k8s/mysql-statefulset.yaml)
 #   - redis-data:    5Gi PVC  (见 infra/k8s/redis-deployment.yaml)
 # ============================================================
 volumes:
-  postgres-data:
-    name: erp-postgres-data
+  mysql-data:
+    name: erp-mysql-data
   redis-data:
     name: erp-redis-data
   prometheus-data:

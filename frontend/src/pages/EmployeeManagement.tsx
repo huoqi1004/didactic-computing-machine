@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Users,
   UserPlus,
@@ -26,6 +26,8 @@ import {
   type Column,
 } from '../components/ui'
 import { cn } from '../lib/utils'
+import { apiService } from '../services/api'
+import Can from '../components/Can'
 
 /* ===================== 类型定义 ===================== */
 
@@ -56,28 +58,71 @@ const statusConfig: Record<
   resigned: { label: '离职', variant: 'neutral' },
 }
 
-/* ===================== Mock 数据 ===================== */
+/* ===================== HR 统计类型 ===================== */
 
-const employees: Employee[] = [
-  { id: 'EMP-001', name: '张伟', gender: '男', department: '技术部', position: '前端工程师', hireDate: '2021-03-15', status: 'active', phone: '138-0011-2233', email: 'zhangwei@company.com', education: '本科', contractEnd: '2027-03-14' },
-  { id: 'EMP-002', name: '李娜', gender: '女', department: '产品部', position: '产品经理', hireDate: '2020-07-01', status: 'active', phone: '139-2233-4455', email: 'lina@company.com', education: '硕士', contractEnd: '2026-06-30' },
-  { id: 'EMP-003', name: '王强', gender: '男', department: '技术部', position: '后端工程师', hireDate: '2022-09-05', status: 'active', phone: '137-4455-6677', email: 'wangqiang@company.com', education: '本科', contractEnd: '2028-09-04' },
-  { id: 'EMP-004', name: '赵敏', gender: '女', department: '财务部', position: '会计主管', hireDate: '2019-04-20', status: 'active', phone: '136-6677-8899', email: 'zhaomin@company.com', education: '本科', contractEnd: '2026-04-19' },
-  { id: 'EMP-005', name: '刘洋', gender: '男', department: '销售部', position: '销售经理', hireDate: '2024-02-13', status: 'probation', phone: '135-8899-0011', email: 'liuyang@company.com', education: '本科', contractEnd: '2025-02-12' },
-  { id: 'EMP-006', name: '陈静', gender: '女', department: '人力资源部', position: 'HRBP', hireDate: '2021-11-08', status: 'active', phone: '138-1122-3344', email: 'chenjing@company.com', education: '硕士', contractEnd: '2027-11-07' },
-  { id: 'EMP-007', name: '杨光', gender: '男', department: '技术部', position: '测试工程师', hireDate: '2024-06-03', status: 'probation', phone: '139-3344-5566', email: 'yangguang@company.com', education: '本科', contractEnd: '2025-06-02' },
-  { id: 'EMP-008', name: '周婷', gender: '女', department: '市场部', position: '市场专员', hireDate: '2022-05-30', status: 'active', phone: '137-5566-7788', email: 'zhouting@company.com', education: '本科', contractEnd: '2027-05-29' },
-  { id: 'EMP-009', name: '孙磊', gender: '男', department: '运营部', position: '运营专员', hireDate: '2024-10-21', status: 'probation', phone: '136-7788-9900', email: 'sunlei@company.com', education: '大专', contractEnd: '2025-10-20' },
-  { id: 'EMP-010', name: '吴雪', gender: '女', department: '技术部', position: 'UI 设计师', hireDate: '2021-08-12', status: 'active', phone: '135-9900-1122', email: 'wuxue@company.com', education: '本科', contractEnd: '2026-08-11' },
-  { id: 'EMP-011', name: '郑凯', gender: '男', department: '销售部', position: '销售代表', hireDate: '2023-10-20', status: 'resigned', phone: '138-2233-5566', email: 'zhengkai@company.com', education: '本科', contractEnd: '2024-10-19' },
-  { id: 'EMP-012', name: '黄丽', gender: '女', department: '财务部', position: '出纳', hireDate: '2020-12-01', status: 'active', phone: '139-4455-7788', email: 'huangli@company.com', education: '大专', contractEnd: '2026-11-30' },
-]
+interface HRStats {
+  total_employees?: number
+  active_employees?: number
+  inactive_employees?: number
+  by_department?: Record<string, number>
+  total_attendance_records?: number
+  total_leave_requests?: number
+  pending_leave_requests?: number
+  departments?: number
+}
+
+/* ===================== 数据映射 ===================== */
+
+/** 将后端返回的员工数据映射为前端 Employee 结构（兼容 snake_case / camelCase） */
+function mapEmployee(raw: Record<string, unknown>): Employee {
+  const rawStatus = String(raw.status ?? 'active')
+  let status: EmployeeStatus = 'active'
+  if (rawStatus === 'probation') status = 'probation'
+  else if (rawStatus === 'inactive' || rawStatus === 'resigned') status = 'resigned'
+  return {
+    id: String(raw.id ?? raw.employee_id ?? ''),
+    name: String(raw.name ?? '—'),
+    gender: String(raw.gender ?? '—'),
+    department: String(raw.department ?? ''),
+    position: String(raw.position ?? ''),
+    hireDate: String(raw.hire_date ?? raw.hireDate ?? ''),
+    status,
+    phone: String(raw.phone ?? ''),
+    email: String(raw.email ?? ''),
+    education: String(raw.education ?? '—'),
+    contractEnd: String(raw.contract_end ?? raw.contractEnd ?? '—'),
+  }
+}
 
 /* ===================== 主组件 ===================== */
 
 export default function EmployeeManagement() {
   const [selected, setSelected] = useState<Employee | null>(null)
   const [showAdd, setShowAdd] = useState(false)
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [stats, setStats] = useState<HRStats | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const [list, hrStats] = await Promise.all([
+      apiService.getEmployees(),
+      apiService.getHRStats(),
+    ])
+    setEmployees((Array.isArray(list) ? list : []).map(mapEmployee))
+    setStats(hrStats ?? null)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  const currentMonth = new Date().toISOString().slice(0, 7)
+  const activeCount = stats?.active_employees ?? employees.filter((e) => e.status === 'active').length
+  const hiredThisMonth = employees.filter((e) => e.hireDate.startsWith(currentMonth)).length
+  const resignedCount = stats?.inactive_employees ?? employees.filter((e) => e.status === 'resigned').length
+  const probationCount = employees.filter((e) => e.status === 'probation').length
 
   const columns: Column<Employee>[] = [
     {
@@ -112,16 +157,22 @@ export default function EmployeeManagement() {
       label: '操作',
       align: 'center',
       render: (e) => (
-        <button
-          onClick={(ev) => {
-            ev.stopPropagation()
-            setSelected(e)
-          }}
-          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-primary hover:bg-primary/10 transition-colors"
+        <Can
+          resource="employee"
+          action="update"
+          fallback={<span className="text-xs text-slate-600">—</span>}
         >
-          <Eye className="w-3.5 h-3.5" />
-          查看
-        </button>
+          <button
+            onClick={(ev) => {
+              ev.stopPropagation()
+              setSelected(e)
+            }}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-primary hover:bg-primary/10 transition-colors"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            查看
+          </button>
+        </Can>
       ),
     },
   ]
@@ -133,10 +184,12 @@ export default function EmployeeManagement() {
         description="员工档案、入职转正与人员结构管理"
         icon={<Users className="w-5 h-5" />}
         actions={
-          <button onClick={() => setShowAdd(true)} className="btn-primary">
-            <UserPlus className="w-4 h-4" />
-            新增员工
-          </button>
+          <Can resource="employee" action="create">
+            <button onClick={() => setShowAdd(true)} className="btn-primary">
+              <UserPlus className="w-4 h-4" />
+              新增员工
+            </button>
+          </Can>
         }
       />
 
@@ -144,7 +197,7 @@ export default function EmployeeManagement() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="在职员工"
-          value={86}
+          value={activeCount}
           icon={<Users className="w-5 h-5" />}
           variant="primary"
           trend="编制 95"
@@ -152,7 +205,7 @@ export default function EmployeeManagement() {
         />
         <StatCard
           label="本月入职"
-          value={3}
+          value={hiredThisMonth}
           icon={<UserPlus className="w-5 h-5" />}
           variant="accent"
           trend="环比 +2"
@@ -160,14 +213,14 @@ export default function EmployeeManagement() {
         />
         <StatCard
           label="本月离职"
-          value={1}
+          value={resignedCount}
           icon={<UserMinus className="w-5 h-5" />}
           variant="warning"
           trend="环比 -1"
         />
         <StatCard
           label="待转正"
-          value={5}
+          value={probationCount}
           icon={<Clock className="w-5 h-5" />}
           variant="warning"
         />
@@ -178,6 +231,7 @@ export default function EmployeeManagement() {
         <DataTable
           columns={columns}
           data={employees}
+          loading={loading}
           searchKeys={['name', 'id']}
           searchPlaceholder="搜索姓名 / 工号..."
           onRowClick={(e) => setSelected(e)}

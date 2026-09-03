@@ -309,11 +309,10 @@ async def test_get_bom_filter():
 
 # ========== test_llm_fallback ==========
 
-async def test_llm_fallback():
+async def test_llm_fallback(monkeypatch):
     """LLM不可用时降级到规则模式"""
     from app.core.config import settings
-
-    assert settings.llm_enabled is False
+    monkeypatch.setattr(settings, "llm_enabled", False)
 
     agent = await _setup_agent()
 

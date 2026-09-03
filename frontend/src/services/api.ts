@@ -571,29 +571,37 @@ function buildMockConversationResponse(agentId: string, message: string): Conver
 
   // 库存相关
   if (agentId === 'inventory-agent') {
-    if (lower.includes('库存') || lower.includes('状态') || lower.includes('查询')) {
+    // 预测类（优先匹配，避免被"库存"关键词吞没）
+    if (lower.includes('预测') || lower.includes('预估') || lower.includes('趋势') || lower.includes('下季度') || lower.includes('下月') || lower.includes('未来')) {
       return {
         content:
-          '已为您查询当前库存状态。系统共监控 12 个品类，其中 4 项低于安全库存，1 项已缺货。库存总价值 ¥1,892,450.50。',
+          '基于历史消耗趋势与季节性分析，下季度库存预测如下：\n1. 钢化玻璃面板：当前已缺货，预计下季度需求1500件，建议立即补货1000件；\n2. 固态硬盘1TB：当前320件低于安全库存500件，预计下季度消耗800件，建议补货800件；\n3. 电源适配器65W：当前210件，预计下季度消耗400件，建议补货500件；\n4. 处理器与内存条：库存充足，预计下季度平稳消耗，无需补货。综合预测下季度库存周转率将提升8%。',
         thinkingProcess: [
-          '解析用户意图：查询库存状态',
-          '调用 inventory.list() 获取全部 SKU',
-          '按状态分类统计并汇总',
-          '生成库存总览数据卡片',
+          '识别意图：库存预测（非实时查询）',
+          '加载历史消耗数据与季节性因子',
+          '对每个品类运行趋势预测模型',
+          '生成下季度需求预测与补货建议',
         ],
         dataCard: {
-          type: 'stats',
-          title: '库存状态总览',
-          stats: [
-            { label: '库存品类', value: '12', tone: 'primary' },
-            { label: '库存总价值', value: '¥1,892,450', tone: 'accent' },
-            { label: '预警品类', value: '5', tone: 'paused' },
-            { label: '缺货品类', value: '1', tone: 'circuit' },
+          type: 'table',
+          title: '下季度库存预测',
+          columns: [
+            { key: 'name', label: '品类' },
+            { key: 'current', label: '当前库存' },
+            { key: 'predicted', label: '预测需求' },
+            { key: 'action', label: '建议操作' },
+          ],
+          rows: [
+            { name: '钢化玻璃面板', current: '0', predicted: '1500', action: '紧急补货1000件' },
+            { name: '固态硬盘1TB', current: '320', predicted: '800', action: '补货800件' },
+            { name: '电源适配器65W', current: '210', predicted: '400', action: '补货500件' },
+            { name: '处理器', current: '320', predicted: '250', action: '无需补货' },
           ],
         },
       }
     }
-    if (lower.includes('补货') || lower.includes('建议')) {
+    // 补货类（在预测之后、查询之前匹配）
+    if (lower.includes('补货') || lower.includes('建议') || lower.includes('采购') || lower.includes('进货')) {
       return {
         content:
           '根据销量预测模型，生成 5 条补货建议。钢化玻璃面板为紧急补货，预计总采购金额 ¥464,500。',
@@ -618,6 +626,29 @@ function buildMockConversationResponse(agentId: string, message: string): Conver
             { sku: 'SKU-B002', name: '钢化玻璃面板', current: 0, suggest: 1000, cost: '¥95,000' },
             { sku: 'SKU-A002', name: '固态硬盘 1TB', current: 320, suggest: 800, cost: '¥336,000' },
             { sku: 'SKU-C002', name: '电源适配器 65W', current: 210, suggest: 500, cost: '¥22,500' },
+          ],
+        },
+      }
+    }
+    // 查询类（最宽泛，放最后）
+    if (lower.includes('库存') || lower.includes('状态') || lower.includes('查询') || lower.includes('查看') || lower.includes('多少')) {
+      return {
+        content:
+          '已为您查询当前库存状态。系统共监控 12 个品类，其中 4 项低于安全库存，1 项已缺货。库存总价值 ¥1,892,450.50。',
+        thinkingProcess: [
+          '解析用户意图：查询库存状态',
+          '调用 inventory.list() 获取全部 SKU',
+          '按状态分类统计并汇总',
+          '生成库存总览数据卡片',
+        ],
+        dataCard: {
+          type: 'stats',
+          title: '库存状态总览',
+          stats: [
+            { label: '库存品类', value: '12', tone: 'primary' },
+            { label: '库存总价值', value: '¥1,892,450', tone: 'accent' },
+            { label: '预警品类', value: '5', tone: 'paused' },
+            { label: '缺货品类', value: '1', tone: 'circuit' },
           ],
         },
       }
@@ -1583,6 +1614,512 @@ export const apiService = {
       const res = await apiClient.get('/tax/dashboard')
       return (res as any) ?? {}
     }, {} as any),
+
+  /* ----- 文档生成相关 ----- */
+  generateDocument: (params: {
+    agent_id: string
+    format: 'docx' | 'xlsx' | 'pptx' | 'pdf'
+    template_type: string
+    filename: string
+    data: Record<string, unknown>
+    title?: string
+  }): Promise<{ success: boolean; file_path: string; filename: string; format: string; file_size: number; generated_at: string }> =>
+    withFallback(async () => {
+      const res = await apiClient.post('/document/generate', params)
+      return res as any
+    }, { success: false, file_path: '', filename: '', format: '', file_size: 0, generated_at: '' }),
+
+  downloadDocument: (filename: string): Promise<Blob> =>
+    withFallback(async () => {
+      const res = await apiClient.get(`/document/download/${filename}`, { responseType: 'blob' })
+      return res as unknown as Blob
+    }, new Blob()),
+
+  getDocumentTemplates: (): Promise<Array<{ agent_id: string; templates: Array<{ template: string; format: string; name: string }> }>> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/document/templates')
+      const rawTemplates = (res as any)?.templates ?? []
+
+      // 后端可能返回两种格式：
+      // 1. 扁平列表: [{agent_id, template, format, name}, ...]
+      // 2. 分组列表: [{agent_id, templates: [{template, format, name}, ...]}, ...]
+      // 统一转换为分组格式，供前端组件使用
+      if (Array.isArray(rawTemplates) && rawTemplates.length > 0) {
+        // 检测是否已经是分组格式（第一个元素有 templates 数组）
+        if (rawTemplates[0].templates && Array.isArray(rawTemplates[0].templates)) {
+          return rawTemplates as Array<{ agent_id: string; templates: Array<{ template: string; format: string; name: string }> }>
+        }
+
+        // 扁平列表 → 按 agent_id 分组
+        const grouped: Record<string, Array<{ template: string; format: string; name: string }>> = {}
+        for (const item of rawTemplates) {
+          const aid = item.agent_id || 'unknown'
+          if (!grouped[aid]) grouped[aid] = []
+          grouped[aid].push({
+            template: item.template,
+            format: item.format,
+            name: item.name,
+          })
+        }
+        return Object.entries(grouped).map(([agent_id, templates]) => ({ agent_id, templates }))
+      }
+
+      return []
+    }, []),
+
+  getAgentTemplates: (agentId: string): Promise<Array<{ template: string; format: string; name: string }>> =>
+    withFallback(async () => {
+      const res = await apiClient.get(`/document/agents/${agentId}/templates`)
+      return (res as any)?.templates ?? []
+    }, []),
+
+  /* ----- 人力资源管理相关 ----- */
+  getEmployees: (params?: { department?: string; status?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.department) query.set('department', params.department)
+      if (params?.status) query.set('status', params.status)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/hr/employees?${query.toString()}`)
+      return (res as any)?.employees ?? []
+    }, []),
+
+  getEmployee: (employeeId: string): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get(`/hr/employees/${employeeId}`)
+      return (res as any) ?? {}
+    }, {} as any),
+
+  createEmployee: (data: any): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.post('/hr/employees', data)
+      return res
+    }, {} as any),
+
+  updateEmployee: (employeeId: string, data: any): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.put(`/hr/employees/${employeeId}`, data)
+      return res
+    }, {} as any),
+
+  getHRStats: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/hr/stats')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  getAttendance: (params?: { employee_id?: string; start_date?: string; end_date?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.employee_id) query.set('employee_id', params.employee_id)
+      if (params?.start_date) query.set('start_date', params.start_date)
+      if (params?.end_date) query.set('end_date', params.end_date)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/hr/attendance?${query.toString()}`)
+      return (res as any)?.records ?? []
+    }, []),
+
+  getOrgChart: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/hr/org-chart')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  /* ----- 薪酬管理相关 ----- */
+  getPayrollRecords: (params?: { employee_id?: string; period?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.employee_id) query.set('employee_id', params.employee_id)
+      if (params?.period) query.set('period', params.period)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/payroll/records?${query.toString()}`)
+      return (res as any)?.records ?? []
+    }, []),
+
+  getPayrollStats: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/payroll/stats')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  batchCalculatePayroll: (params: { employee_ids: string[]; period: string }): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.post('/payroll/batch-calculate', params)
+      return res
+    }, {} as any),
+
+  /* ----- CRM客户管理相关 ----- */
+  getCustomers: (params?: { tier?: string; status?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.tier) query.set('tier', params.tier)
+      if (params?.status) query.set('status', params.status)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/crm/customers?${query.toString()}`)
+      return (res as any)?.customers ?? []
+    }, []),
+
+  getCustomer: (customerId: string): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get(`/crm/customers/${customerId}`)
+      return (res as any) ?? {}
+    }, {} as any),
+
+  createCustomer: (data: any): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.post('/crm/customers', data)
+      return res
+    }, {} as any),
+
+  updateCustomer: (customerId: string, data: any): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.put(`/crm/customers/${customerId}`, data)
+      return res
+    }, {} as any),
+
+  getOpportunities: (params?: { stage?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.stage) query.set('stage', params.stage)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/crm/opportunities?${query.toString()}`)
+      return (res as any)?.opportunities ?? []
+    }, []),
+
+  getCRMStats: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/crm/stats')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  getCustomerSegments: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/crm/segments')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  /* ----- 销售管理相关 ----- */
+  getSalesOrders: (params?: { status?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.status) query.set('status', params.status)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/sales/orders?${query.toString()}`)
+      return (res as any)?.orders ?? []
+    }, []),
+
+  getSalesStats: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/sales/stats')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  getSalesForecast: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/sales/forecast')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  getSalesTargetProgress: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/sales/target-progress')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  /* ----- 预算管理相关 ----- */
+  getBudgets: (params?: { department?: string; period?: string; status?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.department) query.set('department', params.department)
+      if (params?.period) query.set('period', params.period)
+      if (params?.status) query.set('status', params.status)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/budget?${query.toString()}`)
+      return (res as any)?.budgets ?? []
+    }, []),
+
+  getBudgetStats: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/budget/stats')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  getBudgetVariances: (): Promise<any[]> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/budget/variances')
+      return (res as any)?.variances ?? []
+    }, []),
+
+  /* ----- 资产管理相关 ----- */
+  getAssets: (params?: { category?: string; status?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.category) query.set('category', params.category)
+      if (params?.status) query.set('status', params.status)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/assets?${query.toString()}`)
+      return (res as any)?.assets ?? []
+    }, []),
+
+  getAssetStats: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/assets/stats')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  getAssetDeprecationRecords: (): Promise<any[]> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/assets/depreciation/records')
+      return (res as any)?.records ?? []
+    }, []),
+
+  /* ----- 合同管理相关 ----- */
+  getContracts: (params?: { status?: string; type?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.status) query.set('status', params.status)
+      if (params?.type) query.set('type', params.type)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/contracts?${query.toString()}`)
+      return (res as any)?.contracts ?? []
+    }, []),
+
+  getContractStats: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/contracts/stats')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  getExpiringContracts: (): Promise<any[]> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/contracts/expiring')
+      return (res as any)?.contracts ?? []
+    }, []),
+
+  /* ----- 项目管理相关 ----- */
+  getProjects: (params?: { status?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.status) query.set('status', params.status)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/projects?${query.toString()}`)
+      return (res as any)?.projects ?? []
+    }, []),
+
+  getProjectStats: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/projects/stats')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  /* ----- 营销活动相关 ----- */
+  getMarketingCampaigns: (params?: { status?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.status) query.set('status', params.status)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/marketing/campaigns?${query.toString()}`)
+      return (res as any)?.campaigns ?? []
+    }, []),
+
+  getMarketingStats: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/marketing/stats')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  /* ----- 招聘管理相关 ----- */
+  getRecruitmentPositions: (params?: { status?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.status) query.set('status', params.status)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/recruitment/positions?${query.toString()}`)
+      return (res as any)?.positions ?? []
+    }, []),
+
+  getRecruitmentStats: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/recruitment/stats')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  getCandidates: (params?: { position_id?: string; status?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.position_id) query.set('position_id', params.position_id)
+      if (params?.status) query.set('status', params.status)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/recruitment/candidates?${query.toString()}`)
+      return (res as any)?.candidates ?? []
+    }, []),
+
+  /* ----- 风险管理相关 ----- */
+  getRisks: (params?: { category?: string; level?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.category) query.set('category', params.category)
+      if (params?.level) query.set('level', params.level)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/risk?${query.toString()}`)
+      return (res as any)?.risks ?? []
+    }, []),
+
+  getRiskStats: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/risk/stats')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  getRiskAlerts: (): Promise<any[]> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/risk/alerts')
+      return (res as any)?.alerts ?? []
+    }, []),
+
+  /* ----- 质量管理相关 ----- */
+  getQualityInspections: (params?: { status?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.status) query.set('status', params.status)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/quality/inspections?${query.toString()}`)
+      return (res as any)?.inspections ?? []
+    }, []),
+
+  getQualityStats: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/quality/stats')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  /* ----- BI报表相关 ----- */
+  getBIReports: (params?: { type?: string; limit?: number }): Promise<any[]> =>
+    withFallback(async () => {
+      const query = new URLSearchParams()
+      if (params?.type) query.set('type', params.type)
+      if (params?.limit) query.set('limit', String(params.limit))
+      const res = await apiClient.get(`/bi/reports?${query.toString()}`)
+      return (res as any)?.reports ?? []
+    }, []),
+
+  getBIStats: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/bi/stats')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  getBIKPIs: (): Promise<any[]> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/bi/kpis')
+      return (res as any)?.kpis ?? []
+    }, []),
+
+  /* ----- ESG管理相关 ----- */
+  getESGIndicators: (): Promise<any[]> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/esg/indicators')
+      return (res as any)?.indicators ?? []
+    }, []),
+
+  getESGStats: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/esg/stats')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  getESGScore: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/esg/score')
+      return (res as any) ?? {}
+    }, {} as any),
+
+  /* ----- 内部通讯相关 ----- */
+  getChatChannels: (): Promise<any[]> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/messaging/channels')
+      return (res as any)?.channels ?? []
+    }, []),
+
+  getChannelMessages: (channelId: string, limit = 50, beforeId?: number): Promise<any[]> =>
+    withFallback(async () => {
+      let url = `/messaging/channels/${channelId}/messages?limit=${limit}`
+      if (beforeId) url += `&before_id=${beforeId}`
+      const res = await apiClient.get(url)
+      return (res as any)?.messages ?? []
+    }, []),
+
+  sendChannelMessage: (channelId: string, content: string, messageType = 'text'): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.post(`/messaging/channels/${channelId}/messages`, {
+        content,
+        message_type: messageType,
+      })
+      return res as any
+    }, null),
+
+  createChatChannel: (type: string, name: string, memberIds: string[]): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.post('/messaging/channels', {
+        channel_type: type,
+        name,
+        member_ids: memberIds,
+      })
+      return res as any
+    }, null),
+
+  markChannelRead: (channelId: string): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.post(`/messaging/channels/${channelId}/read`)
+      return res as any
+    }, null),
+
+  getChannelMembers: (channelId: string): Promise<any[]> =>
+    withFallback(async () => {
+      const res = await apiClient.get(`/messaging/channels/${channelId}/members`)
+      return (res as any)?.members ?? []
+    }, []),
+
+  getChatUsers: (): Promise<any[]> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/messaging/users')
+      return (res as any)?.users ?? []
+    }, []),
+
+  getMessagingAgents: (): Promise<any[]> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/messaging/agents')
+      return (res as any)?.agents ?? []
+    }, []),
+
+  uploadChatFile: (channelId: string, file: File): Promise<any> =>
+    withFallback(async () => {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await apiClient.post(`/messaging/channels/${channelId}/files`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60000,
+      })
+      return res as any
+    }, null),
+
+  downloadChatFile: async (fileId: string): Promise<Blob> => {
+    try {
+      const res = await apiClient.get(`/messaging/files/${fileId}`, { responseType: 'blob' })
+      return res as unknown as Blob
+    } catch {
+      return new Blob()
+    }
+  },
+
+  sendAgentCommand: (channelId: string, agentId: string, command: string): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.post(`/messaging/channels/${channelId}/agent-command`, {
+        agent_id: agentId,
+        command,
+      })
+      return res as any
+    }, null),
 }
 
 export { apiClient }

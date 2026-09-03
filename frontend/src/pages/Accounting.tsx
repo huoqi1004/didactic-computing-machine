@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Calculator,
   CheckCircle2,
@@ -10,17 +10,29 @@ import {
   RefreshCw,
   Wallet,
 } from 'lucide-react'
-import { useSystemStore, type Voucher, type VoucherStatus } from '../stores/systemStore'
+import { type Voucher, type VoucherStatus } from '../stores/systemStore'
+import { apiService } from '../services/api'
 import { VOUCHER_STATUS_CONFIG, formatCurrency, formatNumber, formatDateTime, cn } from '../lib/utils'
+import ExportButton from '../components/ExportButton'
+import Can from '../components/Can'
 
 export default function Accounting() {
-  const vouchers = useSystemStore((s) => s.vouchers)
-  const approveVoucher = useSystemStore((s) => s.approveVoucher)
-  const rejectVoucher = useSystemStore((s) => s.rejectVoucher)
-  const dailySettlement = useSystemStore((s) => s.dailySettlement)
+  const [vouchers, setVouchers] = useState<Voucher[]>([])
+  const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState<VoucherStatus | 'all'>('all')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [settling, setSettling] = useState(false)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const voucherList = await apiService.getVouchers()
+    setVouchers(voucherList)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
 
   const filtered = vouchers.filter((v) => filterStatus === 'all' || v.status === filterStatus)
   const pending = vouchers.filter((v) => v.status === 'pending')
@@ -30,20 +42,44 @@ export default function Accounting() {
   const totalAmount = vouchers.reduce((sum, v) => sum + v.amount, 0)
   const pendingAmount = pending.reduce((sum, v) => sum + v.amount, 0)
 
+  // 构造会计凭证汇总表导出数据
+  const voucherExportData = useMemo<Record<string, unknown>>(() => ({
+    title: '会计凭证汇总表',
+    sheet_name: '会计凭证',
+    headers: ['凭证号', '日期', '摘要', '借方科目', '贷方科目', '金额', '制单人', '状态'],
+    rows: vouchers.map((v) => [
+      v.voucher_no,
+      v.date,
+      v.summary,
+      v.debit_account,
+      v.credit_account,
+      v.amount,
+      v.created_by,
+      VOUCHER_STATUS_CONFIG[v.status].label,
+    ]),
+    notes: [
+      `凭证总数：${vouchers.length} 张`,
+      `凭证总金额：${formatCurrency(totalAmount)}`,
+    ],
+  }), [vouchers, totalAmount])
+
   const handleApprove = async (id: string) => {
     setActionLoading(id)
-    await approveVoucher(id)
+    await apiService.approveVoucher(id)
     setActionLoading(null)
+    fetchData()
   }
   const handleReject = async (id: string) => {
     setActionLoading(id)
-    await rejectVoucher(id)
+    await apiService.rejectVoucher(id)
     setActionLoading(null)
+    fetchData()
   }
   const handleSettlement = async () => {
     setSettling(true)
-    await dailySettlement()
+    await apiService.dailySettlement()
     setSettling(false)
+    fetchData()
   }
 
   return (
@@ -54,14 +90,29 @@ export default function Accounting() {
           <h2 className="text-xl font-bold text-white">会计凭证</h2>
           <p className="text-sm text-slate-500 mt-0.5">凭证管理、审批操作与日清日结</p>
         </div>
-        <button
-          onClick={handleSettlement}
-          disabled={settling || approved.length === 0}
-          className="btn-accent"
-        >
-          {settling ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CalendarCheck className="w-4 h-4" />}
-          执行日清日结
-        </button>
+        <div className="flex items-center gap-2">
+          <Can resource="accounting" action="approve">
+            <button
+              onClick={handleSettlement}
+              disabled={settling || approved.length === 0}
+              className="btn-accent"
+            >
+              {settling ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CalendarCheck className="w-4 h-4" />}
+              执行日清日结
+            </button>
+          </Can>
+          <Can resource="document" action="create">
+            <ExportButton
+              agentId="accounting"
+              templateType="voucher"
+              filename="会计凭证汇总表"
+              data={voucherExportData}
+              title="会计凭证汇总表"
+              formats={['xlsx']}
+              label="导出凭证表"
+            />
+          </Can>
+        </div>
       </div>
 
       {/* 概览统计 */}
@@ -182,22 +233,26 @@ export default function Accounting() {
                       <div className="flex items-center justify-center gap-1">
                         {v.status === 'pending' ? (
                           <>
-                            <button
-                              onClick={() => handleApprove(v.id)}
-                              disabled={actionLoading === v.id}
-                              className="p-1.5 rounded-md bg-accent/10 hover:bg-accent/20 text-accent transition-colors disabled:opacity-50"
-                              title="审批通过"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleReject(v.id)}
-                              disabled={actionLoading === v.id}
-                              className="p-1.5 rounded-md bg-status-circuit/10 hover:bg-status-circuit/20 text-status-circuit transition-colors disabled:opacity-50"
-                              title="驳回"
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                            </button>
+                            <Can resource="accounting" action="approve" fallback={<span className="text-xs text-slate-600">—</span>}>
+                              <button
+                                onClick={() => handleApprove(v.id)}
+                                disabled={actionLoading === v.id}
+                                className="p-1.5 rounded-md bg-accent/10 hover:bg-accent/20 text-accent transition-colors disabled:opacity-50"
+                                title="审批通过"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                              </button>
+                            </Can>
+                            <Can resource="accounting" action="update" fallback={<span className="text-xs text-slate-600">—</span>}>
+                              <button
+                                onClick={() => handleReject(v.id)}
+                                disabled={actionLoading === v.id}
+                                className="p-1.5 rounded-md bg-status-circuit/10 hover:bg-status-circuit/20 text-status-circuit transition-colors disabled:opacity-50"
+                                title="驳回"
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                              </button>
+                            </Can>
                           </>
                         ) : (
                           <span className="text-xs text-slate-600">—</span>
@@ -210,7 +265,9 @@ export default function Accounting() {
             </tbody>
           </table>
           {filtered.length === 0 && (
-            <div className="text-center py-8 text-sm text-slate-500">暂无凭证记录</div>
+            <div className="text-center py-8 text-sm text-slate-500">
+              {loading ? '加载中...' : '暂无凭证记录'}
+            </div>
           )}
         </div>
       </div>
@@ -297,22 +354,26 @@ function PendingVoucherCard({
       </div>
 
       <div className="flex gap-2">
-        <button
-          onClick={onApprove}
-          disabled={loading}
-          className="btn-accent flex-1 !py-1.5 text-xs"
-        >
-          {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-          审批通过
-        </button>
-        <button
-          onClick={onReject}
-          disabled={loading}
-          className="btn-danger flex-1 !py-1.5 text-xs"
-        >
-          <XCircle className="w-3.5 h-3.5" />
-          驳回
-        </button>
+        <Can resource="accounting" action="approve">
+          <button
+            onClick={onApprove}
+            disabled={loading}
+            className="btn-accent flex-1 !py-1.5 text-xs"
+          >
+            {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+            审批通过
+          </button>
+        </Can>
+        <Can resource="accounting" action="update">
+          <button
+            onClick={onReject}
+            disabled={loading}
+            className="btn-danger flex-1 !py-1.5 text-xs"
+          >
+            <XCircle className="w-3.5 h-3.5" />
+            驳回
+          </button>
+        </Can>
       </div>
     </div>
   )

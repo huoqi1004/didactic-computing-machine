@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { TrendingUp, Target, CheckCircle2, Activity, Percent, Eye } from 'lucide-react'
 import {
   PageHeader,
@@ -9,6 +9,7 @@ import {
   StatCard,
   type Column,
 } from '../components/ui'
+import { apiService } from '../services/api'
 
 /* ===================== 类型定义 ===================== */
 
@@ -64,40 +65,157 @@ const DEAL_STATUS_CONFIG: Record<DealStatus, { variant: 'info' | 'success' | 'da
 
 const fmtMoney = (n: number) => `¥${n.toLocaleString('zh-CN')}`
 
-/* ===================== 漏斗阶段数据 ===================== */
+/* ===================== 漏斗阶段配置 ===================== */
 
-const stages: StageInfo[] = [
-  { key: 'lead', label: '线索', count: 86, amount: 8200000 },
-  { key: 'visit', label: '初访', count: 62, amount: 6500000 },
-  { key: 'proposal', label: '方案', count: 38, amount: 4800000 },
-  { key: 'quote', label: '报价', count: 24, amount: 3600000 },
-  { key: 'negotiate', label: '谈判', count: 15, amount: 2400000 },
-  { key: 'sign', label: '签约', count: 9, amount: 1200000 },
-]
+const STAGE_ORDER: StageKey[] = ['lead', 'visit', 'proposal', 'quote', 'negotiate', 'sign']
 
 const STAGE_COLORS = ['#4f7cff', '#5b86ff', '#6a92ff', '#7c9ef0', '#3fc8a8', '#00d9a3']
 
-/* ===================== Mock 商机数据 ===================== */
+/* ===================== 销售统计类型 ===================== */
 
-const mockDeals: Deal[] = [
-  { id: 'D-2026-001', name: '智云数据中台升级', customer: '上海智云科技', stage: 'negotiate', amount: 860000, closeDate: '2026-08-15', owner: '张明', status: 'open', probability: 70, remark: '客户预算已批复，进入最终商务谈判。' },
-  { id: 'D-2026-002', name: '华信风控系统', customer: '北京华信数据', stage: 'proposal', amount: 520000, closeDate: '2026-09-01', owner: '李芳', status: 'open', probability: 50, remark: '方案设计中，预计下周提交客户评审。' },
-  { id: 'D-2026-003', name: '前海产线改造', customer: '深圳前海智能', stage: 'quote', amount: 1280000, closeDate: '2026-08-30', owner: '王强', status: 'open', probability: 60, remark: '已提交报价单，等待客户比价反馈。' },
-  { id: 'D-2026-004', name: '数联门店数字化', customer: '杭州数联零售', stage: 'sign', amount: 680000, closeDate: '2026-07-20', owner: '陈浩', status: 'won', probability: 100, remark: '合同已签订，进入交付阶段。' },
-  { id: 'D-2026-005', name: '西部仓储系统', customer: '成都西部物流', stage: 'visit', amount: 320000, closeDate: '2026-10-15', owner: '孙伟', status: 'open', probability: 30, remark: '已完成首次拜访，需求待进一步明确。' },
-  { id: 'D-2026-006', name: '光谷电子采购平台', customer: '武汉光谷电子', stage: 'lead', amount: 180000, closeDate: '2026-11-30', owner: '周婷', status: 'stalled', probability: 10, remark: '客户决策周期拉长，暂无明确推进。' },
-  { id: 'D-2026-007', name: '建工集团 ERP', customer: '南京建工集团', stage: 'negotiate', amount: 460000, closeDate: '2026-08-20', owner: '吴磊', status: 'open', probability: 65, remark: '价格谈判中，差距已缩小至 8%。' },
-  { id: 'D-2026-008', name: '能源管理平台续约', customer: '苏州能源', stage: 'sign', amount: 720000, closeDate: '2026-07-18', owner: '郑凯', status: 'won', probability: 100, remark: '续约成功，合同金额较上年度增长 12%。' },
-  { id: 'D-2026-009', name: '海蓝数据中台', customer: '青岛海蓝新材料', stage: 'proposal', amount: 540000, closeDate: '2026-09-20', owner: '高翔', status: 'open', probability: 45, remark: '方案二次评审中，技术指标全部满足。' },
-  { id: 'D-2026-010', name: '山城供应链', customer: '重庆山城食品', stage: 'quote', amount: 260000, closeDate: '2026-08-25', owner: '黄丽', status: 'lost', probability: 0, remark: '客户选择了竞品方案，输单。' },
-]
+interface SalesStats {
+  orders?: number
+  confirmed_orders?: number
+  pending_orders?: number
+  targets?: number
+  forecasts?: number
+  contracts?: number
+  total_confirmed_amount?: number
+  total_pending_amount?: number
+  total_target_amount?: number
+  total_achieved_amount?: number
+  overall_completion_rate?: number
+}
+
+/* ===================== 数据映射 ===================== */
+
+/** 将后端商机阶段映射为前端 StageKey */
+function mapStage(rawStage: string): StageKey {
+  switch (rawStage) {
+    case 'lead':
+      return 'lead'
+    case 'visit':
+      return 'visit'
+    case 'proposal':
+      return 'proposal'
+    case 'quote':
+      return 'quote'
+    case 'negotiation':
+    case 'negotiate':
+      return 'negotiate'
+    case 'won':
+    case 'sign':
+      return 'sign'
+    default:
+      return 'negotiate' // lost 等未明确阶段归入谈判
+  }
+}
+
+/** 根据阶段与状态推导赢单概率（后端未返回时使用） */
+function deriveProbability(stage: StageKey, status: DealStatus): number {
+  if (status === 'won') return 100
+  if (status === 'lost') return 0
+  switch (stage) {
+    case 'lead':
+      return 10
+    case 'visit':
+      return 25
+    case 'proposal':
+      return 45
+    case 'quote':
+      return 60
+    case 'negotiate':
+      return 70
+    case 'sign':
+      return 90
+    default:
+      return 0
+  }
+}
+
+/** 将后端返回的商机数据映射为前端 Deal 结构（兼容 snake_case / camelCase） */
+function mapDeal(raw: Record<string, unknown>): Deal {
+  const stage = mapStage(String(raw.stage ?? ''))
+  const rawStatus = String(raw.status ?? 'open')
+  let status: DealStatus = 'open'
+  if (rawStatus === 'won') status = 'won'
+  else if (rawStatus === 'lost') status = 'lost'
+  else if (rawStatus === 'stalled') status = 'stalled'
+  const probability = Number(raw.probability) || deriveProbability(stage, status)
+  return {
+    id: String(raw.id ?? raw.opportunity_id ?? ''),
+    name: String(raw.name ?? '—'),
+    customer: String(raw.customer ?? raw.customer_name ?? raw.customer_id ?? '—'),
+    stage,
+    amount: Number(raw.amount) || 0,
+    closeDate: String(raw.close_date ?? raw.expected_close_date ?? ''),
+    owner: String(raw.owner ?? raw.salesperson ?? '—'),
+    status,
+    probability,
+    remark: String(raw.remark ?? raw.notes ?? ''),
+  }
+}
 
 /* ===================== 主组件 ===================== */
 
 export default function SalesPipeline() {
   const [selected, setSelected] = useState<Deal | null>(null)
+  const [opportunities, setOpportunities] = useState<Deal[]>([])
+  const [stats, setStats] = useState<SalesStats | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  const maxAmount = Math.max(...stages.map((s) => s.amount))
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const [list, salesStats] = await Promise.all([
+      apiService.getOpportunities(),
+      apiService.getSalesStats(),
+    ])
+    setOpportunities((Array.isArray(list) ? list : []).map(mapDeal))
+    setStats(salesStats ?? null)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  // 由商机列表聚合各阶段分布（漏斗）
+  const stages: StageInfo[] = useMemo(() => {
+    return STAGE_ORDER.map((key) => {
+      const dealsInStage = opportunities.filter((d) => d.stage === key)
+      return {
+        key,
+        label: STAGE_LABEL[key],
+        count: dealsInStage.length,
+        amount: dealsInStage.reduce((s, d) => s + d.amount, 0),
+      }
+    })
+  }, [opportunities])
+
+  const maxAmount = Math.max(1, ...stages.map((s) => s.amount))
+
+  // 漏斗汇总指标
+  const leadCount = opportunities.filter((d) => d.stage === 'lead').length
+  const signCount = opportunities.filter((d) => d.stage === 'sign').length
+  const wonCount = opportunities.filter((d) => d.status === 'won').length
+  const lostCount = opportunities.filter((d) => d.status === 'lost').length
+  const closedCount = wonCount + lostCount
+  const conversionRate = leadCount > 0 ? (signCount / leadCount) * 100 : 0
+  const winRate = closedCount > 0 ? (wonCount / closedCount) * 100 : 0
+  const weightedForecast = opportunities
+    .filter((d) => d.status === 'open')
+    .reduce((s, d) => s + (d.amount * d.probability) / 100, 0)
+
+  // 统计卡片指标
+  const quarterlyTarget = stats?.total_target_amount ?? 0
+  const signedAmount =
+    stats?.total_confirmed_amount ??
+    opportunities.filter((d) => d.status === 'won').reduce((s, d) => s + d.amount, 0)
+  const openPipeline = opportunities
+    .filter((d) => d.status === 'open')
+    .reduce((s, d) => s + d.amount, 0)
+  const openCount = opportunities.filter((d) => d.status === 'open').length
+  const completionRate = stats?.overall_completion_rate ?? 0
 
   const columns: Column<Deal>[] = [
     {
@@ -162,10 +280,10 @@ export default function SalesPipeline() {
 
       {/* 统计卡片 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="本季目标" value="¥5,000,000" icon={<Target className="w-5 h-5" />} trend="2026 Q3" variant="primary" />
-        <StatCard label="已签约" value="¥3,286,000" icon={<CheckCircle2 className="w-5 h-5" />} trend="赢单 9 单" trendUp variant="accent" />
-        <StatCard label="进行中" value="¥1,856,000" icon={<Activity className="w-5 h-5" />} trend="36 个商机" variant="primary" />
-        <StatCard label="达成率" value="65.7%" icon={<Percent className="w-5 h-5" />} trend="同比 +8.2%" trendUp variant="accent" />
+        <StatCard label="本季目标" value={fmtMoney(quarterlyTarget)} icon={<Target className="w-5 h-5" />} trend="2026 Q3" variant="primary" />
+        <StatCard label="已签约" value={fmtMoney(Math.round(signedAmount))} icon={<CheckCircle2 className="w-5 h-5" />} trend={`赢单 ${wonCount} 单`} trendUp variant="accent" />
+        <StatCard label="进行中" value={fmtMoney(Math.round(openPipeline))} icon={<Activity className="w-5 h-5" />} trend={`${openCount} 个商机`} variant="primary" />
+        <StatCard label="达成率" value={`${completionRate.toFixed(1)}%`} icon={<Percent className="w-5 h-5" />} trend="同比 +8.2%" trendUp variant="accent" />
       </div>
 
       {/* 销售漏斗 */}
@@ -208,19 +326,19 @@ export default function SalesPipeline() {
         <div className="mt-5 pt-4 border-t border-[#1e2536] grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="text-center">
             <p className="text-xs text-slate-500">线索→签约转化</p>
-            <p className="text-lg font-bold text-accent tabular-nums">10.5%</p>
+            <p className="text-lg font-bold text-accent tabular-nums">{conversionRate.toFixed(1)}%</p>
           </div>
           <div className="text-center">
             <p className="text-xs text-slate-500">平均成交周期</p>
-            <p className="text-lg font-bold text-white tabular-nums">62 天</p>
+            <p className="text-lg font-bold text-white tabular-nums">—</p>
           </div>
           <div className="text-center">
             <p className="text-xs text-slate-500">赢单率</p>
-            <p className="text-lg font-bold text-white tabular-nums">47.3%</p>
+            <p className="text-lg font-bold text-white tabular-nums">{winRate.toFixed(1)}%</p>
           </div>
           <div className="text-center">
             <p className="text-xs text-slate-500">加权预测金额</p>
-            <p className="text-lg font-bold text-primary tabular-nums">¥4,128,000</p>
+            <p className="text-lg font-bold text-primary tabular-nums">{fmtMoney(Math.round(weightedForecast))}</p>
           </div>
         </div>
       </Card>
@@ -229,7 +347,8 @@ export default function SalesPipeline() {
       <Card title="商机列表">
         <DataTable
           columns={columns}
-          data={mockDeals}
+          data={opportunities}
+          loading={loading}
           searchKeys={['name', 'customer']}
           searchPlaceholder="搜索商机名称、客户名称..."
           onRowClick={(r) => setSelected(r)}

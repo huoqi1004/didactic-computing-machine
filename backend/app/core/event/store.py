@@ -5,7 +5,7 @@
 
 持久化架构：
 - 内存层（Dict）：作为高速缓存，保证读操作低延迟，同时是测试/开发的零依赖后端
-- 数据库层（PostgreSQL events 表）：作为持久化存储，保证数据不丢失
+- 数据库层（MySQL events 表）：作为持久化存储，保证数据不丢失
 - 自动降级：数据库不可用时，透明降级到纯内存模式
 """
 import asyncio
@@ -21,11 +21,11 @@ logger = structlog.get_logger()
 
 class EventStore:
     """
-    事件存储（双写：内存缓存 + PostgreSQL 持久化）
+    事件存储（双写：内存缓存 + MySQL 持久化）
 
     架构：
     - 内存层（``_streams`` / ``_snapshots``）：高速读缓存 + 零依赖降级后端
-    - 数据库层（PostgreSQL ``events`` / ``snapshots`` 表）：持久化存储
+    - 数据库层（MySQL ``events`` / ``snapshots`` 表）：持久化存储
     - ``init_db()`` 初始化数据库表结构，设置 ``_db_available`` 标志
     - 所有写操作（``append`` / ``save_snapshot``）双写内存 + 数据库
     - 所有读操作优先从内存读取，缓存未命中时回源数据库
@@ -88,7 +88,7 @@ class EventStore:
             self._db_available = success
 
             if success:
-                logger.info("event_store.db_initialized", backend="postgres")
+                logger.info("event_store.db_initialized", backend="mysql")
             else:
                 logger.warning("event_store.db_init_failed_degraded_to_memory")
 
@@ -111,7 +111,7 @@ class EventStore:
 
         写入策略：
         1. 内存层：始终写入（保证缓存一致性）
-        2. 数据库层：``_db_available`` 为 True 时写入 PostgreSQL ``events`` 表
+        2. 数据库层：``_db_available`` 为 True 时写入 MySQL ``events`` 表
         3. 数据库写入失败时记录警告，不影响内存写入（降级模式）
         """
         async with self._lock:
@@ -138,7 +138,7 @@ class EventStore:
             return event_hash
 
     async def _append_to_db(self, event: Event, event_hash: str) -> None:
-        """将事件写入 PostgreSQL events 表（内部方法）"""
+        """将事件写入 MySQL events 表（内部方法）"""
         try:
             from app.core import database as db_module
             from sqlalchemy import text
@@ -157,7 +157,7 @@ class EventStore:
                              prev_hash, event_hash)
                         VALUES
                             (:event_id, :event_type, :aggregate_id, :aggregate_type,
-                             CAST(:event_data AS JSONB), :agent_id, :version, :timestamp,
+                             CAST(:event_data AS JSON), :agent_id, :version, :timestamp,
                              :prev_hash, :event_hash)
                     """),
                     {
@@ -232,7 +232,7 @@ class EventStore:
         from_version: int = 0,
         to_version: Optional[int] = None
     ) -> list[Event]:
-        """从 PostgreSQL events 表读取事件流（内部方法）"""
+        """从 MySQL events 表读取事件流（内部方法）"""
         try:
             from app.core import database as db_module
             from sqlalchemy import text
@@ -297,7 +297,7 @@ class EventStore:
         按事件类型查询。
 
         读取策略：
-        1. 数据库可用时，从 PostgreSQL 查询（支持跨聚合根查询）
+        1. 数据库可用时，从 MySQL 查询（支持跨聚合根查询）
         2. 数据库不可用时，从内存缓存遍历查询
         """
         # 数据库可用时优先从数据库查询
@@ -321,7 +321,7 @@ class EventStore:
         event_type: EventType,
         limit: int
     ) -> Optional[list[Event]]:
-        """从 PostgreSQL events 表按类型查询（内部方法），返回 None 表示查询失败"""
+        """从 MySQL events 表按类型查询（内部方法），返回 None 表示查询失败"""
         try:
             from app.core import database as db_module
             from sqlalchemy import text
@@ -384,7 +384,7 @@ class EventStore:
 
         写入策略：
         1. 内存层：始终写入
-        2. 数据库层：``_db_available`` 为 True 时写入 PostgreSQL ``snapshots`` 表
+        2. 数据库层：``_db_available`` 为 True 时写入 MySQL ``snapshots`` 表
         """
         # 内存层写入
         self._snapshots[aggregate_id].append((version, snapshot))
@@ -401,7 +401,7 @@ class EventStore:
     async def _save_snapshot_to_db(
         self, aggregate_id: str, version: int, snapshot: dict
     ) -> None:
-        """将快照写入 PostgreSQL snapshots 表（内部方法）"""
+        """将快照写入 MySQL snapshots 表（内部方法）"""
         try:
             from app.core import database as db_module
             from sqlalchemy import text
@@ -419,7 +419,7 @@ class EventStore:
                             (aggregate_id, aggregate_type, version, state, timestamp)
                         VALUES
                             (:aggregate_id, :aggregate_type, :version,
-                             CAST(:state AS JSONB), NOW())
+                             CAST(:state AS JSON), NOW())
                     """),
                     {
                         "aggregate_id": aggregate_id,
@@ -465,7 +465,7 @@ class EventStore:
     async def _get_latest_snapshot_from_db(
         self, aggregate_id: str
     ) -> Optional[tuple[int, dict]]:
-        """从 PostgreSQL snapshots 表读取最新快照（内部方法）"""
+        """从 MySQL snapshots 表读取最新快照（内部方法）"""
         try:
             from app.core import database as db_module
             from sqlalchemy import text

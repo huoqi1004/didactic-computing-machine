@@ -128,28 +128,28 @@ spec:
 
 ---
 # ============================================================
-# 3. AuthorizationPolicy - PostgreSQL 授权 (data-knowledge 域)
+# 3. AuthorizationPolicy - MySQL 授权 (data-knowledge 域)
 # ============================================================
-# 仅允许来自 backend 命名空间（agent-execution）的流量访问 PostgreSQL
+# 仅允许来自 backend 命名空间（agent-execution）的流量访问 MySQL
 # 前端服务和其他命名空间无法直连数据库
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
-  name: postgres-authz
+  name: mysql-authz
   namespace: data-knowledge
   labels:
     domain: data-knowledge
     app.kubernetes.io/part-of: agent-native-erp
   annotations:
-    description: "PostgreSQL 授权策略 - 仅允许 agent-execution 命名空间（backend）访问"
+    description: "MySQL 授权策略 - 仅允许 agent-execution 命名空间（backend）访问"
 spec:
   selector:
     matchLabels:
-      app: postgres
+      app: mysql
   action: ALLOW
   rules:
     # 仅允许来自 agent-execution 命名空间的流量
-    # 即只有 backend 服务可以访问 PostgreSQL
+    # 即只有 backend 服务可以访问 MySQL
     - from:
         - source:
             # 基于工作负载身份的精确匹配

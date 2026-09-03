@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   UserPlus,
   Briefcase,
@@ -22,6 +22,8 @@ import {
   type Column,
 } from '../components/ui'
 import { cn } from '../lib/utils'
+import { apiService } from '../services/api'
+import Can from '../components/Can'
 
 /* ===================== 类型定义 ===================== */
 
@@ -72,38 +74,97 @@ const resumeStatusConfig: Record<
   rejected: { label: '已淘汰', variant: 'danger' },
 }
 
-/* ===================== Mock 数据 ===================== */
+/* ===================== 后端统计类型 ===================== */
 
-const jobPositions: JobPosition[] = [
-  { id: 'JOB-001', title: '高级前端工程师', department: '技术部', headcount: 2, resumes: 38, status: 'urgent' },
-  { id: 'JOB-002', title: '产品经理', department: '产品部', headcount: 1, resumes: 25, status: 'open' },
-  { id: 'JOB-003', title: '数据分析师', department: '技术部', headcount: 3, resumes: 42, status: 'open' },
-  { id: 'JOB-004', title: '销售经理', department: '销售部', headcount: 2, resumes: 19, status: 'open' },
-  { id: 'JOB-005', title: 'UI 设计师', department: '技术部', headcount: 1, resumes: 31, status: 'urgent' },
-  { id: 'JOB-006', title: '财务主管', department: '财务部', headcount: 1, resumes: 12, status: 'open' },
-  { id: 'JOB-007', title: '市场专员', department: '市场部', headcount: 2, resumes: 15, status: 'paused' },
-  { id: 'JOB-008', title: '运营专员', department: '运营部', headcount: 2, resumes: 4, status: 'closed' },
-]
+/** 后端招聘统计响应结构（字段均为可选，兼容降级） */
+interface RecruitmentStats {
+  total_positions?: number
+  open_positions?: number
+  total_candidates?: number
+  candidates_by_status?: Record<string, number>
+  total_interviews?: number
+  total_offers?: number
+  accepted_offers?: number
+  offer_acceptance_rate?: number
+}
 
-const resumes: Resume[] = [
-  { id: 'R-1001', name: '周明', position: '高级前端工程师', education: '本科', years: 5, status: 'interviewing', phone: '138-0011-2233', email: 'zhouming@mail.com', expectSalary: '25-30K', appliedAt: '2026-07-20' },
-  { id: 'R-1002', name: '吴婷', position: '产品经理', education: '硕士', years: 3, status: 'screening', phone: '139-2233-4455', email: 'wuting@mail.com', expectSalary: '20-25K', appliedAt: '2026-07-22' },
-  { id: 'R-1003', name: '郑昊', position: '数据分析师', education: '硕士', years: 4, status: 'offered', phone: '137-4455-6677', email: 'zhenghao@mail.com', expectSalary: '22-28K', appliedAt: '2026-07-15' },
-  { id: 'R-1004', name: '王丽', position: 'UI 设计师', education: '本科', years: 2, status: 'interviewing', phone: '136-6677-8899', email: 'wangli@mail.com', expectSalary: '15-18K', appliedAt: '2026-07-21' },
-  { id: 'R-1005', name: '刘强', position: '销售经理', education: '本科', years: 6, status: 'screening', phone: '135-8899-0011', email: 'liuqiang@mail.com', expectSalary: '18-25K', appliedAt: '2026-07-23' },
-  { id: 'R-1006', name: '陈颖', position: '财务主管', education: '本科', years: 7, status: 'rejected', phone: '138-1122-3344', email: 'chenying@mail.com', expectSalary: '20-24K', appliedAt: '2026-07-12' },
-  { id: 'R-1007', name: '黄磊', position: '高级前端工程师', education: '硕士', years: 8, status: 'offered', phone: '139-3344-5566', email: 'huanglei@mail.com', expectSalary: '30-35K', appliedAt: '2026-07-10' },
-  { id: 'R-1008', name: '林娜', position: '运营专员', education: '大专', years: 1, status: 'screening', phone: '137-5566-7788', email: 'linna@mail.com', expectSalary: '8-10K', appliedAt: '2026-07-24' },
-  { id: 'R-1009', name: '孙伟', position: '数据分析师', education: '本科', years: 3, status: 'interviewing', phone: '136-7788-9900', email: 'sunwei@mail.com', expectSalary: '18-22K', appliedAt: '2026-07-19' },
-  { id: 'R-1010', name: '赵静', position: '市场专员', education: '本科', years: 2, status: 'rejected', phone: '135-9900-1122', email: 'zhaojing@mail.com', expectSalary: '10-12K', appliedAt: '2026-07-14' },
-  { id: 'R-1011', name: '冯刚', position: '产品经理', education: '本科', years: 5, status: 'screening', phone: '138-2233-5566', email: 'fenggang@mail.com', expectSalary: '22-26K', appliedAt: '2026-07-25' },
-  { id: 'R-1012', name: '许敏', position: 'UI 设计师', education: '硕士', years: 4, status: 'interviewing', phone: '139-4455-7788', email: 'xumin@mail.com', expectSalary: '18-22K', appliedAt: '2026-07-18' },
-]
+/* ===================== 数据映射 ===================== */
+
+/** 将后端职位数据（snake_case）映射为前端 JobPosition 结构 */
+function mapPosition(raw: any): JobPosition {
+  const rawStatus = String(raw.status ?? 'open')
+  let status: JobStatus = 'open'
+  if (rawStatus === 'closed') status = 'closed'
+  else if (rawStatus === 'paused') status = 'paused'
+  return {
+    id: String(raw.position_id ?? raw.id ?? ''),
+    title: String(raw.title ?? '—'),
+    department: String(raw.department ?? '—'),
+    headcount: Number(raw.headcount) || 0,
+    resumes: Number(raw.resumes) || 0,
+    status,
+  }
+}
+
+/** 将后端候选人数据（snake_case）映射为前端 Resume 结构 */
+function mapCandidate(raw: any, positionMap: Record<string, string>): Resume {
+  const rawStatus = String(raw.status ?? 'new')
+  let status: ResumeStatus = 'screening'
+  if (rawStatus === 'interviewing') status = 'interviewing'
+  else if (rawStatus === 'offered' || rawStatus === 'accepted') status = 'offered'
+  else if (rawStatus === 'rejected') status = 'rejected'
+
+  const positionId = String(raw.position_id ?? '')
+  const positionTitle = positionMap[positionId] || String(raw.position ?? '—')
+  const appliedAt = String(raw.created_at ?? raw.applied_at ?? '')
+  const dateStr = appliedAt ? appliedAt.slice(0, 10) : ''
+
+  return {
+    id: String(raw.candidate_id ?? raw.id ?? ''),
+    name: String(raw.name ?? '—'),
+    position: positionTitle,
+    education: String(raw.education ?? '—'),
+    years: Number(raw.years) || 0,
+    status,
+    phone: String(raw.phone ?? '—'),
+    email: String(raw.email ?? '—'),
+    expectSalary: String(raw.expect_salary ?? raw.expectSalary ?? '—'),
+    appliedAt: dateStr,
+  }
+}
 
 /* ===================== 主组件 ===================== */
 
 export default function Recruitment() {
+  const [positions, setPositions] = useState<JobPosition[]>([])
+  const [resumes, setResumes] = useState<Resume[]>([])
+  const [stats, setStats] = useState<RecruitmentStats | null>(null)
+  const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<Resume | null>(null)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const [posList, recruitmentStats, candidateList] = await Promise.all([
+      apiService.getRecruitmentPositions(),
+      apiService.getRecruitmentStats(),
+      apiService.getCandidates(),
+    ])
+    const mappedPositions = (Array.isArray(posList) ? posList : []).map(mapPosition)
+    setPositions(mappedPositions)
+    setStats(recruitmentStats ?? null)
+
+    // 构建 positionId -> title 映射，用于候选人展示
+    const positionMap: Record<string, string> = {}
+    mappedPositions.forEach((p) => {
+      positionMap[p.id] = p.title
+    })
+    setResumes((Array.isArray(candidateList) ? candidateList : []).map((raw) => mapCandidate(raw, positionMap)))
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
 
   const resumeColumns: Column<Resume>[] = [
     {
@@ -166,27 +227,27 @@ export default function Recruitment() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="在招岗位"
-          value={12}
+          value={stats?.open_positions ?? positions.filter((p) => p.status === 'open' || p.status === 'urgent').length}
           icon={<Briefcase className="w-5 h-5" />}
           variant="primary"
         />
         <StatCard
           label="收到简历"
-          value={186}
+          value={stats?.total_candidates ?? resumes.length}
           icon={<FileText className="w-5 h-5" />}
           variant="accent"
-          trend="本周 +42"
+          trend="持续收集中"
           trendUp
         />
         <StatCard
           label="面试中"
-          value={24}
+          value={stats?.candidates_by_status?.interviewing ?? resumes.filter((r) => r.status === 'interviewing').length}
           icon={<Users className="w-5 h-5" />}
           variant="warning"
         />
         <StatCard
           label="已发 offer"
-          value={8}
+          value={stats?.total_offers ?? resumes.filter((r) => r.status === 'offered').length}
           icon={<UserPlus className="w-5 h-5" />}
           variant="accent"
           trend="本月累计"
@@ -198,10 +259,19 @@ export default function Recruitment() {
       <div>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white">在招岗位</h3>
-          <span className="text-xs text-slate-500">共 {jobPositions.length} 个岗位</span>
+          <span className="text-xs text-slate-500">共 {positions.length} 个岗位</span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {jobPositions.map((job) => {
+          {loading ? (
+            <div className="col-span-full text-center py-12">
+              <p className="text-sm text-slate-500">加载中...</p>
+            </div>
+          ) : positions.length === 0 ? (
+            <div className="col-span-full text-center py-12">
+              <p className="text-sm text-slate-500">暂无在招岗位</p>
+            </div>
+          ) : (
+            positions.map((job) => {
             const cfg = jobStatusConfig[job.status]
             return (
               <div
@@ -238,7 +308,8 @@ export default function Recruitment() {
                 </div>
               </div>
             )
-          })}
+          })
+          )}
         </div>
       </div>
 
@@ -247,6 +318,7 @@ export default function Recruitment() {
         <DataTable
           columns={resumeColumns}
           data={resumes}
+          loading={loading}
           searchKeys={['name', 'position']}
           searchPlaceholder="搜索姓名 / 应聘岗位..."
           pageSize={10}
@@ -315,8 +387,12 @@ function ResumeDetail({ resume }: { resume: Resume }) {
       </div>
 
       <div className="flex justify-end gap-3 pt-1">
-        <button className="btn-secondary">下载简历</button>
-        <button className={cn('btn-primary')}>安排面试</button>
+        <Can resource="document" action="create">
+          <button className="btn-secondary">下载简历</button>
+        </Can>
+        <Can resource="recruitment" action="update">
+          <button className={cn('btn-primary')}>安排面试</button>
+        </Can>
       </div>
     </div>
   )

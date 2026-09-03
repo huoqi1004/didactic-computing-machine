@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from 'react'
 import {
   BarChart3,
   DollarSign,
@@ -16,6 +17,7 @@ import {
   StatCard,
 } from '../components/ui'
 import { cn } from '../lib/utils'
+import { apiService } from '../services/api'
 
 /* ===================== 类型定义 ===================== */
 
@@ -29,6 +31,21 @@ interface Report {
   updated_at: string
   status: ReportStatus
   description: string
+}
+
+/* ===================== 后端统计类型 ===================== */
+
+/** 后端 BI 统计响应结构（字段均为可选，兼容降级） */
+interface BIStats {
+  total_reports?: number
+  total_dashboards?: number
+  total_kpis?: number
+  total_analyses?: number
+  kpi_on_track?: number
+  kpi_at_risk?: number
+  kpi_behind?: number
+  by_report_type?: Record<string, number>
+  metrics_tracked?: number
 }
 
 /* ===================== 配置 ===================== */
@@ -71,77 +88,65 @@ const DEPT_REVENUE = [
   { name: '其他', value: 80, percent: 4.4 },
 ]
 
-// 报表列表
-const REPORTS: Report[] = [
-  {
-    id: '1',
-    name: '季度财务分析报告',
-    type: 'finance',
-    updated_at: '2026-07-28 09:30',
-    status: 'generated',
-    description: '本季度营收、成本、利润全维度分析',
-  },
-  {
-    id: '2',
-    name: '销售业绩月报',
-    type: 'sales',
-    updated_at: '2026-07-28 08:15',
-    status: 'generated',
-    description: '各区域、产品线销售达成情况',
-  },
-  {
-    id: '3',
-    name: '供应链运营周报',
-    type: 'operations',
-    updated_at: '2026-07-28 07:00',
-    status: 'generated',
-    description: '库存周转、交付及时率、供应商绩效',
-  },
-  {
-    id: '4',
-    name: '人力成本分析报告',
-    type: 'hr',
-    updated_at: '生成中...',
-    status: 'generating',
-    description: '各部门人力成本与人效分析',
-  },
-  {
-    id: '5',
-    name: '产品利润率分析',
-    type: 'finance',
-    updated_at: '2026-07-27 18:20',
-    status: 'generated',
-    description: '各产品线毛利率与净利润对比',
-  },
-  {
-    id: '6',
-    name: '客户增长趋势报告',
-    type: 'sales',
-    updated_at: '2026-07-27 16:45',
-    status: 'generated',
-    description: '新增客户、留存率、客户生命周期价值',
-  },
-  {
-    id: '7',
-    name: '生产效率月报',
-    type: 'operations',
-    updated_at: '2026-07-27 14:10',
-    status: 'generated',
-    description: 'OEE、设备稼动率、良品率综合分析',
-  },
-  {
-    id: '8',
-    name: '员工流动率报告',
-    type: 'hr',
-    updated_at: '2026-07-26 17:30',
-    status: 'generated',
-    description: '离职率、入职率与人才结构分析',
-  },
-]
+/* ===================== 数据映射 ===================== */
+
+/** 后端报表类型映射为前端类型 */
+function mapReportType(raw: string): ReportType {
+  if (raw.includes('finance')) return 'finance'
+  if (raw.includes('sales')) return 'sales'
+  if (raw.includes('operation')) return 'operations'
+  return 'hr'
+}
+
+/** 将后端报表数据（snake_case）映射为前端 Report 结构 */
+function mapReport(raw: any): Report {
+  const rawType = String(raw.type ?? '')
+  const rawStatus = String(raw.status ?? 'generated')
+  const createdAt = String(raw.created_at ?? '')
+  // 截取日期时间前 16 位用于显示
+  const dateStr = createdAt ? createdAt.slice(0, 16).replace('T', ' ') : ''
+
+  // 从 data 中尝试提取描述
+  const data = raw.data ?? {}
+  let description = String(raw.title ?? '—')
+  if (data.summary) {
+    description = String(data.summary)
+  } else if (data.description) {
+    description = String(data.description)
+  }
+
+  return {
+    id: String(raw.report_id ?? raw.id ?? ''),
+    name: String(raw.title ?? raw.name ?? '—'),
+    type: mapReportType(rawType),
+    updated_at: dateStr || '—',
+    status: rawStatus === 'generating' ? 'generating' : 'generated',
+    description,
+  }
+}
 
 /* ===================== 主组件 ===================== */
 
 export default function BIReports() {
+  const [reports, setReports] = useState<Report[]>([])
+  const [stats, setStats] = useState<BIStats | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const [reportList, biStats] = await Promise.all([
+      apiService.getBIReports(),
+      apiService.getBIStats(),
+    ])
+    setReports((Array.isArray(reportList) ? reportList : []).map(mapReport))
+    setStats(biStats ?? null)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
   const maxRevenue = Math.max(...REVENUE_TREND.map((d) => d.value))
   const maxDeptRevenue = Math.max(...DEPT_REVENUE.map((d) => d.value))
 
@@ -156,34 +161,34 @@ export default function BIReports() {
       {/* 顶部统计卡片 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          label="本季营收"
-          value="¥18,560,000"
-          icon={<DollarSign className="w-5 h-5" />}
-          trend="12.3%"
+          label="报表总数"
+          value={stats?.total_reports ?? reports.length}
+          icon={<FileText className="w-5 h-5" />}
+          trend="持续更新"
           trendUp
           variant="primary"
         />
         <StatCard
-          label="净利润"
-          value="¥3,286,000"
-          icon={<TrendingUp className="w-5 h-5" />}
-          trend="8.5%"
+          label="仪表盘数"
+          value={stats?.total_dashboards ?? 0}
+          icon={<BarChart3 className="w-5 h-5" />}
+          trend="可视化监控"
           trendUp
           variant="accent"
         />
         <StatCard
-          label="利润率"
-          value="17.7%"
+          label="KPI 总数"
+          value={stats?.total_kpis ?? 0}
           icon={<Percent className="w-5 h-5" />}
-          trend="0.6%"
+          trend="全量跟踪"
           trendUp
           variant="primary"
         />
         <StatCard
-          label="同比增长"
-          value="12.3%"
+          label="达标 KPI"
+          value={stats?.kpi_on_track ?? 0}
           icon={<TrendingUp className="w-5 h-5" />}
-          trend="超预期"
+          trend="绩效良好"
           trendUp
           variant="accent"
         />
@@ -259,7 +264,17 @@ export default function BIReports() {
       {/* 报表列表 */}
       <Card title="报表列表">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {REPORTS.map((report) => {
+          {loading ? (
+            <div className="col-span-full text-center py-12">
+              <Loader2 className="w-6 h-6 text-primary animate-spin mx-auto" />
+              <p className="text-sm text-slate-500 mt-2">加载中...</p>
+            </div>
+          ) : reports.length === 0 ? (
+            <div className="col-span-full text-center py-12">
+              <p className="text-sm text-slate-500">暂无报表数据</p>
+            </div>
+          ) : (
+          reports.map((report) => {
             const Icon = REPORT_TYPE_ICON[report.type]
             const typeCfg = REPORT_TYPE_CONFIG[report.type]
             return (
@@ -305,7 +320,8 @@ export default function BIReports() {
                 </div>
               </div>
             )
-          })}
+          })
+          )}
         </div>
       </Card>
     </div>

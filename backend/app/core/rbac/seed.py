@@ -46,6 +46,7 @@ RESOURCES: dict[str, str] = {
     "marketing": "市场营销",
     "customer_service": "客户服务",
     "hr": "人力资源",
+    "payroll": "薪酬管理",
     "recruitment": "招聘管理",
     "performance": "绩效管理",
     "contract": "合同管理",
@@ -59,6 +60,8 @@ RESOURCES: dict[str, str] = {
     "esg": "ESG管理",
     "knowledge": "知识管理",
     "admin": "行政管理",
+    "document": "文档管理",
+    "message": "内部通讯",
 }
 
 ACTIONS: list[str] = ["read", "create", "update", "delete", "approve", "manage"]
@@ -67,6 +70,7 @@ ACTIONS: list[str] = ["read", "create", "update", "delete", "approve", "manage"]
 _CRITICAL_RESOURCES: set[str] = {
     "treasury", "permission", "security", "system",
     "agent", "user", "role", "audit",
+    "payroll",  # 薪酬数据属企业最高敏数据（评估报告 D-01）
 }
 
 
@@ -82,7 +86,7 @@ def _sensitivity(resource: str, action: str) -> str:
 
 
 # ===================================================================
-# 全量权限定义（34 资源 × 6 动作 = 204 条权限）
+# 全量权限定义（35 资源 × 6 动作 = 210 条权限）
 # ===================================================================
 
 SEED_PERMISSIONS: list[dict] = [
@@ -96,6 +100,24 @@ SEED_PERMISSIONS: list[dict] = [
     for resource, desc in RESOURCES.items()
     for action in ACTIONS
 ]
+
+# 内部通讯模块的扩展权限（非标准动作 file / command）
+SEED_PERMISSIONS.extend([
+    {
+        "permission_id": "message:file",
+        "resource": "message",
+        "action": "file",
+        "description": "内部通讯 - file（收发文件）",
+        "sensitivity": "sensitive",
+    },
+    {
+        "permission_id": "message:command",
+        "resource": "message",
+        "action": "command",
+        "description": "内部通讯 - command（发送Agent指令）",
+        "sensitivity": "high_risk",
+    },
+])
 
 
 # ===================================================================
@@ -315,6 +337,9 @@ _RC = {"read", "create"}
 _RCU = {"read", "create", "update"}
 _RA = {"read", "approve"}
 
+# 内部通讯权限动作集（含非标准动作 file / command）
+_MSG_ALL = {"read", "create", "manage", "file", "command"}
+
 ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
     # ---- chairman (L1): 全局只读 + 审计/合规/权限/预算/风险审批 ----
     "chairman": {
@@ -351,10 +376,11 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "asset": _R,
         "bi": _R,
         "knowledge": _R,
+        "document": _RCU,
         "reimbursement": _RC,
     },
 
-    # ---- cfo (L3): 财务/税务/资金/发票/报销/预算全权 ----
+    # ---- cfo (L3): 财务/税务/资金/发票/报销/预算全权 + 薪酬只读 ----
     "cfo": {
         "accounting": _ALL,
         "invoice": _ALL,
@@ -362,6 +388,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "tax": _ALL,
         "treasury": _ALL,
         "budget": _ALL,
+        "payroll": _R,
         "procurement": _R,
         "audit": _R,
         "compliance": _R,
@@ -369,6 +396,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "risk": _R,
         "bi": _R,
         "asset": _R,
+        "document": _RC,
     },
 
     # ---- cio (L3): 安全/审计/合规/用户/权限全权 + 全模块只读 ----
@@ -386,6 +414,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "knowledge": _ALL,
         "risk": _ALL,
         "esg": _ALL,
+        "document": _ALL,
         "reimbursement": _RC,
         # Phase 5: 运营战略全模块
         "legal": _RC,
@@ -420,18 +449,21 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "bi": _R,
         "budget": _RA,
         "contract": _R,
+        "document": _RC,
         "reimbursement": _RC,
     },
 
-    # ---- cho (L3): 人力资源/招聘/绩效全权 ----
+    # ---- cho (L3): 人力资源/招聘/绩效/薪酬全权 ----
     "cho": {
         "hr": _ALL,
         "recruitment": _ALL,
         "performance": _ALL,
+        "payroll": _ALL,
         "reimbursement": _RA,
         "budget": _R,
         "bi": _R,
         "user": _R,
+        "document": _RC,
     },
 
     # ---- cro (L3): 风险/合规/内审全权 ----
@@ -443,6 +475,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "legal": _R,
         "security": _R,
         "bi": _R,
+        "document": _RC,
         "reimbursement": _RC,
     },
 
@@ -458,6 +491,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "bi": _R,
         "system": _R,
         "agent": _R,
+        "document": _RC,
         "reimbursement": _RC,
     },
 
@@ -472,6 +506,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "procurement": _R,
         "contract": _R,
         "bi": _R,
+        "document": _RC,
     },
 
     # ---- legal_manager (L4): 合规/合同/法务管理 ----
@@ -483,6 +518,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "audit": _R,
         "bi": _R,
         "reimbursement": _RC,
+        "document": _RC,
     },
 
     # ---- admin_manager (L4): 行政/资产管理 + 库存采购操作 ----
@@ -494,17 +530,20 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "budget": _R,
         "hr": _R,
         "reimbursement": _RC,
+        "document": _RC,
     },
 
-    # ---- hr_manager (L4): 人力/招聘/绩效/报销管理 ----
+    # ---- hr_manager (L4): 人力/招聘/绩效/报销管理 + 薪酬读写（无删除/审批） ----
     "hr_manager": {
         "hr": _ALL,
         "recruitment": _ALL,
         "performance": _ALL,
+        "payroll": _RCU,
         "reimbursement": _ALL,
         "budget": _R,
         "bi": _R,
         "user": _R,
+        "document": _RC,
     },
 
     # ---- prod_manager (L4): 产品/生产/质量管理 + 项目操作 ----
@@ -516,6 +555,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "procurement": _R,
         "bi": _R,
         "reimbursement": _RC,
+        "document": _RC,
     },
 
     # ---- tech_manager (L4): 系统开发/Agent/运维管理 ----
@@ -526,6 +566,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "knowledge": _RCU,
         "bi": _R,
         "reimbursement": _RC,
+        "document": _RC,
     },
 
     # ---- mfg_manager (L4): 生产/质量/库存管理 ----
@@ -538,6 +579,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "project": _R,
         "bi": _R,
         "reimbursement": _RC,
+        "document": _RC,
     },
 
     # ---- proc_manager (L4): 采购管理 + 库存操作 ----
@@ -549,6 +591,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "contract": _R,
         "bi": _R,
         "reimbursement": _RC,
+        "document": _RC,
     },
 
     # ---- biz_manager (L4): CRM/销售管理 + 客服操作 ----
@@ -561,6 +604,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "reimbursement": _RC,
         "bi": _R,
         "budget": _R,
+        "document": _RC,
     },
 
     # ---- sales_manager (L4): 销售管理 + 合同操作 ----
@@ -571,6 +615,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "contract": _RC,
         "bi": _R,
         "reimbursement": _RC,
+        "document": _RC,
     },
 
     # ---- mkt_manager (L4): 市场营销管理 ----
@@ -581,6 +626,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "bi": _R,
         "budget": _R,
         "reimbursement": _RC,
+        "document": _RC,
     },
 
     # ---- cs_manager (L4): 客户服务管理 + CRM操作 ----
@@ -591,6 +637,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "contract": _R,
         "bi": _R,
         "reimbursement": _RC,
+        "document": _RC,
     },
 
     # ---- quality_manager (L4): 质量管理 + 生产/库存只读 ----
@@ -603,6 +650,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "bi": _R,
         "risk": _R,
         "reimbursement": _RC,
+        "document": _RC,
     },
 
     # ---- pm_manager (L4): 项目管理 + 预算操作 ----
@@ -614,6 +662,7 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "bi": _R,
         "risk": _R,
         "reimbursement": _RC,
+        "document": _RC,
     },
 
     # ---- dept_staff (L5): 本部门只读 + 报销提交 ----
@@ -632,8 +681,14 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
         "knowledge": _R,
         "bi": _R,
         "project": _R,
+        "document": _R,
     },
 }
+
+# 为所有角色添加内部通讯权限（message:read / create / manage / file / command）
+# 董事长、CEO、CFO、CIO、CTO、CMO、CHO、CRO、COO 及所有部门经理、员工角色均可使用内部通讯
+for _role_code in ROLE_PERMISSION_MATRIX:
+    ROLE_PERMISSION_MATRIX[_role_code]["message"] = _MSG_ALL
 
 
 def _expand_matrix_to_permissions() -> dict[str, list[str]]:
@@ -942,8 +997,8 @@ def load_seed_data(engine: "RBACEngine") -> None:
     将全量种子数据加载到 RBAC 引擎。
 
     加载顺序：
-    1. 权限定义（204 条）
-    2. 角色定义（23 条）
+    1. 权限定义（210 条）
+    2. 角色定义（24 条）
     3. 角色-权限映射
     4. 部门（16 条）
     5. 默认用户（3 个）+ 角色分配
@@ -978,8 +1033,11 @@ def load_seed_data(engine: "RBACEngine") -> None:
     logger.info("rbac.seed.departments_loaded", count=len(SEED_DEPARTMENTS))
 
     # 5. 加载默认用户 + 分配角色
+    # 注意：使用 .get() 而非 .pop()，避免修改 SEED_USERS 全局常量——
+    # pop 会永久移除 role_code 键，导致后续依赖该键的
+    # persist_seed_data() 无法读取角色分配信息。
     for user_data in SEED_USERS:
-        role_code = user_data.pop("role_code")
+        role_code = user_data.get("role_code")
         engine.add_user(
             user_id=user_data["user_id"],
             username=user_data["username"],
@@ -988,7 +1046,8 @@ def load_seed_data(engine: "RBACEngine") -> None:
             department=user_data["department"],
             email=user_data["email"],
         )
-        engine.assign_role(user_data["user_id"], role_code)
+        if role_code:
+            engine.assign_role(user_data["user_id"], role_code)
 
     logger.info("rbac.seed.users_loaded", count=len(SEED_USERS))
     logger.info("rbac.seed.complete",
@@ -996,3 +1055,72 @@ def load_seed_data(engine: "RBACEngine") -> None:
                 permissions=len(SEED_PERMISSIONS),
                 departments=len(SEED_DEPARTMENTS),
                 users=len(SEED_USERS))
+
+
+async def persist_seed_data(engine: "RBACEngine") -> None:
+    """
+    将全量种子数据幂等播种（upsert）到 MySQL。
+
+    调用时机：应用 lifespan 中 ``init_db()`` 成功之后、
+    ``load_from_db()`` 之前。这样即使面对全新空库，种子数据也能完整落库，
+    解决"导入期 DB 写入全部失败、DB 永远不会被播种"的启动时序问题。
+
+    幂等性：逐条复用引擎的 ``_db_*`` 写入方法（均为先查后插、
+    已存在则跳过），因此重复调用 / 重复启动不会产生重复数据。
+
+    容错性：任一条目写入失败仅记录日志、继续处理后续条目，
+    不中断整体播种（与引擎 fire-and-forget 的失败语义一致）；
+    整体异常也不向上抛出，避免阻塞应用启动。
+
+    Args:
+        engine: RBACEngine 实例（通常为全局单例 ``rbac_engine``）
+    """
+    from app.core.database import get_session_factory
+
+    if get_session_factory() is None:
+        logger.warning(
+            "rbac.persist_seed_no_factory",
+            message="数据库会话工厂未初始化，跳过种子数据播种（降级为内存种子数据）",
+        )
+        return
+
+    try:
+        # 1. 权限定义
+        for perm in SEED_PERMISSIONS:
+            await engine._db_add_permission(perm)
+
+        # 2. 角色定义
+        for role in SEED_ROLES:
+            await engine._db_add_role(role)
+
+        # 3. 角色-权限映射
+        total_mappings = sum(len(v) for v in ROLE_PERMISSION_IDS.values())
+        for role_code, perm_ids in ROLE_PERMISSION_IDS.items():
+            for perm_id in perm_ids:
+                await engine._db_assign_permission(role_code, perm_id)
+
+        # 4. 部门
+        for dept in SEED_DEPARTMENTS:
+            await engine._db_add_department(dept)
+
+        # 5. 用户 + 用户-角色映射
+        for user_data in SEED_USERS:
+            role_code = user_data.get("role_code")
+            await engine._db_add_user(user_data)
+            if role_code:
+                await engine._db_assign_role(user_data["user_id"], role_code)
+
+        logger.info(
+            "rbac.seed_persisted",
+            permissions=len(SEED_PERMISSIONS),
+            roles=len(SEED_ROLES),
+            role_permissions=total_mappings,
+            departments=len(SEED_DEPARTMENTS),
+            users=len(SEED_USERS),
+        )
+    except Exception as e:
+        logger.error(
+            "rbac.persist_seed_failed",
+            error=str(e),
+            error_type=type(e).__name__,
+        )

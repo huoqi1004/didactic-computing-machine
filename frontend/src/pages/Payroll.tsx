@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Banknote,
   Wallet,
@@ -19,6 +19,9 @@ import {
   type Column,
 } from '../components/ui'
 import { cn } from '../lib/utils'
+import { apiService } from '../services/api'
+import ExportButton from '../components/ExportButton'
+import Can from '../components/Can'
 
 /* ===================== 类型定义 ===================== */
 
@@ -35,6 +38,14 @@ interface PayrollRecord {
   status: PayrollStatus
 }
 
+interface PayrollStats {
+  total_net_salary?: number
+  total_gross_salary?: number
+  total_social_insurance?: number
+  total_housing_fund?: number
+  total_payroll_records?: number
+}
+
 /* ===================== 状态配置 ===================== */
 
 const statusConfig: Record<PayrollStatus, { label: string; variant: 'warning' | 'success' }> = {
@@ -48,22 +59,22 @@ const fmt = (n: number) => `¥${n.toLocaleString('zh-CN')}`
 
 const netSalary = (r: PayrollRecord) => r.baseSalary + r.bonus - r.socialInsurance - r.housingFund
 
-/* ===================== Mock 数据 ===================== */
-
-const payrollRecords: PayrollRecord[] = [
-  { id: 'EMP-001', name: '张伟', department: '技术部', baseSalary: 18000, bonus: 4500, socialInsurance: 2160, housingFund: 2160, status: 'paid' },
-  { id: 'EMP-002', name: '李娜', department: '产品部', baseSalary: 22000, bonus: 6000, socialInsurance: 2640, housingFund: 2640, status: 'paid' },
-  { id: 'EMP-003', name: '王强', department: '技术部', baseSalary: 19000, bonus: 3800, socialInsurance: 2280, housingFund: 2280, status: 'pending' },
-  { id: 'EMP-004', name: '赵敏', department: '财务部', baseSalary: 15000, bonus: 3000, socialInsurance: 1800, housingFund: 1800, status: 'paid' },
-  { id: 'EMP-005', name: '刘洋', department: '销售部', baseSalary: 12000, bonus: 8000, socialInsurance: 1440, housingFund: 1440, status: 'pending' },
-  { id: 'EMP-006', name: '陈静', department: '人力资源部', baseSalary: 16000, bonus: 3200, socialInsurance: 1920, housingFund: 1920, status: 'paid' },
-  { id: 'EMP-007', name: '杨光', department: '技术部', baseSalary: 13000, bonus: 2000, socialInsurance: 1560, housingFund: 1560, status: 'pending' },
-  { id: 'EMP-008', name: '周婷', department: '市场部', baseSalary: 14000, bonus: 3500, socialInsurance: 1680, housingFund: 1680, status: 'pending' },
-  { id: 'EMP-009', name: '孙磊', department: '运营部', baseSalary: 11000, bonus: 1800, socialInsurance: 1320, housingFund: 1320, status: 'pending' },
-  { id: 'EMP-010', name: '吴雪', department: '技术部', baseSalary: 15500, bonus: 3000, socialInsurance: 1860, housingFund: 1860, status: 'paid' },
-  { id: 'EMP-012', name: '黄丽', department: '财务部', baseSalary: 12500, bonus: 2200, socialInsurance: 1500, housingFund: 1500, status: 'pending' },
-  { id: 'EMP-013', name: '林峰', department: '技术部', baseSalary: 20500, bonus: 5200, socialInsurance: 2460, housingFund: 2460, status: 'paid' },
-]
+/** 将后端返回的薪酬记录映射为前端 PayrollRecord 结构（兼容 snake_case / camelCase） */
+function mapPayrollRecord(raw: Record<string, unknown>): PayrollRecord {
+  const rawStatus = String(raw.status ?? 'pending')
+  // 后端可能返回 'calculated' 等状态，统一归一为 pending / paid
+  const status: PayrollStatus = rawStatus === 'paid' ? 'paid' : 'pending'
+  return {
+    id: String(raw.id ?? raw.employee_id ?? raw.record_id ?? ''),
+    name: String(raw.name ?? raw.employee_name ?? raw.employee_id ?? '—'),
+    department: String(raw.department ?? raw.dept ?? ''),
+    baseSalary: Number(raw.base_salary ?? raw.baseSalary ?? 0),
+    bonus: Number(raw.bonus ?? raw.allowances ?? 0),
+    socialInsurance: Number(raw.social_insurance ?? raw.socialInsurance ?? 0),
+    housingFund: Number(raw.housing_fund ?? raw.housingFund ?? 0),
+    status,
+  }
+}
 
 /* ===================== 主组件 ===================== */
 
@@ -71,8 +82,60 @@ export default function Payroll() {
   const currentMonth = new Date().toISOString().slice(0, 7)
   const [month, setMonth] = useState(currentMonth)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [payrollRecords, setPayrollRecords] = useState<PayrollRecord[]>([])
+  const [stats, setStats] = useState<PayrollStats | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const fetchData = useCallback(async (period: string) => {
+    setLoading(true)
+    const [records, payrollStats] = await Promise.all([
+      apiService.getPayrollRecords({ period }),
+      apiService.getPayrollStats(),
+    ])
+    setPayrollRecords((Array.isArray(records) ? records : []).map(mapPayrollRecord))
+    setStats(payrollStats ?? null)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData(month)
+  }, [month, fetchData])
 
   const pendingCount = payrollRecords.filter((r) => r.status === 'pending').length
+
+  // 统计数据：优先使用 API 返回，降级时从记录中计算
+  const totalNetSalary = stats?.total_net_salary ?? payrollRecords.reduce((s, r) => s + netSalary(r), 0)
+  const avgSalary = payrollRecords.length > 0 ? totalNetSalary / payrollRecords.length : 0
+  const totalSocial = stats?.total_social_insurance ?? payrollRecords.reduce((s, r) => s + r.socialInsurance, 0)
+  const totalFund = stats?.total_housing_fund ?? payrollRecords.reduce((s, r) => s + r.housingFund, 0)
+
+  // 构造工资条导出数据（xlsx payroll 模板）
+  const payrollExportData = useMemo(() => {
+    const headers = ['工号', '姓名', '部门', '基本工资', '绩效奖金', '社保扣除', '公积金扣除', '实发工资']
+    const rows = payrollRecords.map((r) => [
+      r.id,
+      r.name,
+      r.department,
+      r.baseSalary,
+      r.bonus,
+      r.socialInsurance,
+      r.housingFund,
+      netSalary(r),
+    ])
+    const totalBase = payrollRecords.reduce((s, r) => s + r.baseSalary, 0)
+    const totalBonus = payrollRecords.reduce((s, r) => s + r.bonus, 0)
+    const totalSocial = payrollRecords.reduce((s, r) => s + r.socialInsurance, 0)
+    const totalFund = payrollRecords.reduce((s, r) => s + r.housingFund, 0)
+    const totalNet = payrollRecords.reduce((s, r) => s + netSalary(r), 0)
+    return {
+      title: '员工工资表',
+      month,
+      headers,
+      rows,
+      total_row: ['合计', '', '', totalBase, totalBonus, totalSocial, totalFund, totalNet],
+      notes: ['备注：本工资表仅供内部使用'],
+    }
+  }, [payrollRecords, month])
 
   const columns: Column<PayrollRecord>[] = [
     {
@@ -157,14 +220,25 @@ export default function Payroll() {
                 className="bg-transparent text-xs text-white focus:outline-none"
               />
             </div>
-            <button
-              onClick={() => setConfirmOpen(true)}
-              disabled={pendingCount === 0}
-              className="btn-accent"
-            >
-              <Send className="w-4 h-4" />
-              批量发放
-            </button>
+            <Can resource="payroll" action="approve">
+              <button
+                onClick={() => setConfirmOpen(true)}
+                disabled={pendingCount === 0}
+                className="btn-accent"
+              >
+                <Send className="w-4 h-4" />
+                批量发放
+              </button>
+            </Can>
+            <ExportButton
+              agentId="payroll"
+              templateType="payroll"
+              filename={`工资条_${month}`}
+              data={payrollExportData}
+              title="员工工资表"
+              formats={['xlsx']}
+              label="导出工资条"
+            />
           </div>
         }
       />
@@ -173,7 +247,7 @@ export default function Payroll() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="本月薪资总额"
-          value="¥1,286,500"
+          value={fmt(Math.round(totalNetSalary))}
           icon={<Wallet className="w-5 h-5" />}
           variant="primary"
           trend="环比 +2.3%"
@@ -181,7 +255,7 @@ export default function Payroll() {
         />
         <StatCard
           label="平均薪资"
-          value="¥14,960"
+          value={fmt(Math.round(avgSalary))}
           icon={<TrendingUp className="w-5 h-5" />}
           variant="accent"
           trend="环比 +1.1%"
@@ -189,13 +263,13 @@ export default function Payroll() {
         />
         <StatCard
           label="社保支出"
-          value="¥185,200"
+          value={fmt(Math.round(totalSocial))}
           icon={<ShieldCheck className="w-5 h-5" />}
           variant="warning"
         />
         <StatCard
           label="公积金"
-          value="¥97,200"
+          value={fmt(Math.round(totalFund))}
           icon={<Building className="w-5 h-5" />}
           variant="warning"
         />
@@ -214,6 +288,7 @@ export default function Payroll() {
         <DataTable
           columns={columns}
           data={payrollRecords}
+          loading={loading}
           searchKeys={['name']}
           searchPlaceholder="搜索姓名..."
           pageSize={10}

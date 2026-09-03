@@ -123,21 +123,21 @@ spec:
 
 ---
 # ============================================================
-# 3. PostgreSQL 服务目标规则 (data-knowledge 域)
+# 3. MySQL 服务目标规则 (data-knowledge 域)
 # ============================================================
-# PostgreSQL 数据库 - 强制 mTLS，保护数据通信
+# MySQL 数据库 - 强制 mTLS，保护数据通信
 apiVersion: networking.istio.io/v1
 kind: DestinationRule
 metadata:
-  name: postgres
+  name: mysql
   namespace: data-knowledge
   labels:
     domain: data-knowledge
     app.kubernetes.io/part-of: agent-native-erp
   annotations:
-    description: "PostgreSQL 服务 - STRICT mTLS, 保护数据库通信"
+    description: "MySQL 服务 - STRICT mTLS, 保护数据库通信"
 spec:
-  host: postgres.data-knowledge.svc.cluster.local
+  host: mysql.data-knowledge.svc.cluster.local
 
   trafficPolicy:
     # mTLS 配置 - SIMPLE（客户端发起 mTLS）
@@ -145,7 +145,7 @@ spec:
       mode: SIMPLE
 
     # 负载均衡策略 - ROUND_ROBIN
-    # PostgreSQL StatefulSet 通常单副本，负载均衡策略影响较小
+    # MySQL StatefulSet 通常单副本，负载均衡策略影响较小
     loadBalancer:
       simple: ROUND_ROBIN
 

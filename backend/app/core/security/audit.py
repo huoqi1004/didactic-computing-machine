@@ -5,7 +5,7 @@
 
 持久化架构：
 - 内存层（List）：作为高速缓存，保证查询低延迟，同时是测试/开发的零依赖后端
-- 数据库层（PostgreSQL audit_logs 表）：作为持久化存储，保证审计日志不丢失
+- 数据库层（MySQL audit_logs 表）：作为持久化存储，保证审计日志不丢失
 - 区块链层（Hyperledger Fabric，可选）：作为防篡改存证层，提供司法级证据保全
 - 自动降级：数据库不可用时透明降级到纯内存模式；Fabric 不可用时降级到哈希链
 
@@ -77,7 +77,7 @@ class AuditChain:
 
     架构：
     - 内存层（``_entries``）：高速读缓存 + 零依赖降级后端
-    - 数据库层（PostgreSQL ``audit_logs`` 表）：持久化存储
+    - 数据库层（MySQL ``audit_logs`` 表）：持久化存储
     - ``init_db()`` 初始化数据库表结构，设置 ``_db_available`` 标志
     - 写操作（``log``）双写内存 + 数据库
     - 读操作（``query``）从内存缓存读取（内存始终与数据库保持同步）
@@ -143,7 +143,7 @@ class AuditChain:
             self._db_available = success
 
             if success:
-                logger.info("audit_chain.db_initialized", backend="postgres")
+                logger.info("audit_chain.db_initialized", backend="mysql")
             else:
                 logger.warning("audit_chain.db_init_failed_degraded_to_memory")
 
@@ -206,7 +206,7 @@ class AuditChain:
 
         写入策略：
         1. 内存层：始终写入（保证缓存一致性）
-        2. 数据库层：``_db_available`` 为 True 时写入 PostgreSQL ``audit_logs`` 表
+        2. 数据库层：``_db_available`` 为 True 时写入 MySQL ``audit_logs`` 表
         3. 数据库写入失败时记录警告，不影响内存写入（降级模式）
 
         返回审计条目ID。
@@ -288,7 +288,7 @@ class AuditChain:
             )
 
     async def _append_to_db(self, entry: AuditEntry) -> None:
-        """将审计条目写入 PostgreSQL audit_logs 表（内部方法）"""
+        """将审计条目写入 MySQL audit_logs 表（内部方法）"""
         try:
             from app.core import database as db_module
             from sqlalchemy import text
@@ -306,7 +306,7 @@ class AuditChain:
                              details, risk_level, prev_hash, entry_hash, timestamp)
                         VALUES
                             (:entry_id, :actor_did, :action, :resource, :result,
-                             CAST(:details AS JSONB), :risk_level, :prev_hash, :entry_hash, :timestamp)
+                             CAST(:details AS JSON), :risk_level, :prev_hash, :entry_hash, :timestamp)
                     """),
                     {
                         "entry_id": entry.entry_id,
@@ -430,7 +430,7 @@ class AuditChain:
         limit: int = 100,
     ) -> list[dict]:
         """
-        从 PostgreSQL audit_logs 表异步查询审计日志。
+        从 MySQL audit_logs 表异步查询审计日志。
 
         支持多维度过滤，返回结果按时间逆序（最新优先）。
         若数据库不可用或查询失败，降级到内存查询（``query()``）。

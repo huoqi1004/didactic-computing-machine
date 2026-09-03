@@ -210,7 +210,7 @@ verify_peer_authentication() {
 verify_destination_rules() {
     log_section "4. 验证 DestinationRule mTLS 配置"
 
-    local services=("backend:agent-execution" "frontend:user-interaction" "postgres:data-knowledge" "redis:data-knowledge")
+    local services=("backend:agent-execution" "frontend:user-interaction" "mysql:data-knowledge" "redis:data-knowledge")
 
     for service_ns in "${services[@]}"; do
         local service="${service_ns%%:*}"
@@ -319,16 +319,16 @@ verify_mtls_communication() {
         warn "backend istio-proxy: 无法验证 TLS 上下文"
     fi
 
-    # 检查到 PostgreSQL 的连接
-    log_info "验证 backend -> PostgreSQL 的 mTLS 通信..."
-    local postgres_conn=$(kubectl exec -n agent-execution $backend_pod -c istio-proxy \
+    # 检查到 MySQL 的连接
+    log_info "验证 backend -> MySQL 的 mTLS 通信..."
+    local mysql_conn=$(kubectl exec -n agent-execution $backend_pod -c istio-proxy \
         -- curl -s -o /dev/null -w "%{http_code}" \
-        http://postgres.data-knowledge.svc.cluster.local:5432 2>/dev/null || echo "failed")
+        http://mysql.data-knowledge.svc.cluster.local:3306 2>/dev/null || echo "failed")
 
-    if [ "$postgres_conn" != "000" ]; then
-        pass "backend -> PostgreSQL: 连接已建立（通过 mTLS）"
+    if [ "$mysql_conn" != "000" ]; then
+        pass "backend -> MySQL: 连接已建立（通过 mTLS）"
     else
-        warn "backend -> PostgreSQL: 连接验证失败（数据库端口非HTTP，正常现象）"
+        warn "backend -> MySQL: 连接验证失败（数据库端口非HTTP，正常现象）"
     fi
 
     # 检查到 Redis 的连接

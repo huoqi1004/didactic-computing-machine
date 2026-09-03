@@ -1,0 +1,191 @@
+# ============================================================
+# Prometheus Alert Rules - Agent-Native ERP System
+# ============================================================
+# 部署: 将此文件放入 Prometheus 的 rules 目录
+# docker-compose 中挂载: ./infra/prometheus/rules.yml:/etc/prometheus/rules.yml
+# ============================================================
+
+groups:
+  # =========================================================
+  # 系统资源告警
+  # =========================================================
+  - name: system_resources
+    rules:
+      # CPU 使用率 > 80% 持续 5 分钟
+      - alert: HighCPUUsage
+        expr: |
+          100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: system
+        annotations:
+          summary: "CPU 使用率过高 ({{ $labels.instance }})"
+          description: "CPU 使用率 {{ $value }}% 超过 80%，持续 5 分钟"
+
+      # 内存使用率 > 85%
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          category: system
+        annotations:
+          summary: "内存使用率过高 ({{ $labels.instance }})"
+          description: "内存使用率 {{ $value }}% 超过 85%"
+
+      # 磁盘空间 < 15%
+      - alert: LowDiskSpace
+        expr: |
+          (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          category: system
+        annotations:
+          summary: "磁盘空间不足 ({{ $labels.instance }} {{ $labels.mountpoint }})"
+          description: "磁盘使用率 {{ $value }}%，剩余空间不足 15%"
+
+      # 磁盘 IO 等待 > 20%
+      - alert: HighDiskIO
+        expr: |
+          rate(node_disk_io_time_seconds_total[5m]) * 100 > 20
+        for: 5m
+        labels:
+          severity: warning
+          category: system
+        annotations:
+          summary: "磁盘 IO 过高 ({{ $labels.instance }})"
+          description: "磁盘 IO 等待时间 {{ $value }}%"
+
+  # =========================================================
+  # 应用健康告警
+  # =========================================================
+  - name: app_health
+    rules:
+      # 服务宕机
+      - alert: ServiceDown
+        expr: up{job="erp-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: app
+        annotations:
+          summary: "ERP 后端服务不可用"
+          description: "{{ $labels.instance }} 已离线超过 1 分钟"
+
+      # HTTP 5xx 错误率 > 5%
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m])) by(service)
+          / sum(rate(http_requests_total[5m])) by(service) * 100 > 5
+        for: 5m
+        labels:
+          severity: critical
+          category: app
+        annotations:
+          summary: "HTTP 5xx 错误率过高"
+          description: "5xx 错误率 {{ $value }}% 超过 5%，持续 5 分钟"
+
+      # API 响应时间 P95 > 2 秒
+      - alert: SlowApiResponse
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by(le, service)) > 2
+        for: 5m
+        labels:
+          severity: warning
+          category: app
+        annotations:
+          summary: "API 响应时间过长"
+          description: "P95 响应时间 {{ $value }}s 超过 2 秒"
+
+      # API 限流触发次数过多
+      - alert: RateLimitTriggered
+        expr: |
+          sum(rate(http_requests_total{status="429"}[5m])) by(service) > 10
+        for: 5m
+        labels:
+          severity: warning
+          category: app
+        annotations:
+          summary: "API 限流频繁触发"
+          description: "429 限流响应每秒 {{ $value }} 次，可能有异常流量"
+
+  # =========================================================
+  # 数据库告警
+  # =========================================================
+  - name: database
+    rules:
+      # MySQL 连接数过高
+      - alert: HighDBConnections
+        expr: mysql_global_status_threads_connected > 100
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "MySQL 连接数过高"
+          description: "当前连接数 {{ $value }} 超过 100"
+
+      # MySQL 慢查询
+      - alert: SlowDBQueries
+        expr: |
+          increase(mysql_global_status_slow_queries[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "MySQL 慢查询过多"
+          description: "5 分钟内出现 {{ $value }} 条慢查询"
+
+      # 数据库主从延迟
+      - alert: DBReplicationLag
+        expr: mysql_slave_status_seconds_behind_master > 60
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "MySQL 主从复制延迟"
+          description: "复制延迟 {{ $value }} 秒"
+
+  # =========================================================
+  # Agent 系统告警
+  # =========================================================
+  - name: agent_system
+    rules:
+      # Agent 熔断
+      - alert: AgentCircuitBreaker
+        expr: agent_circuit_breaker_state == 1
+        for: 1m
+        labels:
+          severity: critical
+          category: agent
+        annotations:
+          summary: "Agent 熔断器触发 ({{ $labels.agent_name }})"
+          description: "Agent {{ $labels.agent_name }} 熔断器已触发"
+
+      # Agent 响应超时
+      - alert: AgentResponseTimeout
+        expr: |
+          histogram_quantile(0.95, sum(rate(agent_response_duration_seconds_bucket[5m])) by(le, agent_name)) > 30
+        for: 5m
+        labels:
+          severity: warning
+          category: agent
+        annotations:
+          summary: "Agent 响应超时 ({{ $labels.agent_name }})"
+          description: "P95 响应时间 {{ $value }}s 超过 30 秒"
+
+      # LLM API 不可用
+      - alert: LLMApiUnavailable
+        expr: llm_api_available == 0
+        for: 2m
+        labels:
+          severity: warning
+          category: agent
+        annotations:
+          summary: "LLM API 不可用"
+          description: "DeepSeek API 已不可用 2 分钟，系统已降级到规则引擎"

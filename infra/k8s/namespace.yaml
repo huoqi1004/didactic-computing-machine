@@ -38,7 +38,7 @@ metadata:
 # ============================================================
 # 2. 数据知识域 (data-knowledge)
 # ============================================================
-# 运行 PostgreSQL 和 Redis，存储核心业务数据
+# 运行 MySQL 和 Redis，存储核心业务数据
 # 对应 Docker Compose 网络: erp-data-net
 apiVersion: v1
 kind: Namespace

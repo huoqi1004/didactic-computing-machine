@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 from app.api.middleware.auth import get_current_user, require_permission
+from app.core.security.audit import audit_chain
 from app.api.routes._agent_refs import (
     get_crm_agent,
     get_sales_agent,
@@ -28,6 +29,32 @@ from app.api.routes._agent_refs import (
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/v1", tags=["销售营销"])
+
+
+async def _audit_sales_write(
+    current_user: dict,
+    action: str,
+    order_id: str,
+    details: dict,
+) -> None:
+    """
+    记录销售写操作审计（D-05：销售下单 100% 审计）。
+
+    失败不抛异常，不影响主流程。
+    """
+    try:
+        await audit_chain.log(
+            actor_did=current_user.get("user_id", "unknown"),
+            action=action,
+            resource=f"sales_order:{order_id}",
+            result="success",
+            details={
+                "username": current_user.get("username", ""),
+                **details,
+            },
+        )
+    except Exception as audit_err:  # noqa: BLE001
+        logger.warning("sales.audit_failed", action=action, error=str(audit_err))
 
 
 # =============================================================================
@@ -410,6 +437,10 @@ async def create_order(
         total_amount=req.total_amount,
         delivery_date=req.delivery_date,
     )
+    await _audit_sales_write(
+        current_user, "sales.order.create", order.get("order_id", ""),
+        {"customer_id": req.customer_id, "total_amount": req.total_amount},
+    )
     return {"message": "销售订单创建成功", "order": order}
 
 
@@ -426,6 +457,10 @@ async def confirm_order(
         order = await agent.confirm_order(order_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    await _audit_sales_write(
+        current_user, "sales.order.confirm", order_id,
+        {"customer_id": order.get("customer_id"), "total_amount": order.get("total_amount")},
+    )
     return {"message": "订单已确认", "order": order}
 
 

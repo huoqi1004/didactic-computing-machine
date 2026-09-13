@@ -43,6 +43,7 @@ from app.core.agent.orchestrator import orchestrator
 from app.core.security.did import did_registry
 from app.core.security.authorization import authz_engine
 from app.core.security.audit import audit_chain
+from app.core.maintenance.retention import retention_loop
 from app.core.security.guardrails import guardrails
 from app.core.agent.tools import tool_registry, Tool
 from app.core.knowledge import init_knowledge_base
@@ -398,6 +399,27 @@ async def lifespan(app: FastAPI):
             impact="auth/rbac/messaging 持久化全部失效，请立即排查 MySQL",
         )
 
+    # 2.0.5 初始化 Redis（会话/吊销黑名单/限流计数的共享存储，路线图 2.5）
+    # 失败时各使用方自动降级进程内实现（显式节流告警），不影响应用启动
+    try:
+        from app.core.database import init_redis as _init_redis
+
+        redis_client = await _init_redis()
+        if redis_client is not None:
+            logger.info("app.redis_ready", url=settings.redis_url)
+        else:
+            logger.warning(
+                "app.redis_unavailable_degraded_to_memory",
+                impact="会话/登出吊销/限流退化为单实例内存态，多实例部署不一致",
+            )
+    except Exception as e:
+        logger.warning(
+            "app.redis_init_failed",
+            error=str(e),
+            error_type=type(e).__name__,
+            degraded="in_memory",
+        )
+
     try:
         store_ready = await event_store.init_db()
         if store_ready:
@@ -412,6 +434,8 @@ async def lifespan(app: FastAPI):
         audit_ready = await audit_chain.init_db()
         if audit_ready:
             logger.info("app.audit_chain_db_ready", backend="mysql")
+            # 审计哈希链续接（D-05 缺陷1）：从库中恢复链尾，重启不再断链
+            await audit_chain.restore_chain_from_db()
         else:
             logger.warning("app.audit_chain_db_unavailable_degraded_to_memory")
     except Exception as e:
@@ -688,6 +712,15 @@ async def lifespan(app: FastAPI):
         risk_level="low",
     )
 
+    # 8. 事件/审计表保留策略后台任务（B-03：events 表无界膨胀治理）
+    retention_task = asyncio.create_task(retention_loop())
+    logger.info(
+        "app.retention_loop_started",
+        event_retention_days=settings.event_retention_days,
+        audit_retention_days=settings.audit_retention_days,
+        cleanup_interval_hours=settings.retention_cleanup_interval_hours,
+    )
+
     logger.info("app.started",
                 agents=33,
                 version=settings.app_version)
@@ -697,6 +730,13 @@ async def lifespan(app: FastAPI):
     # 关闭（优雅关机：按序 + 超时保护）
     shutdown_started = asyncio.get_event_loop().time()
     logger.info("app.stopping", reason="shutdown")
+
+    # 0. 停止保留策略后台任务
+    retention_task.cancel()
+    try:
+        await retention_task
+    except asyncio.CancelledError:
+        pass
 
     # 1. 停止编排器（先停止 Agent，不再接受新任务）
     try:

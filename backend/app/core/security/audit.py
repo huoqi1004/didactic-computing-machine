@@ -93,6 +93,9 @@ class AuditChain:
     def __init__(self):
         # 内存审计条目列表（缓存层）
         self._entries: list[AuditEntry] = []
+        # 内存条目上限（防止长期运行内存无限膨胀；超出后淘汰最旧条目。
+        # 完整历史在 MySQL audit_logs，哈希链续接不受淘汰影响）
+        self._max_memory_entries: int = 10000
         # 上一条目的哈希（哈希链指针）
         self._last_hash: Optional[str] = None
         self._lock_count = 0
@@ -196,6 +199,60 @@ class AuditChain:
             return False
 
     # ===================================================================
+    # 哈希链恢复（D-05 缺陷 1：重启断链）
+    # ===================================================================
+
+    async def restore_chain_from_db(self) -> bool:
+        """
+        重启后从 MySQL audit_logs 恢复哈希链尾指针，使新条目接续历史链。
+
+        在 ``init_db()`` 成功后调用。库为空（全新部署）时不恢复，
+        从零起链是正确行为。
+
+        返回 ``True`` 表示链尾已恢复。
+        """
+        if not self._db_available:
+            logger.debug("audit.chain_restore_skipped", reason="db_unavailable")
+            return False
+
+        try:
+            from app.core import database as db_module
+            from sqlalchemy import text
+
+            engine = db_module.get_engine()
+            if engine is None:
+                return False
+
+            async with engine.connect() as conn:
+                row = (
+                    await conn.execute(
+                        text(
+                            "SELECT entry_hash FROM audit_logs "
+                            "ORDER BY timestamp DESC LIMIT 1"
+                        )
+                    )
+                ).fetchone()
+
+            if row and row[0]:
+                self._last_hash = row[0]
+                logger.info(
+                    "audit.chain_restored",
+                    last_hash=row[0][:16] + "...",
+                    message="审计哈希链从数据库续接，重启不再断链",
+                )
+                return True
+
+            logger.debug("audit.chain_restore_empty_db")
+            return False
+        except Exception as e:
+            logger.warning(
+                "audit.chain_restore_failed",
+                error=str(e),
+                degraded="fresh_chain",
+            )
+            return False
+
+    # ===================================================================
     # 审计日志记录（写操作）
     # ===================================================================
 
@@ -225,6 +282,10 @@ class AuditChain:
         entry.hash = entry.compute_hash(self._last_hash)
         self._last_hash = entry.hash
         self._entries.append(entry)
+
+        # 内存条目上限裁剪（B-03 关联：长期运行不膨胀）
+        if len(self._entries) > self._max_memory_entries:
+            self._entries = self._entries[-self._max_memory_entries:]
 
         # 尝试写入数据库
         if self._db_available:

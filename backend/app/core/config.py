@@ -150,6 +150,13 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 30
     mtls_enabled: bool = True
 
+    # 事件/审计表保留策略（评估报告 B-03 / 路线图 2.8）
+    # audit_logs 保留期必须长于 events（审计合规要求）
+    event_retention_days: int = 7
+    snapshot_retention_days: int = 30
+    audit_retention_days: int = 90
+    retention_cleanup_interval_hours: int = 6
+
     # 种子用户密码治理（评估报告 D-04）
     # 为空时每个种子用户随机生成独立强密码，并在首次播种后一次性打印到服务端日志；
     # 设置 ERP_SEED_PASSWORD 后所有种子用户共用该密码（仅限演示/联调环境）。

@@ -117,6 +117,13 @@ class RBACEngine:
         # ---- 是否已从 DB 加载缓存 ----
         self._initialized: bool = False
 
+        # ---- RBAC 跨实例新鲜度（路线图 2.5）----
+        # 本机已同步的数据版本号 + 上次检查时间（5 秒节流）。
+        # 任一实例的 RBAC 变更都会 INCR Redis 版本号，其他实例在
+        # ensure_fresh() 中检测到版本差后从 DB 重载，消除多实例脏缓存。
+        self._rbac_version_local: int = 0
+        self._rbac_version_checked_at: float = 0.0
+
         # ---- 异步 DB 写入任务跟踪（避免被 GC 回收）----
         self._pending_tasks: set[asyncio.Task] = set()
 
@@ -372,6 +379,62 @@ class RBACEngine:
         """
         if not self._initialized:
             await self.load_from_db()
+
+    # ===================================================================
+    # RBAC 跨实例新鲜度（路线图 2.5）
+    # ===================================================================
+
+    async def ensure_fresh(self) -> None:
+        """
+        检查 RBAC 数据版本信号，版本落后时从 DB 重载（多实例一致性）。
+
+        - 检查频率 5 秒节流：连续请求不会每个都打 Redis；
+        - Redis 不可用：单实例行为，直接返回；
+        - 版本一致：仅刷新检查时间戳。
+        """
+        import time as _time
+
+        from app.core import redis_store
+
+        now = _time.monotonic()
+        if now - self._rbac_version_checked_at < 5.0:
+            return
+        self._rbac_version_checked_at = now
+
+        version = await redis_store.get_rbac_version()
+        if version is None:
+            return
+        if version != self._rbac_version_local:
+            logger.info(
+                "rbac.version_drift_detected",
+                local=self._rbac_version_local,
+                shared=version,
+                action="reload_from_db",
+            )
+            await self.load_from_db()
+            self._rbac_version_local = version
+
+    def _bump_rbac_version(self) -> None:
+        """
+        RBAC 数据变更后递增共享版本号（fire-and-forget）。
+
+        本机版本号同步更新，避免自身在 ensure_fresh 中无谓重载。
+        Redis 不可用时静默跳过（单实例场景本机内存即最新）。
+        """
+        from app.core import redis_store
+
+        async def _bump() -> None:
+            new_version = await redis_store.bump_rbac_version()
+            if new_version is not None:
+                self._rbac_version_local = new_version
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        task = asyncio.create_task(_bump())
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
 
     # ===================================================================
     # 异步 DB 写入方法（内部使用，由 fire-and-forget 调度）
@@ -640,6 +703,7 @@ class RBACEngine:
 
         # 异步写入 DB（fire-and-forget）
         self._fire_and_forget(self._db_add_user(user))
+        self._bump_rbac_version()
 
         logger.info(
             "rbac.user_added",
@@ -719,6 +783,7 @@ class RBACEngine:
 
         if applied:
             self._fire_and_forget(self._db_update_user(user_id, applied))
+            self._bump_rbac_version()
 
         logger.info("rbac.user_updated", user_id=user_id, fields=list(fields.keys()))
         return self._user_to_dict(user)
@@ -741,6 +806,7 @@ class RBACEngine:
 
         # 异步删除 DB 记录（含 user_role 映射）
         self._fire_and_forget(self._db_delete_user(user_id))
+        self._bump_rbac_version()
 
         logger.info("rbac.user_deleted", user_id=user_id, username=username)
         return True
@@ -777,6 +843,7 @@ class RBACEngine:
 
         # 异步写入 user_role 表
         self._fire_and_forget(self._db_assign_role(user_id, role_code))
+        self._bump_rbac_version()
 
         logger.info("rbac.role_assigned", user_id=user_id, role_code=role_code)
         return True
@@ -799,6 +866,7 @@ class RBACEngine:
 
         # 异步删除 user_role 表记录
         self._fire_and_forget(self._db_revoke_role(user_id, role_code))
+        self._bump_rbac_version()
 
         logger.info("rbac.role_revoked", user_id=user_id, role_code=role_code)
         return True
@@ -905,6 +973,7 @@ class RBACEngine:
 
         # 异步写入 DB
         self._fire_and_forget(self._db_add_role(role_data))
+        self._bump_rbac_version()
 
         logger.info(
             "rbac.role_added",
@@ -969,6 +1038,7 @@ class RBACEngine:
 
         # 异步写入 DB
         self._fire_and_forget(self._db_add_permission(perm_data))
+        self._bump_rbac_version()
 
         return dict(perm_data)
 
@@ -1004,6 +1074,7 @@ class RBACEngine:
 
         # 异步写入 role_permission 表
         self._fire_and_forget(self._db_assign_permission(role_code, permission_id))
+        self._bump_rbac_version()
 
         return True
 
@@ -1041,6 +1112,7 @@ class RBACEngine:
 
         # 异步写入 DB
         self._fire_and_forget(self._db_add_department(dept_data))
+        self._bump_rbac_version()
 
         return dict(dept_data)
 

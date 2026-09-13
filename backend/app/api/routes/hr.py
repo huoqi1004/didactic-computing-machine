@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 from app.api.middleware.auth import get_current_user, require_permission
+from app.core.security.audit import audit_chain
 from app.api.routes._agent_refs import (
     get_hr_agent,
     get_recruitment_agent,
@@ -676,6 +677,34 @@ async def get_performance_stats(
 # 薪酬路由
 # =============================================================================
 
+async def _audit_payroll_write(
+    current_user: dict,
+    action: str,
+    employee_id: str,
+    details: dict,
+) -> None:
+    """
+    记录薪酬写操作审计（D-05：薪酬写入 100% 审计）。
+
+    敏感数据（bank_account 等）不入审计详情，只记操作要素。
+    失败不抛异常，不影响主流程。
+    """
+    try:
+        await audit_chain.log(
+            actor_did=current_user.get("user_id", "unknown"),
+            action=action,
+            resource=f"payroll:{employee_id}",
+            result="success",
+            details={
+                "username": current_user.get("username", ""),
+                **details,
+            },
+            risk_level="high",
+        )
+    except Exception as audit_err:  # noqa: BLE001
+        logger.warning("payroll.audit_failed", action=action, error=str(audit_err))
+
+
 def _mask_bank_account(account: str) -> str:
     """银行卡号脱敏：仅保留尾4位（评估报告 D-01 止血措施）"""
     if not account:
@@ -720,6 +749,10 @@ async def set_salary_structure(
         payment_method=req.payment_method,
         effective_date=req.effective_date,
     )
+    await _audit_payroll_write(
+        current_user, "payroll.structure.set", req.employee_id,
+        {"base_salary": req.base_salary},
+    )
     return {"message": "薪资结构设置成功", "structure": structure}
 
 
@@ -738,6 +771,10 @@ async def calculate_payroll(
     )
     if "error" in record:
         raise HTTPException(status_code=400, detail=record["error"])
+    await _audit_payroll_write(
+        current_user, "payroll.calculate", req.employee_id,
+        {"period": req.period, "record_id": record.get("record_id")},
+    )
     return {"message": "薪酬计算完成", "record": record}
 
 
@@ -751,6 +788,10 @@ async def batch_calculate_payroll(
     if agent is None:
         raise HTTPException(status_code=503, detail="Payroll Agent 未启动")
     records = agent.batch_calculate_payroll(period=req.period)
+    await _audit_payroll_write(
+        current_user, "payroll.batch_calculate", "*",
+        {"period": req.period, "total": len(records)},
+    )
     return {"total": len(records), "period": req.period, "records": records}
 
 
@@ -789,6 +830,10 @@ async def update_social_insurance_config(
     if agent is None:
         raise HTTPException(status_code=503, detail="Payroll Agent 未启动")
     config = agent.update_social_insurance_config(rates=req.rates)
+    await _audit_payroll_write(
+        current_user, "payroll.social_insurance.update", "*",
+        {"rates": req.rates},
+    )
     return {"message": "社保配置已更新", "config": config}
 
 

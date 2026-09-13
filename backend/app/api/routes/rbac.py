@@ -38,6 +38,7 @@ from typing import Optional
 
 from app.core.rbac import rbac_engine
 from app.core.auth import PasswordHasher
+from app.core.security.audit import audit_chain
 from app.api.middleware.auth import get_current_user, require_permission
 
 import structlog
@@ -45,6 +46,31 @@ import structlog
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/v1/rbac", tags=["RBAC权限管理"])
+
+
+async def _audit_rbac_change(
+    actor_id: str,
+    action: str,
+    target: str,
+    details: dict,
+    result: str = "success",
+) -> None:
+    """
+    记录 RBAC 变更审计（D-05：RBAC 变更 100% 审计）。
+
+    失败不抛异常，不影响主流程。
+    """
+    try:
+        await audit_chain.log(
+            actor_did=actor_id,
+            action=f"rbac.{action}",
+            resource=target,
+            result=result,
+            details=details,
+            risk_level="high",
+        )
+    except Exception as audit_err:  # noqa: BLE001
+        logger.warning("rbac.audit_failed", action=action, error=str(audit_err))
 
 
 # ===================================================================
@@ -130,6 +156,10 @@ async def create_user(
             rbac_engine.update_user(user_id, phone=req.phone, position=req.position)
 
         logger.info("rbac.user_created", user_id=user_id, username=req.username, created_by=current_user["user_id"])
+        await _audit_rbac_change(
+            current_user["user_id"], "user.create", user_id,
+            {"username": req.username, "department": req.department},
+        )
         return {"message": "用户创建成功", "user": user}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -165,6 +195,10 @@ async def update_user(
     try:
         updated = rbac_engine.update_user(user_id, **update_fields)
         logger.info("rbac.user_updated", user_id=user_id, fields=list(update_fields.keys()), updated_by=current_user["user_id"])
+        await _audit_rbac_change(
+            current_user["user_id"], "user.update", user_id,
+            {"fields": [f for f in update_fields if f != "password_hash"]},
+        )
         return {"message": "用户更新成功", "user": updated}
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -176,6 +210,7 @@ async def delete_user(
     current_user: dict = Depends(require_permission("user", "manage")),
 ):
     """删除用户（需要 user:manage 权限）。"""
+    user = rbac_engine.get_user(user_id)
     if user_id == current_user["user_id"]:
         raise HTTPException(status_code=400, detail="不能删除当前登录用户")
 
@@ -184,6 +219,10 @@ async def delete_user(
         raise HTTPException(status_code=404, detail="用户不存在")
 
     logger.info("rbac.user_deleted", user_id=user_id, deleted_by=current_user["user_id"])
+    await _audit_rbac_change(
+        current_user["user_id"], "user.delete", user_id,
+        {"username": user.get("username") if user else None},
+    )
     return {"message": "用户已删除", "user_id": user_id}
 
 
@@ -221,6 +260,10 @@ async def assign_role(
         raise HTTPException(status_code=400, detail="角色分配失败")
 
     logger.info("rbac.role_assigned", user_id=user_id, role_code=req.role_code, assigned_by=current_user["user_id"])
+    await _audit_rbac_change(
+        current_user["user_id"], "role.assign", user_id,
+        {"role_code": req.role_code},
+    )
     return {"message": "角色分配成功", "user_id": user_id, "role_code": req.role_code}
 
 
@@ -236,6 +279,10 @@ async def revoke_role(
         raise HTTPException(status_code=400, detail="角色收回失败（用户不存在或未分配该角色）")
 
     logger.info("rbac.role_revoked", user_id=user_id, role_code=req.role_code, revoked_by=current_user["user_id"])
+    await _audit_rbac_change(
+        current_user["user_id"], "role.revoke", user_id,
+        {"role_code": req.role_code},
+    )
     return {"message": "角色已收回", "user_id": user_id, "role_code": req.role_code}
 
 

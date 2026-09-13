@@ -13,9 +13,10 @@ API 限流中间件
 超限时返回 429 Too Many Requests，携带 Retry-After 头。
 
 设计要点：
-- 使用进程内 Dict 存储（单实例部署足够；多实例需替换为 Redis）
-- 滑动窗口算法：记录最近 N 秒内的请求时间戳，超出阈值则拒绝
-- 异步清理过期条目，避免内存泄漏
+- **Redis 共享计数优先**（路线图 2.5）：多实例部署下限流全局生效；
+  Redis 不可用时自动降级为进程内滑动窗口（显式节流告警，不放大故障）
+- 滑动窗口算法（内存路径）：记录最近 N 秒内的请求时间戳，超出阈值则拒绝
+- Redis 路径为固定窗口计数（INCR + EXPIRE），窗口对齐自然时间片
 - 公开端点（/health, /metrics）不限流
 """
 from __future__ import annotations
@@ -71,10 +72,10 @@ class RateLimitRule:
 
 
 class RateLimiter:
-    """滑动窗口限流器。"""
+    """限流器：Redis 共享固定窗口优先（多实例一致），不可用时降级进程内滑动窗口。"""
 
     def __init__(self):
-        # key (rule_name + client_key) → deque[timestamp]
+        # key (rule_name + client_key) → deque[timestamp]（内存降级路径）
         self._buckets: dict[str, deque[float]] = defaultdict(deque)
         self._lock = asyncio.Lock()
         self._cleanup_counter = 0
@@ -83,8 +84,26 @@ class RateLimiter:
         """
         检查请求是否允许通过。
 
+        优先走 Redis 共享计数（多实例部署下全局生效，路线图 2.5）；
+        Redis 不可用时降级到进程内滑动窗口（行为与单实例版一致）。
+
         :return: (allowed, retry_after_seconds)
         """
+        from app.core import redis_store
+
+        base_key = f"erp:rl:{rule.name}:{client_key}"
+
+        # ---- Redis 共享固定窗口（多实例一致）----
+        count = await redis_store.incr_window(base_key, rule.window_seconds)
+        if count is not None:
+            if count > rule.max_requests:
+                retry_after = await redis_store.window_ttl(
+                    base_key, rule.window_seconds
+                )
+                return False, max(retry_after, 1)
+            return True, 0
+
+        # ---- 进程内滑动窗口（Redis 不可用时的降级路径）----
         bucket_key = f"{rule.name}:{client_key}"
         now = time.monotonic()
         cutoff = now - rule.window_seconds

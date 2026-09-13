@@ -238,13 +238,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 content={"detail": "认证令牌无效或已过期", "code": "INVALID_TOKEN"},
             )
 
-        # 检查会话
-        session = session_manager.get_session(token)
+        # 检查会话（异步：本机 L1 + Redis 共享 L2，支持多实例一致）
+        session = await session_manager.get_session(token)
         if session is None:
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
                 content={"detail": "会话已失效，请重新登录", "code": "SESSION_EXPIRED"},
             )
+
+        # RBAC 跨实例新鲜度检查（版本信号变化时重载缓存；5 秒节流）
+        from app.core.rbac import rbac_engine
+
+        await rbac_engine.ensure_fresh()
 
         # 注入当前用户信息到 request.state
         request.state.current_user = {

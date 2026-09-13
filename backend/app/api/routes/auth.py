@@ -209,7 +209,7 @@ async def logout(request: Request, body: LogoutRequest = None):
     if not token:
         raise HTTPException(status_code=400, detail="未提供令牌")
 
-    success = session_manager.invalidate_session(token)
+    success = await session_manager.invalidate_session(token)
     if not success:
         # 即使会话不存在，也返回成功（幂等操作）
         logger.debug("auth.logout.session_not_found")
@@ -317,7 +317,7 @@ async def change_password(req: ChangePasswordRequest, current_user: dict = Depen
     )
 
     # 全端注销：强制用新密码重新登录
-    session_manager.invalidate_user_sessions(user_id)
+    await session_manager.invalidate_user_sessions(user_id)
 
     try:
         await audit_chain.log(
@@ -355,6 +355,6 @@ async def get_sessions(current_user: dict = Depends(get_current_user)):
 @router.post("/logout-all", summary="全端登出")
 async def logout_all(current_user: dict = Depends(get_current_user)):
     """注销当前用户的所有会话（全端登出）。"""
-    count = session_manager.invalidate_user_sessions(current_user["user_id"])
+    count = await session_manager.invalidate_user_sessions(current_user["user_id"])
     logger.info("auth.logout_all.success", user_id=current_user["user_id"], sessions_invalidated=count)
     return {"message": f"已注销 {count} 个会话", "sessions_invalidated": count}

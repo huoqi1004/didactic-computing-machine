@@ -44,6 +44,7 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
     Index,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -144,6 +145,11 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     position: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    # D-04：首登强制改密标记。种子用户与新建用户默认为 True，
+    # 通过修改密码接口清除。server_default 供 bootstrap 列差集对存量库补列。
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("1")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=_utc_now
     )
@@ -1383,11 +1389,9 @@ class ChatMessage(Base):
     """聊天消息"""
 
     __tablename__ = "chat_messages"
-    __table_args__ = (
-        Index("ix_chat_messages_channel", "channel_id"),
-        Index("ix_chat_messages_created_at", "created_at"),
-        _UTF8MB4_TABLE_ARGS,
-    )
+    # 注：channel_id / created_at 的索引由列级 index=True 生成，
+    # 不再重复定义同名 Index（sqlite 全局索引命名空间下会冲突）
+    __table_args__ = (_UTF8MB4_TABLE_ARGS,)
 
     message_id: Mapped[int] = mapped_column(
         BigInteger, primary_key=True, autoincrement=True

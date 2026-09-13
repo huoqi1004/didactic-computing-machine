@@ -54,16 +54,19 @@ def _build_engine():
         create_async_engine,
     )
 
-    engine = create_async_engine(
-        settings.mysql_url,
-        echo=settings.db_echo,
-        pool_size=settings.db_pool_size,
-        max_overflow=settings.db_max_overflow,
-        pool_timeout=settings.db_pool_timeout,
-        pool_recycle=settings.db_pool_recycle,
-        # 注意：pool_pre_ping 与 aiomysql 的 ping() 签名不兼容，
-        # 使用 pool_recycle 代替，定期回收连接避免使用已断开的连接
-    )
+    engine_kwargs: dict[str, Any] = {"echo": settings.db_echo}
+    if "mysql" in (settings.mysql_url or "").lower():
+        # MySQL 连接池参数；sqlite 等其他后端的池实现不接受这些参数
+        engine_kwargs.update(
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_timeout=settings.db_pool_timeout,
+            pool_recycle=settings.db_pool_recycle,
+            # 注意：pool_pre_ping 与 aiomysql 的 ping() 签名不兼容，
+            # 使用 pool_recycle 代替，定期回收连接避免使用已断开的连接
+        )
+
+    engine = create_async_engine(settings.mysql_url, **engine_kwargs)
 
     # 日志中隐藏密码
     safe_url = settings.mysql_url
@@ -208,10 +211,13 @@ async def bootstrap_schema() -> dict:
 
     策略：以 ``app/db/models.py`` 为唯一事实源，计算「ORM 期望表」与
     「库中实际表」的差集，只建缺失的表（``create_all`` 默认
-    ``checkfirst=True``，已存在的表不会被修改）：
+    ``checkfirst=True``，已存在的表不会被修改）；再对已存在的表做
+    **列级差集**（仅 ``ADD COLUMN`` 增量补列，如 ``users.must_change_password``），
+    破坏性变更仍须走 alembic 迁移：
 
     - 表齐备：跳过，不动存量结构
     - 缺表：仅补建缺失部分，并记录日志（含缺失清单，便于排查漂移）
+    - 表在缺列：增量补列，记录补列清单
 
     说明：早期实现以「库是否为空」为判据，导致挂载了 init-db.sql 的
     环境（库里有 5 张与 ORM 无关的遗留表）被误判为非空而跳过建表，
@@ -282,32 +288,40 @@ async def _bootstrap_schema_locked(engine) -> dict:
 
         # 以 ORM 元数据为准，计算缺失的表（差集）
         missing = sorted(set(Base.metadata.tables.keys()) - existing)
-        if not missing:
+        if missing:
+            # 只建缺失的表。create_all 默认 checkfirst=True：
+            # 已存在的表不会被修改，因此存量数据与结构不受影响。
+            tables = [Base.metadata.tables[name] for name in missing]
+            async with engine.begin() as conn:
+                await conn.run_sync(
+                    lambda sync_conn: Base.metadata.create_all(sync_conn, tables=tables)
+                )
+            logger.info(
+                "database.bootstrap_schema_created",
+                created=len(missing),
+                missing=missing,
+                skipped_existing=len(existing),
+                source="app.db.models.Base.metadata",
+            )
+        else:
             logger.debug(
                 "database.bootstrap_schema_complete",
                 table_count=len(existing),
                 expected=len(Base.metadata.tables),
             )
-            return {"existed": True, "created": 0, "table_count": len(existing)}
 
-        # 只建缺失的表。create_all 默认 checkfirst=True：
-        # 已存在的表不会被修改，因此存量数据与结构不受影响。
-        tables = [Base.metadata.tables[name] for name in missing]
-        async with engine.begin() as conn:
-            await conn.run_sync(
-                lambda sync_conn: Base.metadata.create_all(sync_conn, tables=tables)
-            )
-        logger.info(
-            "database.bootstrap_schema_created",
-            created=len(missing),
-            missing=missing,
-            skipped_existing=len(existing),
-            source="app.db.models.Base.metadata",
+        # 列级差集：存量表缺列时增量补列（仅 ADD COLUMN，不改不删）。
+        # 场景：模型新增字段（如 users.must_change_password），存量库
+        # 逐行 INSERT 数据不能重建表，必须走 ALTER TABLE 补列。
+        added_columns = await _reconcile_columns(
+            engine, set(Base.metadata.tables.keys()) & existing
         )
+
         return {
             "existed": len(existing) > 0,
             "created": len(missing),
             "table_count": len(existing) + len(missing),
+            "added_columns": added_columns,
         }
     except Exception as e:
         logger.error(
@@ -316,6 +330,70 @@ async def _bootstrap_schema_locked(engine) -> dict:
             error_type=type(e).__name__,
         )
         return {"existed": False, "created": 0, "table_count": 0, "error": str(e)}
+
+
+async def _reconcile_columns(engine, existing_tables: set[str]) -> dict[str, list[str]]:
+    """
+    列级差集对账：对已存在的表，将 ORM 中新增的列以 ``ADD COLUMN`` 补齐。
+
+    仅做增量（新增列），不做删列 / 改类型 / 改名——破坏性变更必须走
+    alembic 迁移显式处理。对每张表的检查失败仅记录警告并跳过，
+    不阻塞其余表的对账。
+
+    Returns:
+        {表名: [新增列名, ...]}，无补列时为空 dict。
+    """
+    from sqlalchemy import inspect as sa_inspect, text as sa_text
+    from sqlalchemy.schema import CreateColumn
+
+    from app.db.models import Base
+
+    added: dict[str, list[str]] = {}
+
+    def _reconcile(sync_conn) -> None:
+        inspector = sa_inspect(sync_conn)
+        preparer = sync_conn.dialect.identifier_preparer
+        for table_name, table in sorted(Base.metadata.tables.items()):
+            if table_name not in existing_tables:
+                continue  # 本次新建的表本身就是完整结构
+            try:
+                db_cols = {c["name"] for c in inspector.get_columns(table_name)}
+            except Exception as e:
+                logger.warning(
+                    "database.bootstrap_column_inspect_failed",
+                    table=table_name,
+                    error=str(e),
+                )
+                continue
+            for column in table.columns:
+                if column.name in db_cols:
+                    continue
+                col_ddl = str(
+                    CreateColumn(column).compile(dialect=sync_conn.dialect)
+                ).strip()
+                stmt = (
+                    f"ALTER TABLE {preparer.quote(table_name)} "
+                    f"ADD COLUMN {preparer.quote(column.name)} {col_ddl}"
+                )
+                sync_conn.execute(sa_text(stmt))
+                added.setdefault(table_name, []).append(column.name)
+                logger.info(
+                    "database.bootstrap_column_added",
+                    table=table_name,
+                    column=column.name,
+                    ddl=stmt,
+                )
+
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(_reconcile)
+    except Exception as e:
+        logger.error(
+            "database.bootstrap_reconcile_columns_failed",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+    return added
 
 
 # ===========================================================================

@@ -150,6 +150,12 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 30
     mtls_enabled: bool = True
 
+    # 种子用户密码治理（评估报告 D-04）
+    # 为空时每个种子用户随机生成独立强密码，并在首次播种后一次性打印到服务端日志；
+    # 设置 ERP_SEED_PASSWORD 后所有种子用户共用该密码（仅限演示/联调环境）。
+    # 所有种子用户均标记 must_change_password，首登响应会携带该标记要求改密。
+    seed_password: str = ""
+
     # 审计配置
     audit_chain_enabled: bool = True
     audit_hash_algorithm: str = "sha256"

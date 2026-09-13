@@ -1,7 +1,7 @@
 """
 RBAC 种子数据
 定义 23 个角色、全量权限定义（34 资源 × 6 动作）、角色-权限映射、
-16 个部门、3 个默认用户账号。
+16 个部门、24 个默认用户账号。
 
 角色层级（L1-L5）：
     L1  董事长           chairman
@@ -12,12 +12,66 @@ RBAC 种子数据
 
 权限模型：``资源:动作`` 二维权限，如 ``accounting:read`` / ``treasury:approve``
 动作类型：read / create / update / delete / approve / manage
+
+种子密码治理（评估报告 D-04）：种子用户不再使用"{username}123"规律弱密码，
+默认为每用户随机生成强密码并在首次播种后一次性打印到服务端日志；
+也可通过 ERP_SEED_PASSWORD 统一注入（仅限演示/联调环境）。
+所有种子用户标记 must_change_password，首次登录响应要求改密。
 """
+import secrets
+
 import structlog
 
 from app.core.auth import PasswordHasher
+from app.core.config import settings
 
 logger = structlog.get_logger()
+
+
+# ===================================================================
+# 种子密码治理（D-04）
+# ===================================================================
+
+# 随机模式下的初始密码表：username -> 明文（仅在用户实际新播种时打印一次）
+SEED_PASSWORDS: dict[str, str] = {}
+
+
+def _seed_password_hash(username: str) -> str:
+    """为种子用户生成密码哈希（杜绝"{username}123"规律弱密码）。
+
+    - ``ERP_SEED_PASSWORD`` 已设置：全部种子用户共用该密码（演示/联调用）；
+    - 未设置：每个用户独立随机生成 12 字符强密码，明文记入
+      ``SEED_PASSWORDS``，由 ``print_seed_credentials`` 在新用户实际
+      播种后一次性输出（重复启动不重复打印，避免与库内密码混淆）。
+    """
+    if settings.seed_password:
+        return PasswordHasher.hash_password(settings.seed_password)
+    password = secrets.token_urlsafe(9)
+    SEED_PASSWORDS[username] = password
+    return PasswordHasher.hash_password(password)
+
+
+def print_seed_credentials(usernames: list[str] | None = None) -> None:
+    """一次性打印种子用户初始密码（仅对新播种用户调用）。
+
+    :param usernames: 实际新播种的用户名列表；None 表示打印全部已知密码。
+    """
+    if settings.seed_password:
+        logger.warning(
+            "rbac.seed_credentials_shared",
+            message="种子用户使用 ERP_SEED_PASSWORD 统一初始密码，请尽快修改",
+            users=usernames if usernames is not None else [],
+        )
+        return
+    targets = usernames if usernames is not None else list(SEED_PASSWORDS.keys())
+    credentials = {u: SEED_PASSWORDS[u] for u in targets if u in SEED_PASSWORDS}
+    if not credentials:
+        return
+    logger.warning(
+        "rbac.seed_credentials_one_time",
+        message="以下种子用户为随机初始密码（仅此一次打印，请立即保存并转交用户）",
+        credentials=credentials,
+    )
 
 
 # ===================================================================
@@ -756,17 +810,17 @@ SEED_DEPARTMENTS: list[dict] = [
 # ===================================================================
 
 def _build_seed_users() -> list[dict]:
-    """构建默认用户列表，密码在模块加载时预哈希。
+    """构建默认用户列表，密码经 :func:`_seed_password_hash` 生成（D-04 治理）。
 
     为每个系统角色预置一个登录账户，方便测试和演示。
-    密码统一格式：{username}123
+    全部用户标记 ``must_change_password=True``，首次登录后必须改密。
     """
     _users = [
         # ===== 高管层 =====
         {
             "user_id": "user_admin",
             "username": "admin",
-            "password_hash": PasswordHasher.hash_password("admin123"),
+            "password_hash": _seed_password_hash("admin"),
             "full_name": "系统管理员",
             "department": "信息部",
             "email": "admin@erp.com",
@@ -775,7 +829,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_chairman",
             "username": "chairman",
-            "password_hash": PasswordHasher.hash_password("chairman123"),
+            "password_hash": _seed_password_hash("chairman"),
             "full_name": "董事长",
             "department": "董事会",
             "email": "chairman@erp.com",
@@ -784,7 +838,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_ceo",
             "username": "ceo",
-            "password_hash": PasswordHasher.hash_password("ceo123"),
+            "password_hash": _seed_password_hash("ceo"),
             "full_name": "首席执行官",
             "department": "CEO办公室",
             "email": "ceo@erp.com",
@@ -793,7 +847,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_cto",
             "username": "cto",
-            "password_hash": PasswordHasher.hash_password("cto123"),
+            "password_hash": _seed_password_hash("cto"),
             "full_name": "首席技术官",
             "department": "技术部",
             "email": "cto@erp.com",
@@ -802,7 +856,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_cfo",
             "username": "cfo",
-            "password_hash": PasswordHasher.hash_password("cfo123"),
+            "password_hash": _seed_password_hash("cfo"),
             "full_name": "首席财务官",
             "department": "财务部",
             "email": "cfo@erp.com",
@@ -811,7 +865,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_cmo",
             "username": "cmo",
-            "password_hash": PasswordHasher.hash_password("cmo123"),
+            "password_hash": _seed_password_hash("cmo"),
             "full_name": "首席营销官",
             "department": "市场部",
             "email": "cmo@erp.com",
@@ -820,7 +874,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_cho",
             "username": "cho",
-            "password_hash": PasswordHasher.hash_password("cho123"),
+            "password_hash": _seed_password_hash("cho"),
             "full_name": "首席人力官",
             "department": "人事部",
             "email": "cho@erp.com",
@@ -829,7 +883,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_cro",
             "username": "cro",
-            "password_hash": PasswordHasher.hash_password("cro123"),
+            "password_hash": _seed_password_hash("cro"),
             "full_name": "首席风险官",
             "department": "风控部",
             "email": "cro@erp.com",
@@ -838,7 +892,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_coo",
             "username": "coo",
-            "password_hash": PasswordHasher.hash_password("coo123"),
+            "password_hash": _seed_password_hash("coo"),
             "full_name": "首席运营官",
             "department": "运营部",
             "email": "coo@erp.com",
@@ -848,7 +902,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_fin_mgr",
             "username": "fin_manager",
-            "password_hash": PasswordHasher.hash_password("fin_manager123"),
+            "password_hash": _seed_password_hash("fin_manager"),
             "full_name": "财务部经理",
             "department": "财务部",
             "email": "fin_manager@erp.com",
@@ -857,7 +911,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_legal_mgr",
             "username": "legal_manager",
-            "password_hash": PasswordHasher.hash_password("legal_manager123"),
+            "password_hash": _seed_password_hash("legal_manager"),
             "full_name": "法务部经理",
             "department": "法务部",
             "email": "legal_manager@erp.com",
@@ -866,7 +920,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_admin_mgr",
             "username": "admin_manager",
-            "password_hash": PasswordHasher.hash_password("admin_manager123"),
+            "password_hash": _seed_password_hash("admin_manager"),
             "full_name": "行政部经理",
             "department": "行政部",
             "email": "admin_manager@erp.com",
@@ -875,7 +929,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_hr_mgr",
             "username": "hr_manager",
-            "password_hash": PasswordHasher.hash_password("hr_manager123"),
+            "password_hash": _seed_password_hash("hr_manager"),
             "full_name": "人事部经理",
             "department": "人事部",
             "email": "hr_manager@erp.com",
@@ -884,7 +938,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_prod_mgr",
             "username": "prod_manager",
-            "password_hash": PasswordHasher.hash_password("prod_manager123"),
+            "password_hash": _seed_password_hash("prod_manager"),
             "full_name": "产品部经理",
             "department": "技术部",
             "email": "prod_manager@erp.com",
@@ -893,7 +947,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_tech_mgr",
             "username": "tech_manager",
-            "password_hash": PasswordHasher.hash_password("tech_manager123"),
+            "password_hash": _seed_password_hash("tech_manager"),
             "full_name": "技术部经理",
             "department": "技术部",
             "email": "tech_manager@erp.com",
@@ -902,7 +956,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_mfg_mgr",
             "username": "mfg_manager",
-            "password_hash": PasswordHasher.hash_password("mfg_manager123"),
+            "password_hash": _seed_password_hash("mfg_manager"),
             "full_name": "生产部经理",
             "department": "生产部",
             "email": "mfg_manager@erp.com",
@@ -911,7 +965,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_proc_mgr",
             "username": "proc_manager",
-            "password_hash": PasswordHasher.hash_password("proc_manager123"),
+            "password_hash": _seed_password_hash("proc_manager"),
             "full_name": "采购部经理",
             "department": "采购部",
             "email": "proc_manager@erp.com",
@@ -920,7 +974,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_biz_mgr",
             "username": "biz_manager",
-            "password_hash": PasswordHasher.hash_password("biz_manager123"),
+            "password_hash": _seed_password_hash("biz_manager"),
             "full_name": "业务部经理",
             "department": "业务部",
             "email": "biz_manager@erp.com",
@@ -929,7 +983,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_sales_mgr",
             "username": "sales_manager",
-            "password_hash": PasswordHasher.hash_password("sales_manager123"),
+            "password_hash": _seed_password_hash("sales_manager"),
             "full_name": "销售部经理",
             "department": "业务部",
             "email": "sales_manager@erp.com",
@@ -938,7 +992,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_mkt_mgr",
             "username": "mkt_manager",
-            "password_hash": PasswordHasher.hash_password("mkt_manager123"),
+            "password_hash": _seed_password_hash("mkt_manager"),
             "full_name": "市场部经理",
             "department": "市场部",
             "email": "mkt_manager@erp.com",
@@ -947,7 +1001,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_cs_mgr",
             "username": "cs_manager",
-            "password_hash": PasswordHasher.hash_password("cs_manager123"),
+            "password_hash": _seed_password_hash("cs_manager"),
             "full_name": "客服部经理",
             "department": "业务部",
             "email": "cs_manager@erp.com",
@@ -956,7 +1010,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_quality_mgr",
             "username": "quality_manager",
-            "password_hash": PasswordHasher.hash_password("quality_manager123"),
+            "password_hash": _seed_password_hash("quality_manager"),
             "full_name": "质量部经理",
             "department": "质量部",
             "email": "quality_manager@erp.com",
@@ -965,7 +1019,7 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_pm_mgr",
             "username": "pm_manager",
-            "password_hash": PasswordHasher.hash_password("pm_manager123"),
+            "password_hash": _seed_password_hash("pm_manager"),
             "full_name": "项目部经理",
             "department": "项目部",
             "email": "pm_manager@erp.com",
@@ -975,13 +1029,16 @@ def _build_seed_users() -> list[dict]:
         {
             "user_id": "user_staff",
             "username": "staff",
-            "password_hash": PasswordHasher.hash_password("staff123"),
+            "password_hash": _seed_password_hash("staff"),
             "full_name": "普通员工",
             "department": "业务部",
             "email": "staff@erp.com",
             "role_code": "dept_staff",
         },
     ]
+    # D-04：全部种子用户标记首登强制改密（列默认值同为 True，此处显式声明便于测试断言）
+    for _u in _users:
+        _u["must_change_password"] = True
     return _users
 
 
@@ -1045,6 +1102,7 @@ def load_seed_data(engine: "RBACEngine") -> None:
             full_name=user_data["full_name"],
             department=user_data["department"],
             email=user_data["email"],
+            must_change_password=user_data.get("must_change_password", True),
         )
         if role_code:
             engine.assign_role(user_data["user_id"], role_code)
@@ -1055,6 +1113,14 @@ def load_seed_data(engine: "RBACEngine") -> None:
                 permissions=len(SEED_PERMISSIONS),
                 departments=len(SEED_DEPARTMENTS),
                 users=len(SEED_USERS))
+
+    # 纯内存模式（无 DB）：内存种子即最终用户态，随机密码打印一次供登录。
+    # DB 模式下不在此打印——内存种子会被 load_from_db 覆盖，实际密码以
+    # 播种结果为准（见 _persist_seed_data_locked）。
+    from app.core.database import get_session_factory
+
+    if get_session_factory() is None:
+        print_seed_credentials()
 
 
 async def persist_seed_data(engine: "RBACEngine") -> None:
@@ -1130,10 +1196,13 @@ async def _persist_seed_data_locked(engine: "RBACEngine") -> None:
         for dept in SEED_DEPARTMENTS:
             await engine._db_add_department(dept)
 
-        # 5. 用户 + 用户-角色映射
+        # 5. 用户 + 用户-角色映射（记录实际新播种的用户，用于一次性打印初始密码）
+        newly_seeded: list[str] = []
         for user_data in SEED_USERS:
             role_code = user_data.get("role_code")
-            await engine._db_add_user(user_data)
+            inserted = await engine._db_add_user(user_data)
+            if inserted:
+                newly_seeded.append(user_data["username"])
             if role_code:
                 await engine._db_assign_role(user_data["user_id"], role_code)
 
@@ -1144,7 +1213,10 @@ async def _persist_seed_data_locked(engine: "RBACEngine") -> None:
             role_permissions=total_mappings,
             departments=len(SEED_DEPARTMENTS),
             users=len(SEED_USERS),
+            newly_seeded=len(newly_seeded),
         )
+        if newly_seeded:
+            print_seed_credentials(newly_seeded)
     except Exception as e:
         logger.error(
             "rbac.persist_seed_failed",

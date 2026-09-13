@@ -101,6 +101,7 @@ class RBACEngine:
         "position": "position",
         "status": "status",
         "last_login": "last_login",
+        "must_change_password": "must_change_password",
     }
 
     def __init__(self) -> None:
@@ -292,6 +293,7 @@ class RBACEngine:
                         "phone": u.phone,
                         "position": u.position,
                         "status": u.status,
+                        "must_change_password": bool(u.must_change_password),
                         "created_at": u.created_at,
                         "last_login": u.last_login,
                     }
@@ -375,13 +377,17 @@ class RBACEngine:
     # 异步 DB 写入方法（内部使用，由 fire-and-forget 调度）
     # ===================================================================
 
-    async def _db_add_user(self, user: dict) -> None:
-        """将用户写入 MySQL（已存在则跳过）。"""
+    async def _db_add_user(self, user: dict) -> bool:
+        """将用户写入 MySQL（已存在则跳过）。
+
+        Returns:
+            True 表示本次实际插入；False 表示用户已存在被跳过或写入失败。
+        """
         try:
             async with self._session_scope() as session:
                 existing = await session.get(User, user["user_id"])
                 if existing is not None:
-                    return
+                    return False
                 session.add(
                     User(
                         user_id=user["user_id"],
@@ -393,16 +399,19 @@ class RBACEngine:
                         phone=user.get("phone"),
                         position=user.get("position"),
                         status=user.get("status", "active"),
+                        must_change_password=user.get("must_change_password", True),
                         created_at=user.get("created_at") or datetime.now(timezone.utc),
                         last_login=user.get("last_login"),
                     )
                 )
+                return True
         except Exception as e:
             logger.error(
                 "rbac.db_add_user_failed",
                 user_id=user.get("user_id"),
                 error=str(e),
             )
+            return False
 
     async def _db_update_user(self, user_id: str, fields: dict) -> None:
         """更新 MySQL 中的用户字段。"""
@@ -583,6 +592,7 @@ class RBACEngine:
         full_name: str,
         department: str,
         email: str,
+        must_change_password: bool = True,
     ) -> dict:
         """
         新增用户。
@@ -596,6 +606,7 @@ class RBACEngine:
             full_name:     用户全名
             department:    所属部门名称
             email:         邮箱地址
+            must_change_password: 首登强制改密标记（默认 True，D-04）
 
         Returns:
             新创建的用户信息字典（不含 password_hash）
@@ -619,6 +630,7 @@ class RBACEngine:
             "phone": None,
             "position": None,
             "status": "active",
+            "must_change_password": must_change_password,
             "created_at": now,
             "last_login": None,
         }
@@ -688,6 +700,7 @@ class RBACEngine:
         allowed_fields = {
             "username", "password_hash", "full_name", "department",
             "email", "phone", "position", "status", "last_login",
+            "must_change_password",
         }
 
         applied: dict[str, Any] = {}
@@ -1088,6 +1101,7 @@ class RBACEngine:
             "phone": user.get("phone"),
             "position": user.get("position"),
             "status": user["status"],
+            "must_change_password": bool(user.get("must_change_password", True)),
             "created_at": user["created_at"].isoformat() if isinstance(user["created_at"], datetime) else user["created_at"],
             "last_login": user["last_login"].isoformat() if isinstance(user.get("last_login"), datetime) else user.get("last_login"),
         }

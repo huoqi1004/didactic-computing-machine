@@ -119,14 +119,14 @@ npm run dev
 使用 Docker 快速启动 MySQL 和 Redis:
 
 ```bash
-# 启动 MySQL 8.0
+# 启动 MySQL 8.0（init-db.sql 已退役：建表以 app/db/models.py 为唯一事实源，
+# 由启动期 bootstrap_schema 兜底建表/补列 + alembic 基线迁移承载版本化）
 docker run -d --name erp-mysql \
   -p 3306:3306 \
   -e MYSQL_ROOT_PASSWORD=root_admin \
   -e MYSQL_DATABASE=erp_db \
   -e MYSQL_USER=erp \
   -e MYSQL_PASSWORD=erp_password \
-  -v ./infra/docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro \
   mysql:8.0 \
   --character-set-server=utf8mb4 \
   --collation-server=utf8mb4_unicode_ci
@@ -137,7 +137,9 @@ docker run -d --name erp-redis \
   redis:7-alpine \
   redis-server --appendonly yes
 
-# 执行数据库迁移
+# 数据库结构准备（二选一，均为幂等操作）
+# 方式 A（推荐）：无需手工执行——后端启动时 bootstrap_schema 自动建表/补列
+# 方式 B：显式执行基线迁移
 cd backend
 alembic upgrade head
 ```

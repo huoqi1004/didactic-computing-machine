@@ -19,6 +19,7 @@ from typing import Optional
 
 from app.core.auth import jwt_manager, session_manager, PasswordHasher
 from app.core.rbac import rbac_engine
+from app.core.security.audit import audit_chain
 from app.api.middleware.auth import get_current_user
 
 import structlog
@@ -67,11 +68,35 @@ class UserInfoResponse(BaseModel):
     role_codes: list[str]
     roles: list[dict]
     permissions: list[str]
+    must_change_password: bool = Field(
+        False, description="首登强制改密标记（True 时前端应引导修改密码）"
+    )
+
+
+class ChangePasswordRequest(BaseModel):
+    """修改密码请求"""
+    old_password: str = Field(..., min_length=1, max_length=128, description="当前密码")
+    new_password: str = Field(..., min_length=8, max_length=128, description="新密码（至少8位）")
 
 
 # ===================================================================
 # 路由
 # ===================================================================
+
+async def _audit_login_failure(user_id: Optional[str], username: str, reason: str) -> None:
+    """记录登录失败审计（D-05：登录类操作 100% 审计，失败不抛异常）。"""
+    try:
+        await audit_chain.log(
+            actor_did=user_id or f"anonymous:{username}",
+            action="user.login",
+            resource="auth",
+            result="failure",
+            details={"username": username, "reason": reason},
+            risk_level="medium" if reason == "password_mismatch" else "low",
+        )
+    except Exception as audit_err:
+        logger.warning("auth.login.audit_failed", error=str(audit_err))
+
 
 @router.post("/login", response_model=LoginResponse, summary="用户登录")
 async def login(req: LoginRequest):
@@ -79,26 +104,31 @@ async def login(req: LoginRequest):
     用户登录，验证用户名密码后签发 JWT 令牌。
 
     返回 access_token（短期，30分钟）和 refresh_token（长期，7天）。
+    响应中 ``user.must_change_password`` 为 true 时，前端应引导用户先修改密码。
     """
     # 1. 查找用户
     user = rbac_engine.get_user_by_username(req.username)
     if user is None:
         logger.warning("auth.login.user_not_found", username=req.username)
+        await _audit_login_failure(None, req.username, "user_not_found")
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     # 2. 获取完整用户记录（含 password_hash）
     full_user = rbac_engine._users.get(user["user_id"])
     if full_user is None:
+        await _audit_login_failure(user.get("user_id"), req.username, "user_not_found")
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     # 3. 检查用户状态
     if full_user.get("status") != "active":
         logger.warning("auth.login.user_inactive", username=req.username, status=full_user.get("status"))
+        await _audit_login_failure(user.get("user_id"), req.username, "user_inactive")
         raise HTTPException(status_code=403, detail="账号已被禁用，请联系管理员")
 
     # 4. 验证密码
     if not PasswordHasher.verify_password(req.password, full_user["password_hash"]):
         logger.warning("auth.login.password_mismatch", username=req.username)
+        await _audit_login_failure(user.get("user_id"), req.username, "password_mismatch")
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     # 5. 获取角色编码和权限列表
@@ -125,6 +155,18 @@ async def login(req: LoginRequest):
     # 9. 更新最后登录时间
     rbac_engine.update_user(user["user_id"], last_login=datetime.now(timezone.utc))
 
+    # 10. 审计（D-05：登录类操作 100% 审计）
+    try:
+        await audit_chain.log(
+            actor_did=user["user_id"],
+            action="user.login",
+            resource="auth",
+            result="success",
+            details={"username": req.username, "must_change_password": bool(full_user.get("must_change_password", True))},
+        )
+    except Exception as audit_err:
+        logger.warning("auth.login.audit_failed", error=str(audit_err))
+
     logger.info("auth.login.success", user_id=user["user_id"], username=req.username)
 
     # 构建用户响应（排除敏感字段，添加 role_codes 和 permissions）
@@ -136,6 +178,7 @@ async def login(req: LoginRequest):
         "email": user.get("email", ""),
         "role_codes": role_codes,
         "permissions": permissions,
+        "must_change_password": bool(full_user.get("must_change_password", True)),
     }
 
     return LoginResponse(
@@ -232,7 +275,63 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         role_codes=[r["role_code"] for r in roles],
         roles=roles,
         permissions=permissions,
+        must_change_password=bool(user.get("must_change_password", True)),
     )
+
+
+@router.post("/change-password", summary="修改当前用户密码")
+async def change_password(req: ChangePasswordRequest, current_user: dict = Depends(get_current_user)):
+    """
+    修改当前登录用户密码，并清除首登强制改密标记。
+
+    成功后注销该用户全部会话（要求用新密码重新登录）。
+    """
+    user_id = current_user["user_id"]
+    full_user = rbac_engine._users.get(user_id)
+    if full_user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    if not PasswordHasher.verify_password(req.old_password, full_user["password_hash"]):
+        logger.warning("auth.change_password.old_mismatch", user_id=user_id)
+        try:
+            await audit_chain.log(
+                actor_did=user_id,
+                action="user.change_password",
+                resource="auth",
+                result="failure",
+                details={"reason": "old_password_mismatch"},
+                risk_level="medium",
+            )
+        except Exception as audit_err:
+            logger.warning("auth.change_password.audit_failed", error=str(audit_err))
+        raise HTTPException(status_code=400, detail="当前密码错误")
+
+    if req.new_password == req.old_password:
+        raise HTTPException(status_code=400, detail="新密码不能与当前密码相同")
+
+    new_hash = PasswordHasher.hash_password(req.new_password)
+    rbac_engine.update_user(
+        user_id,
+        password_hash=new_hash,
+        must_change_password=False,
+    )
+
+    # 全端注销：强制用新密码重新登录
+    session_manager.invalidate_user_sessions(user_id)
+
+    try:
+        await audit_chain.log(
+            actor_did=user_id,
+            action="user.change_password",
+            resource="auth",
+            result="success",
+            details={"username": current_user.get("username", "")},
+        )
+    except Exception as audit_err:
+        logger.warning("auth.change_password.audit_failed", error=str(audit_err))
+
+    logger.info("auth.change_password.success", user_id=user_id)
+    return {"message": "密码已修改，请使用新密码重新登录", "success": True}
 
 
 @router.get("/sessions", summary="获取当前用户活跃会话")

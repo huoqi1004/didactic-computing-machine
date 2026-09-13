@@ -22,6 +22,8 @@ from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
 from app.core.agent.base import BaseAgent, AgentDecision
+from app.db.repositories.base import has_db, schedule
+from app.db.repositories.treasury_contract_repository import contract_repository
 from app.core.event.models import Event, EventType
 
 logger = structlog.get_logger()
@@ -227,6 +229,34 @@ class ContractAgent(BaseAgent):
                     contracts=len(self._contracts),
                     templates=len(self._templates))
 
+    async def hydrate_from_db(self) -> bool:
+        """
+        启动水合：DB 优先、内存种子兜底、空库回播种（路线图 2.3 批次二）。
+
+        合同模板与执行记录属静态/运行期辅助数据，暂不持久化（Phase 3）。
+        """
+        if not has_db():
+            return False
+
+        hydrated = False
+        contracts = await contract_repository.list_all()
+        if contracts:
+            self._contracts = {
+                c["contract_id"]: {**self._contracts.get(c["contract_id"], {}), **c}
+                for c in contracts
+            }
+            hydrated = True
+        elif self._contracts:
+            for c in list(self._contracts.values()):
+                await contract_repository.upsert(c, "contract_id")
+            logger.info("contract_agent.contracts_seeded_to_db",
+                        count=len(self._contracts))
+            hydrated = True
+
+        logger.info("contract_agent.hydrated",
+                    from_db=hydrated, contracts=len(self._contracts))
+        return hydrated
+
     async def _handle_event(self, event: Event):
         """事件处理入口（包装异常处理）"""
         try:
@@ -412,6 +442,10 @@ class ContractAgent(BaseAgent):
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         self._contracts[contract_id] = contract
+        schedule(
+            contract_repository.upsert(contract, "contract_id"),
+            "contract_repo",
+        )
 
         # 发布合同创建事件
         await self._publish_event(
@@ -468,6 +502,17 @@ class ContractAgent(BaseAgent):
                     "message": "只有草拟状态的合同可以审批"}
 
         contract["status"] = "approved"
+        schedule(
+            contract_repository.update_status(
+                contract["contract_id"], "approved",
+                extra={
+                    "approved_by": contract.get("approved_by") or None,
+                    "approval_comment": contract.get("approval_comment") or None,
+                    "approved_at": contract.get("approved_at"),
+                },
+            ),
+            "contract_repo",
+        )
         contract["approved_by"] = approved_by
         contract["approval_comment"] = comment
         contract["approved_at"] = datetime.now(timezone.utc).isoformat()
@@ -521,6 +566,10 @@ class ContractAgent(BaseAgent):
                     "message": "只有已审批的合同可以执行"}
 
         contract["status"] = "executing"
+        schedule(
+            contract_repository.update_status(contract["contract_id"], "executing"),
+            "contract_repo",
+        )
         contract["updated_at"] = datetime.now(timezone.utc).isoformat()
 
         # 记录执行记录
@@ -570,6 +619,13 @@ class ContractAgent(BaseAgent):
                     "message": "只有执行中的合同可以完成"}
 
         contract["status"] = "completed"
+        schedule(
+            contract_repository.update_status(
+                contract["contract_id"], "completed",
+                extra={"completion_notes": contract.get("completion_notes") or None},
+            ),
+            "contract_repo",
+        )
         contract["completion_notes"] = completion_notes
         contract["updated_at"] = datetime.now(timezone.utc).isoformat()
 

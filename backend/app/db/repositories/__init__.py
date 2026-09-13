@@ -3,7 +3,7 @@ Agent 持久化 Repository 层（路线图 2.1）
 ========================================
 
 批次一（2.2）：payroll / hr / crm / sales。
-批次二（2.3）：treasury / contract（按同模式扩展）。
+批次二（2.3）：treasury / contract。
 
 用法约定（Agent 侧）：
 - 写路径：内存更新后 ``schedule(repo.upsert(...), category)`` 双写；
@@ -28,6 +28,11 @@ from app.db.repositories.sales_repository import (
     customer_repository,
     sales_order_repository,
 )
+from app.db.repositories.treasury_contract_repository import (
+    contract_repository,
+    fund_transfer_repository,
+    payment_schedule_repository,
+)
 
 __all__ = [
     "RepositoryBase",
@@ -41,4 +46,7 @@ __all__ = [
     "attendance_repository",
     "customer_repository",
     "sales_order_repository",
+    "fund_transfer_repository",
+    "payment_schedule_repository",
+    "contract_repository",
 ]

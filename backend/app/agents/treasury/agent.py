@@ -19,6 +19,11 @@ from datetime import datetime, timezone, timedelta, date
 from uuid import uuid4
 
 from app.core.agent.base import BaseAgent, AgentDecision
+from app.db.repositories.base import has_db, schedule
+from app.db.repositories.treasury_contract_repository import (
+    fund_transfer_repository,
+    payment_schedule_repository,
+)
 from app.core.event.models import Event, EventType
 
 logger = structlog.get_logger()
@@ -85,6 +90,39 @@ class TreasuryAgent(BaseAgent):
         )
         logger.info("treasury_agent.initialized", agent=self.name,
                     cash_balance=self._cash_balance)
+
+    async def hydrate_from_db(self) -> bool:
+        """
+        启动水合：DB 优先、内存种子兜底、空库回播种（路线图 2.3 批次二）。
+
+        仅水合资金调拨与支付排程；现金流缓存与现金余额为运行期指标，
+        不做持久化（余额应基于事件流重放，属 Phase 3 事件溯源范畴）。
+        """
+        if not has_db():
+            return False
+
+        hydrated = False
+        transfers = await fund_transfer_repository.list_all()
+        if transfers:
+            self._fund_transfers = {
+                t["transfer_id"]: t for t in transfers
+            }
+            hydrated = True
+
+        payments = await payment_schedule_repository.list_all()
+        if payments:
+            self._payment_schedule = {
+                p["payment_id"]: p for p in payments
+            }
+            hydrated = True
+
+        logger.info(
+            "treasury_agent.hydrated",
+            from_db=hydrated,
+            transfers=len(self._fund_transfers),
+            payments=len(self._payment_schedule),
+        )
+        return hydrated
 
     async def _handle_event(self, event: Event):
         """事件处理入口（包装异常处理）"""
@@ -185,6 +223,10 @@ class TreasuryAgent(BaseAgent):
             "reasoning": optimization.get("reasoning", ""),
         }
         self._payment_schedule[payment_id] = payment
+        schedule(
+            payment_schedule_repository.upsert(payment, "payment_id"),
+            "payment_schedule_repo",
+        )
 
         # 记录决策
         decision = AgentDecision(
@@ -501,6 +543,10 @@ class TreasuryAgent(BaseAgent):
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         self._fund_transfers[transfer_id] = transfer
+        schedule(
+            fund_transfer_repository.upsert(transfer, "transfer_id"),
+            "fund_transfer_repo",
+        )
 
         # 记录决策
         decision = AgentDecision(
@@ -557,6 +603,10 @@ class TreasuryAgent(BaseAgent):
             transfer["rejected_at"] = datetime.now(timezone.utc).isoformat()
             logger.info("treasury_agent.transfer_rejected",
                         transfer_id=transfer_id)
+        schedule(
+            fund_transfer_repository.upsert(transfer, "transfer_id"),
+            "fund_transfer_repo",
+        )
         return True
 
     # ========== 决策 ==========

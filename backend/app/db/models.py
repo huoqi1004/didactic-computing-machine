@@ -501,6 +501,12 @@ class FundTransfer(Base):
     transfer_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     from_account: Mapped[str] = mapped_column(String(128), nullable=False)
     to_account: Mapped[str] = mapped_column(String(128), nullable=False)
+    # 资金 Agent 批次二扩展列（bootstrap 对存量库增量补列）
+    reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    requires_human_approval: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     transfer_date: Mapped[datetime | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
@@ -1026,6 +1032,14 @@ class Contract(Base):
     title: Mapped[str] = mapped_column(String(256), nullable=False)
     party_a: Mapped[str] = mapped_column(String(256), nullable=False)
     party_b: Mapped[str] = mapped_column(String(256), nullable=False)
+    # 合同 Agent 批次二扩展列（bootstrap 对存量库增量补列）
+    contract_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    department: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    terms: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    approval_comment: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     start_date: Mapped[datetime | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[datetime | None] = mapped_column(Date, nullable=True)
@@ -1044,6 +1058,45 @@ class Contract(Base):
         return (
             f"<Contract contract_id={self.contract_id!r} "
             f"number={self.contract_number!r} status={self.status!r}>"
+        )
+
+
+class PaymentSchedule(Base):
+    """
+    支付排程表
+    ----------
+    路线图 2.3 批次二新增：承接资金 Agent 依据采购订单生成的应付支付排程
+    （get_payment_schedule 接口数据真实化的前提）。
+    """
+
+    __tablename__ = "payment_schedules"
+    __table_args__ = (
+        Index("ix_payment_schedules_po", "po_id"),
+        Index("ix_payment_schedules_status", "status"),
+        _UTF8MB4_TABLE_ARGS,
+    )
+
+    payment_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    po_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    supplier_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    payment_date: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="scheduled"
+    )
+    optimization_method: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=_utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=_utc_now, onupdate=_utc_now
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<PaymentSchedule payment_id={self.payment_id!r} "
+            f"po_id={self.po_id!r} amount={self.amount}>"
         )
 
 

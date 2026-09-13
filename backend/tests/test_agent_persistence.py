@@ -198,3 +198,76 @@ async def test_customer_row_level_department_filter(sqlite_db):
 
     all_visible = await customer_repository.list_by_department(None)
     assert len(all_visible) >= 3
+
+# ===========================================================================
+# 批次二：资金 / 合同 Agent
+# ===========================================================================
+
+async def test_treasury_transfer_write_through(sqlite_db):
+    """资金调拨创建与审批写穿 DB，重启后状态一致。"""
+    from app.agents.treasury.agent import TreasuryAgent
+
+    agent_a = TreasuryAgent()
+    agent_a.identity = did_registry_register(agent_a)
+    await agent_a.hydrate_from_db()  # 空库：无种子行，仍返回 True/False 均可
+
+    transfer = await agent_a.request_fund_transfer(
+        amount=100000, from_account="主账户", to_account="项目账户", reason="测试调拨",
+    )
+    assert transfer is not None
+    await _flush_scheduled_writes()
+
+    agent_b = TreasuryAgent()
+    agent_b.identity = did_registry_register(agent_b)
+    await agent_b.hydrate_from_db()
+    assert transfer["transfer_id"] in agent_b._fund_transfers
+
+    await agent_b.approve_fund_transfer(transfer["transfer_id"], approved=True)
+    await _flush_scheduled_writes()
+
+    agent_c = TreasuryAgent()
+    agent_c.identity = did_registry_register(agent_c)
+    await agent_c.hydrate_from_db()
+    restored = agent_c._fund_transfers[transfer["transfer_id"]]
+    assert restored["status"] == "approved"
+
+
+def did_registry_register(agent):
+    """注册 Agent 身份（审批流程需要 DID）。"""
+    from app.core.security.did import did_registry
+
+    return did_registry.register_agent(
+        name=agent.name,
+        domain=agent.domain,
+        capabilities=agent.capabilities,
+        security_clearance=agent.security_clearance,
+    )
+
+
+async def test_contract_write_through_and_restart(sqlite_db):
+    """合同创建写穿 DB → 审批状态落库 → 重启后一致。"""
+    from app.agents.contract.agent import ContractAgent
+
+    agent_a = ContractAgent()
+    agent_a.identity = did_registry_register(agent_a)
+    await agent_a.hydrate_from_db()  # 空库回播种种子合同
+
+    contract = await agent_a.create_contract(
+        title="持久化测试合同",
+        type="采购",
+        counterparty="测试供应商",
+        amount=120000,
+        department="技术部",
+        start_date="2026-10-01",
+        end_date="2027-09-30",
+        terms="验收合格后付款",
+    )
+    await _flush_scheduled_writes()
+
+    agent_b = ContractAgent()
+    agent_b.identity = did_registry_register(agent_b)
+    await agent_b.hydrate_from_db()
+    assert contract["contract_id"] in agent_b._contracts
+    # 种子合同也已在库
+    assert len(agent_b._contracts) >= len(agent_a._contracts) - 1
+

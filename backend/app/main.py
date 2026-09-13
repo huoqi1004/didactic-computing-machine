@@ -560,16 +560,19 @@ async def lifespan(app: FastAPI):
     await orchestrator.register_agent(esg_agent)
     await orchestrator.register_agent(admin_agent)
 
-    # 4.5 批次一 Agent 状态持久化水合（路线图 2.2：重启一致性）
+    # 4.5 Agent 状态持久化水合（路线图 2.2/2.3：重启一致性）
     # DB 有数据则以库为准覆盖内存种子；DB 空则将内存种子幂等播种入库；
     # DB 不可用时保持内存态（repository 层节流告警）。
-    batch_one_agents = {
+    # 顺序敏感：crm 必须先于 sales（销售种子订单引用种子客户的 FK 前置）。
+    batch_persist_agents = {
         "payroll": payroll_agent,
         "hr": hr_agent,
         "crm": crm_agent,
         "sales": sales_agent,
+        "treasury": treasury_agent,
+        "contract": contract_agent,
     }
-    for agent_key, agent_obj in batch_one_agents.items():
+    for agent_key, agent_obj in batch_persist_agents.items():
         try:
             hydrated = await agent_obj.hydrate_from_db()
             logger.info(

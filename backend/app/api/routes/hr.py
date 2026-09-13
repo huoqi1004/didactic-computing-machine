@@ -202,14 +202,17 @@ class UpdateSocialInsuranceRequest(BaseModel):
 @router.get("/hr/employees", summary="获取员工列表")
 async def get_employees(
     department: Optional[str] = Query(None, description="按部门过滤"),
+    skip: int = Query(0, ge=0, description="分页偏移（路线图 2.4）"),
+    limit: int = Query(100, ge=1, le=500, description="每页数量上限"),
     current_user: dict = Depends(get_current_user),
 ):
-    """获取员工列表，可按部门过滤"""
+    """获取员工列表，可按部门过滤（返回 total 为过滤后总数）"""
     agent = get_hr_agent()
     if agent is None:
         raise HTTPException(status_code=503, detail="HR Agent 未启动")
     employees = agent.get_employees(department=department)
-    return {"total": len(employees), "employees": employees}
+    total = len(employees)
+    return {"total": total, "employees": employees[skip : skip + limit]}
 
 
 @router.get("/hr/employees/{employee_id}", summary="获取员工详情")
@@ -799,6 +802,8 @@ async def batch_calculate_payroll(
 async def get_payroll_records(
     employee_id: Optional[str] = Query(None, description="按员工编号过滤"),
     period: Optional[str] = Query(None, description="按周期过滤 (如 2026-07)"),
+    skip: int = Query(0, ge=0, description="分页偏移（路线图 2.4）"),
+    limit: int = Query(100, ge=1, le=500, description="每页数量上限"),
     current_user: dict = Depends(require_permission("payroll", "read")),
 ):
     """获取薪酬记录，可按员工和周期过滤（需 payroll:read 权限）"""
@@ -806,7 +811,8 @@ async def get_payroll_records(
     if agent is None:
         raise HTTPException(status_code=503, detail="Payroll Agent 未启动")
     records = agent.get_payroll_records(employee_id=employee_id, period=period)
-    return {"total": len(records), "records": records}
+    total = len(records)
+    return {"total": total, "records": records[skip : skip + limit]}
 
 
 @router.get("/payroll/social-insurance", summary="获取社保配置")

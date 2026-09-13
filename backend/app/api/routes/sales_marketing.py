@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 from app.api.middleware.auth import get_current_user, require_permission
+from app.core.rbac import rbac_engine
 from app.core.security.audit import audit_chain
 from app.api.routes._agent_refs import (
     get_crm_agent,
@@ -217,14 +218,44 @@ class AddFaqRequest(BaseModel):
 async def get_customers(
     segment: Optional[str] = Query(None, description="按分级过滤 (A/B/C)"),
     industry: Optional[str] = Query(None, description="按行业过滤"),
+    skip: int = Query(0, ge=0, description="分页偏移（路线图 2.4）"),
+    limit: int = Query(100, ge=1, le=500, description="每页数量上限"),
     current_user: dict = Depends(get_current_user),
 ):
-    """获取客户列表，可按分级和行业过滤"""
+    """
+    获取客户列表，可按分级和行业过滤。
+
+    行级隔离（路线图 2.9 首批，灰度）：无 ``crm:manage`` 权限的用户
+    仅能看到归属本部门的客户（owner_department）；跨部门客户被过滤并
+    记录观察日志。
+    """
     agent = get_crm_agent()
     if agent is None:
         raise HTTPException(status_code=503, detail="CRM Agent 未启动")
     customers = agent.get_customers(segment=segment, industry=industry)
-    return {"total": len(customers), "customers": customers}
+
+    # ---- 2.9 行级隔离首批（灰度：过滤 + 观察日志）----
+    user_permissions = rbac_engine.get_user_permissions(current_user["user_id"])
+    if "crm:manage" not in user_permissions:
+        user_department = current_user.get("department", "")
+        visible = [
+            c for c in customers
+            if not c.get("owner_department")
+            or c.get("owner_department") == user_department
+        ]
+        filtered_out = len(customers) - len(visible)
+        if filtered_out > 0:
+            logger.info(
+                "row_level_filter_applied",
+                resource="customers",
+                user_id=current_user["user_id"],
+                department=user_department,
+                filtered_out=filtered_out,
+            )
+        customers = visible
+
+    total = len(customers)
+    return {"total": total, "customers": customers[skip : skip + limit]}
 
 
 @router.get("/crm/customers/{customer_id}", summary="获取客户详情")
@@ -397,14 +428,17 @@ async def get_crm_stats(
 async def get_orders(
     status: Optional[str] = Query(None, description="按状态过滤 (pending/confirmed)"),
     customer_id: Optional[str] = Query(None, description="按客户编号过滤"),
+    skip: int = Query(0, ge=0, description="分页偏移（路线图 2.4）"),
+    limit: int = Query(100, ge=1, le=500, description="每页数量上限"),
     current_user: dict = Depends(get_current_user),
 ):
-    """获取销售订单列表，可按状态和客户过滤"""
+    """获取销售订单列表，可按状态和客户过滤（返回 total 为过滤后总数）"""
     agent = get_sales_agent()
     if agent is None:
         raise HTTPException(status_code=503, detail="Sales Agent 未启动")
     orders = agent.get_orders(status=status, customer_id=customer_id)
-    return {"total": len(orders), "orders": orders}
+    total = len(orders)
+    return {"total": total, "orders": orders[skip : skip + limit]}
 
 
 @router.get("/sales/orders/{order_id}", summary="获取订单详情")

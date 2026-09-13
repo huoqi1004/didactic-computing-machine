@@ -9,6 +9,8 @@ from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
 from app.core.agent.base import BaseAgent, AgentDecision
+from app.db.repositories.base import has_db, schedule
+from app.db.repositories.sales_repository import sales_order_repository
 from app.core.event.models import Event, EventType
 
 logger = structlog.get_logger()
@@ -172,6 +174,28 @@ class SalesAgent(BaseAgent):
         logger.info("sales_agent.initialized", agent=self.name,
                     orders=len(self._orders))
 
+    async def hydrate_from_db(self) -> bool:
+        """
+        启动水合：DB 优先、内存种子兜底、空库回播种（路线图 2.2 批次一）。
+        """
+        if not has_db():
+            return False
+
+        orders = await sales_order_repository.list_all()
+        if orders:
+            self._orders = {
+                o["order_id"]: {**self._orders.get(o["order_id"], {}), **o}
+                for o in orders
+            }
+        elif self._orders:
+            for o in list(self._orders.values()):
+                await sales_order_repository.upsert(o, "order_id")
+            logger.info("sales_agent.orders_seeded_to_db",
+                        count=len(self._orders))
+
+        logger.info("sales_agent.hydrated", orders=len(self._orders))
+        return True
+
     async def _handle_event(self, event: Event):
         """事件处理入口（包装异常处理）"""
         try:
@@ -304,6 +328,10 @@ class SalesAgent(BaseAgent):
             "confirmed_at": None,
         }
         self._orders[order_id] = order
+        schedule(
+            sales_order_repository.upsert(order, "order_id"),
+            "sales_order_repo",
+        )
 
         logger.info("sales_agent.order_created",
                     order_id=order_id,
@@ -332,6 +360,13 @@ class SalesAgent(BaseAgent):
 
         order["status"] = "confirmed"
         order["confirmed_at"] = datetime.now(timezone.utc).isoformat()
+        schedule(
+            sales_order_repository.update_status(
+                order_id, "confirmed",
+                confirmed_at=datetime.now(timezone.utc),
+            ),
+            "sales_order_repo",
+        )
 
         logger.info("sales_agent.order_confirmed", order_id=order_id)
 

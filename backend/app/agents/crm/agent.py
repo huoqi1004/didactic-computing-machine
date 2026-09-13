@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.core.agent.base import BaseAgent, AgentDecision
+from app.db.repositories.base import has_db, schedule
+from app.db.repositories.sales_repository import customer_repository
 from app.core.event.models import Event, EventType
 
 logger = structlog.get_logger()
@@ -117,6 +119,8 @@ class CRMAgent(BaseAgent):
                 segment=cust["segment"],
                 contact_name=cust["contact_name"],
                 contact_phone=cust["contact_phone"],
+                # 稳定种子 ID：与销售 Agent 种子订单的 CUST-SEED-* 引用对齐
+                customer_id=f"CUST-SEED-{idx + 1:03d}",
             )
             # 补充联系人邮箱和职位
             if customer["contacts"]:
@@ -155,6 +159,30 @@ class CRMAgent(BaseAgent):
         )
         logger.info("crm_agent.initialized", agent=self.name,
                     customers=len(self._customers))
+
+    async def hydrate_from_db(self) -> bool:
+        """
+        启动水合：DB 优先、内存种子兜底、空库回播种（路线图 2.2 批次一）。
+        """
+        if not has_db():
+            return False
+
+        customers = await customer_repository.list_all()
+        if customers:
+            self._customers = {
+                c["customer_id"]: {**self._customers.get(c["customer_id"], {}), **c}
+                for c in customers
+            }
+            for cid, c in self._customers.items():
+                self._segments[cid] = c.get("segment", "C")
+        elif self._customers:
+            for c in list(self._customers.values()):
+                await customer_repository.upsert(c, "customer_id")
+            logger.info("crm_agent.customers_seeded_to_db",
+                        count=len(self._customers))
+
+        logger.info("crm_agent.hydrated", customers=len(self._customers))
+        return True
 
     async def _handle_event(self, event: Event):
         """事件处理入口（包装异常处理）"""
@@ -278,9 +306,10 @@ class CRMAgent(BaseAgent):
         return result
 
     def create_customer(self, name: str, industry: str, segment: str,
-                        contact_name: str, contact_phone: str) -> dict:
-        """创建客户档案"""
-        customer_id = f"CUST-{str(uuid4())[:8]}"
+                        contact_name: str, contact_phone: str,
+                        customer_id: str | None = None) -> dict:
+        """创建客户档案（``customer_id`` 供种子数据传入稳定 ID）"""
+        customer_id = customer_id or f"CUST-{str(uuid4())[:8]}"
         now = datetime.now(timezone.utc).isoformat()
         customer = {
             "customer_id": customer_id,
@@ -293,6 +322,10 @@ class CRMAgent(BaseAgent):
         }
         self._customers[customer_id] = customer
         self._segments[customer_id] = segment
+        schedule(
+            customer_repository.upsert(customer, "customer_id"),
+            "customer_repo",
+        )
 
         # 自动创建主联系人
         contact = self.add_contact(

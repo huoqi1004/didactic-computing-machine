@@ -13,6 +13,11 @@ from uuid import uuid4
 
 from app.core.agent.base import BaseAgent, AgentDecision
 from app.core.event.models import Event, EventType
+from app.db.repositories.base import has_db, schedule, warn_throttled
+from app.db.repositories.payroll_repository import (
+    payroll_record_repository,
+    salary_structure_repository,
+)
 
 logger = structlog.get_logger()
 
@@ -66,6 +71,49 @@ class PayrollAgent(BaseAgent):
         logger.info("payroll_agent.initialized", agent=self.name,
                     salary_structures=len(self._salary_structures))
 
+    # ========== 持久化（路线图 2.2 批次一） ==========
+
+    async def hydrate_from_db(self) -> bool:
+        """
+        启动水合：DB 优先、内存种子兜底、空库回播种（重启一致性）。
+
+        - DB 有数据 → 覆盖内存状态（以库为准）；
+        - DB 空且内存有种子 → 将种子幂等播种入库；
+        - DB 不可用 → 保持内存种子（降级告警由 repository 层输出）。
+
+        Returns:
+            True 表示状态已与 DB 对齐（水合或播种）。
+        """
+        if not has_db():
+            return False
+
+        hydrated = False
+        structures = await salary_structure_repository.list_all()
+        if structures:
+            self._salary_structures = {
+                s["employee_id"]: s for s in structures
+            }
+            hydrated = True
+        elif self._salary_structures:
+            for s in list(self._salary_structures.values()):
+                await salary_structure_repository.upsert(s, "employee_id")
+            logger.info("payroll_agent.structures_seeded_to_db",
+                        count=len(self._salary_structures))
+            hydrated = True
+
+        records = await payroll_record_repository.list_all()
+        if records:
+            self._payroll_records = records
+            hydrated = True
+
+        logger.info(
+            "payroll_agent.hydrated",
+            from_db=hydrated,
+            structures=len(self._salary_structures),
+            records=len(self._payroll_records),
+        )
+        return hydrated
+
     async def _handle_event(self, event: Event):
         """事件处理入口（包装异常处理）"""
         try:
@@ -110,6 +158,10 @@ class PayrollAgent(BaseAgent):
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
             self._payroll_records.append(record)
+            schedule(
+                payroll_record_repository.upsert_by_record_id(record),
+                "payroll_record_repo",
+            )
             logger.info("payroll_agent.record_synced",
                         employee_id=employee_id, period=period)
 
@@ -250,6 +302,10 @@ class PayrollAgent(BaseAgent):
             "updated_at": now,
         }
         self._salary_structures[employee_id] = structure
+        schedule(
+            salary_structure_repository.upsert(structure, "employee_id"),
+            "salary_structure_repo",
+        )
         logger.info("payroll_agent.salary_structure_set",
                     employee_id=employee_id, base_salary=base_salary)
         return structure
@@ -379,6 +435,10 @@ class PayrollAgent(BaseAgent):
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         self._payroll_records.append(record)
+        schedule(
+            payroll_record_repository.upsert_by_record_id(record),
+            "payroll_record_repo",
+        )
         logger.info("payroll_agent.calculated",
                     employee_id=employee_id, period=period,
                     net_salary=net_salary)

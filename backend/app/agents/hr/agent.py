@@ -10,6 +10,11 @@ from uuid import uuid4
 
 from app.core.agent.base import BaseAgent, AgentDecision
 from app.core.event.models import Event, EventType
+from app.db.repositories.base import has_db, schedule
+from app.db.repositories.hr_repository import (
+    attendance_repository,
+    employee_repository,
+)
 
 logger = structlog.get_logger()
 
@@ -63,6 +68,48 @@ class HRAgent(BaseAgent):
         )
         logger.info("hr_agent.initialized", agent=self.name,
                     employees=len(self._employees))
+
+    async def hydrate_from_db(self) -> bool:
+        """
+        启动水合：DB 优先、内存种子兜底、空库回播种（路线图 2.2 批次一）。
+
+        Returns:
+            True 表示员工档案已与 DB 对齐。
+        """
+        if not has_db():
+            return False
+
+        hydrated = False
+        employees = await employee_repository.list_all()
+        if employees:
+            self._employees = {
+                e["employee_id"]: e for e in employees
+            }
+            self._employee_seq = max(
+                (int(e["employee_id"][3:]) for e in employees
+                 if e["employee_id"].startswith("EMP") and e["employee_id"][3:].isdigit()),
+                default=0,
+            )
+            hydrated = True
+        elif self._employees:
+            for e in list(self._employees.values()):
+                await employee_repository.upsert(e, "employee_id")
+            logger.info("hr_agent.employees_seeded_to_db",
+                        count=len(self._employees))
+            hydrated = True
+
+        records = await attendance_repository.list_all()
+        if records:
+            self._attendance_records = records
+            hydrated = True
+
+        logger.info(
+            "hr_agent.hydrated",
+            from_db=hydrated,
+            employees=len(self._employees),
+            attendance=len(self._attendance_records),
+        )
+        return hydrated
 
     async def _handle_event(self, event: Event):
         """事件处理入口（包装异常处理）"""
@@ -283,6 +330,10 @@ class HRAgent(BaseAgent):
             "created_at": now,
         }
         self._employees[employee_id] = employee
+        schedule(
+            employee_repository.upsert(employee, "employee_id"),
+            "employee_repo",
+        )
         logger.info("hr_agent.employee_added",
                     employee_id=employee_id, name=name, department=department)
         return employee
@@ -296,6 +347,10 @@ class HRAgent(BaseAgent):
             if key != "employee_id":
                 employee[key] = value
         employee["updated_at"] = datetime.now(timezone.utc).isoformat()
+        schedule(
+            employee_repository.upsert(employee, "employee_id"),
+            "employee_repo",
+        )
         logger.info("hr_agent.employee_updated", employee_id=employee_id)
         return employee
 
@@ -316,6 +371,10 @@ class HRAgent(BaseAgent):
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         self._attendance_records.append(record)
+        schedule(
+            attendance_repository.upsert_by_id(record),
+            "attendance_repo",
+        )
         logger.info("hr_agent.attendance_recorded",
                     employee_id=employee_id, date=date)
         return record

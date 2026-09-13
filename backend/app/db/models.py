@@ -63,6 +63,11 @@ class Base(DeclarativeBase):
 _UTF8MB4_TABLE_ARGS = {"mysql_charset": "utf8mb4", "mysql_engine": "InnoDB"}
 
 
+# sqlite 仅对 INTEGER 主键做 rowid 自增；MySQL 用 BIGINT。
+# with_variant 保证两种方言下自增主键都可用（测试用 sqlite / 生产 MySQL）。
+BigIntPK = BigInteger().with_variant(Integer(), "sqlite")
+
+
 def _utc_now() -> datetime:
     """统一的当前时间戳生成函数。"""
     return datetime.now()
@@ -248,7 +253,7 @@ class UserRole(Base):
         _UTF8MB4_TABLE_ARGS,
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("users.user_id"), nullable=False
     )
@@ -280,7 +285,7 @@ class RolePermission(Base):
         _UTF8MB4_TABLE_ARGS,
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     role_code: Mapped[str] = mapped_column(
         String(64), ForeignKey("roles.role_code"), nullable=False
     )
@@ -544,6 +549,9 @@ class Employee(Base):
     birth_date: Mapped[datetime | None] = mapped_column(Date, nullable=True)
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     email: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Agent 侧的部门名称（HR Agent 用名称管理，如"技术部"），无 FK。
+    # 命名避开 Employee.department relationship。
+    department_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     department_id: Mapped[str | None] = mapped_column(
         String(64), ForeignKey("departments.department_id"), nullable=True
     )
@@ -581,7 +589,7 @@ class AttendanceRecord(Base):
         _UTF8MB4_TABLE_ARGS,
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     employee_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     date: Mapped[datetime | None] = mapped_column(Date, nullable=True)
     check_in: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -607,6 +615,9 @@ class PayrollRecord(Base):
     薪资记录表
     ----------
     记录员工每个薪资周期的各项明细与实发金额。
+
+    路线图 2.2 批次一扩展列（record_id/allowances/gross_salary 等）：
+    由 bootstrap 列差集对存量库增量补列，承载薪酬 Agent 的完整记录字典。
     """
 
     __tablename__ = "payroll_records"
@@ -614,20 +625,35 @@ class PayrollRecord(Base):
         Index("ix_payroll_employee", "employee_id"),
         Index("ix_payroll_period", "period"),
         Index("ix_payroll_status", "status"),
+        Index("ix_payroll_record_id", "record_id", unique=True),
         _UTF8MB4_TABLE_ARGS,
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     employee_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     period: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Agent 侧记录标识（uuid）；存量行为 NULL，新记录唯一
+    record_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True
+    )
     base_salary: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     bonus: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # Agent 字典的 allowances（津贴）独立成列，不再与 bonus 混用
+    allowances: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     deduction: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    gross_salary: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     social_insurance: Mapped[float] = mapped_column(
         Float, nullable=False, default=0.0
     )
     tax: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # Agent 字典的 individual_tax（个税）显式列（tax 列保留兼容）
+    individual_tax: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     net_salary: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # 批次一扩展：公积金 / 应纳税所得额 / 来源 / 明细 JSON
+    housing_fund: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    taxable_income: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    detail_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending"
     )
@@ -643,6 +669,41 @@ class PayrollRecord(Base):
         return (
             f"<PayrollRecord id={self.id} employee_id={self.employee_id!r} "
             f"period={self.period!r} status={self.status!r}>"
+        )
+
+
+class SalaryStructure(Base):
+    """
+    薪资结构表
+    ----------
+    员工薪资结构（基本工资/津贴/扣款/银行卡），路线图 2.2 批次一新增，
+    承接薪酬 Agent 内存字典的落库（D-01/D-02 行级隔离的数据前提）。
+    """
+
+    __tablename__ = "salary_structures"
+    __table_args__ = (
+        Index("ix_salary_structures_employee", "employee_id"),
+        _UTF8MB4_TABLE_ARGS,
+    )
+
+    employee_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    base_salary: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    allowances: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    deductions: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    bank_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payment_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    effective_date: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=_utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=_utc_now, onupdate=_utc_now
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<SalaryStructure employee_id={self.employee_id!r} "
+            f"base_salary={self.base_salary}>"
         )
 
 
@@ -672,6 +733,8 @@ class Customer(Base):
     email: Mapped[str | None] = mapped_column(String(128), nullable=True)
     address: Mapped[str | None] = mapped_column(String(512), nullable=True)
     credit_rating: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # 2.9 行级隔离首批：客户归属部门（CRUD 后补列，无归属则全部门可见）
+    owner_department: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=_utc_now
@@ -707,6 +770,10 @@ class SalesOrder(Base):
     customer_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("customers.customer_id"), nullable=False
     )
+    # 批次一扩展：客户名快照 / 行项 JSON / 确认时间（销售 Agent 订单落库）
+    customer_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    items: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     total_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     order_date: Mapped[datetime | None] = mapped_column(Date, nullable=True)
@@ -1207,7 +1274,7 @@ class EventRecord(Base):
     )
 
     event_id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
+        BigIntPK, primary_key=True, autoincrement=True
     )
     aggregate_id: Mapped[str] = mapped_column(String(128), nullable=False)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -1243,7 +1310,7 @@ class AuditEntry(Base):
     )
 
     entry_id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
+        BigIntPK, primary_key=True, autoincrement=True
     )
     actor: Mapped[str] = mapped_column(String(128), nullable=False)
     action: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -1361,7 +1428,7 @@ class ChatMember(Base):
         _UTF8MB4_TABLE_ARGS,
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     channel_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("chat_channels.channel_id"), nullable=False, index=True
     )
@@ -1394,7 +1461,7 @@ class ChatMessage(Base):
     __table_args__ = (_UTF8MB4_TABLE_ARGS,)
 
     message_id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
+        BigIntPK, primary_key=True, autoincrement=True
     )
     channel_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("chat_channels.channel_id"), nullable=False, index=True

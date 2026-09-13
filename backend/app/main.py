@@ -560,6 +560,32 @@ async def lifespan(app: FastAPI):
     await orchestrator.register_agent(esg_agent)
     await orchestrator.register_agent(admin_agent)
 
+    # 4.5 批次一 Agent 状态持久化水合（路线图 2.2：重启一致性）
+    # DB 有数据则以库为准覆盖内存种子；DB 空则将内存种子幂等播种入库；
+    # DB 不可用时保持内存态（repository 层节流告警）。
+    batch_one_agents = {
+        "payroll": payroll_agent,
+        "hr": hr_agent,
+        "crm": crm_agent,
+        "sales": sales_agent,
+    }
+    for agent_key, agent_obj in batch_one_agents.items():
+        try:
+            hydrated = await agent_obj.hydrate_from_db()
+            logger.info(
+                "app.agent_hydration_complete",
+                agent=agent_key,
+                hydrated_from_db=hydrated,
+            )
+        except Exception as e:
+            logger.warning(
+                "app.agent_hydration_failed",
+                agent=agent_key,
+                error=str(e),
+                error_type=type(e).__name__,
+                degraded="in_memory_seed",
+            )
+
     # 5. 启动Agent
     await inventory_agent.start()
     await bookkeeping_agent.start()
@@ -597,7 +623,6 @@ async def lifespan(app: FastAPI):
     await esg_agent.start()
     await admin_agent.start()
 
-    # 6. 注册工具
     register_tools()
 
     # 6.1 注入 Agent 引用到路由模块（供 API 路由访问）

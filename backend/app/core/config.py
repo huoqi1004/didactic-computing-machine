@@ -150,6 +150,12 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 30
     mtls_enabled: bool = True
 
+    # 发票上传识别（财务模块 · 报销管理）
+    # 上传 PDF 的存储目录与大小上限；解析基于 PDF 文本层（扫描件低置信度，
+    # 提示人工填写；OCR 扩展点见 app/core/invoice_parser.extract_pdf_text）
+    invoice_upload_dir: str = "./data/invoice_uploads"
+    invoice_max_upload_mb: int = 10
+
     # 事件/审计表保留策略（评估报告 B-03 / 路线图 2.8）
     # audit_logs 保留期必须长于 events（审计合规要求）
     event_retention_days: int = 7

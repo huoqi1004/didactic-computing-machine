@@ -36,6 +36,7 @@ from app.api.routes import (
     conversation_router,
     document_router,
     messaging_router,
+    reimbursement_router,
 )
 from app.api.routes.tenant import router as tenant_router
 from app.core.tenant import TenantMiddleware
@@ -868,6 +869,7 @@ app.include_router(admin_system_router)
 app.include_router(conversation_router)
 app.include_router(document_router)
 app.include_router(messaging_router)
+app.include_router(reimbursement_router)
 app.include_router(tenant_router)
 
 # Prometheus指标

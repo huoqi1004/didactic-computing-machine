@@ -1566,6 +1566,18 @@ export const apiService = {
       return res
     }, {} as any),
 
+  // 上传发票 PDF 并识别票面要素（返回报销表单预填建议）
+  uploadReimbursementInvoice: (file: File): Promise<any> =>
+    withFallback(async () => {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await apiClient.post('/reimbursement/invoices/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60000,
+      })
+      return res as any
+    }, {} as any),
+
   verifyReimbursement: (reimbId: string): Promise<any> =>
     withFallback(async () => {
       const res = await apiClient.post(`/reimbursement/${reimbId}/verify`)

@@ -12,6 +12,7 @@ API 路由模块
 - ``hr``:              人力资源（员工/考勤/请假/招聘/绩效/薪酬）
 - ``sales_marketing``: 销售营销（CRM/销售订单/营销活动/客服）
 - ``document``:        文档生成（docx/xlsx/pptx/pdf 业务文档生成与下载）
+- ``reimbursement``:   报销发票上传识别（票面要素解析 + 报销表单预填）
 """
 from fastapi import APIRouter
 
@@ -27,6 +28,7 @@ from app.api.routes.admin_system import router as admin_system_router
 from app.api.routes.conversation import router as conversation_router
 from app.api.routes.document import router as document_router
 from app.api.routes.messaging import router as messaging_router
+from app.api.routes.reimbursement import router as reimbursement_router
 
 # 兼容旧导入: from app.api.routes import router
 router = legacy_router
@@ -43,9 +45,11 @@ api_router.include_router(admin_system_router)
 api_router.include_router(conversation_router)
 api_router.include_router(document_router)
 api_router.include_router(messaging_router)
+api_router.include_router(reimbursement_router)
 
 # 导出所有子路由器，供 main.py 直接包含
 phase2_routers = [
+    reimbursement_router,
     auth_router,
     rbac_router,
     workflow_router,

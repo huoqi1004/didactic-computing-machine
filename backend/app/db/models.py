@@ -443,6 +443,66 @@ class TaxRecord(Base):
         )
 
 
+class ReimbursementInvoice(Base):
+    """
+    报销发票识别件表
+    ----------------
+    财务模块 · 报销管理发票上传识别（解析 PDF 文本层得到的票面要素
+    与报销表单的关联记录）。``status``: parsed（已识别未关联）
+    / linked（已关联报销单）/ invalid（人工标记无效）。
+    """
+
+    __tablename__ = "reimbursement_invoices"
+    __table_args__ = (
+        Index("ix_reimb_invoices_number", "invoice_number"),
+        Index("ix_reimb_invoices_reimb", "reimbursement_id"),
+        Index("ix_reimb_invoices_status", "status"),
+        Index("ix_reimb_invoices_uploader", "uploaded_by"),
+        _UTF8MB4_TABLE_ARGS,
+    )
+
+    invoice_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    file_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    file_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    uploaded_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    uploaded_by_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    # ---- 票面要素（识别结果快照，便于查询；完整解析在 parsed_json）----
+    invoice_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    invoice_title: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    buyer_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    taxpayer_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    invoice_date: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    invoice_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    invoice_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    total_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tax_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    amount_without_tax: Mapped[float | None] = mapped_column(Float, nullable=True)
+    seller_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    remark: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parsed_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="parsed")
+    reimbursement_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    linked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=_utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=_utc_now, onupdate=_utc_now
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ReimbursementInvoice invoice_id={self.invoice_id!r} "
+            f"number={self.invoice_number!r} status={self.status!r}>"
+        )
+
+
 class Voucher(Base):
     """
     会计凭证表

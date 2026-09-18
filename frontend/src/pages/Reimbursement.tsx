@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Wallet,
   CheckCircle2,
@@ -13,6 +13,9 @@ import {
   UserPlus,
   Ban,
   FileText,
+  ScanLine,
+  Upload,
+  Loader2,
 } from 'lucide-react'
 import { apiService } from '../services/api'
 import { formatCurrency, formatNumber, formatDateTime, cn } from '../lib/utils'
@@ -586,6 +589,53 @@ function SubmitReimbursementModal({
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  // 发票上传识别
+  const [uploading, setUploading] = useState(false)
+  const [invoiceInfo, setInvoiceInfo] = useState<{
+    invoice_id: string
+    message: string
+    reliable: boolean
+    summary: Record<string, string | number | null>
+  } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleInvoiceUpload = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setError('仅支持 PDF 格式发票文件')
+      return
+    }
+    setUploading(true)
+    setError('')
+    try {
+      const result = await apiService.uploadReimbursementInvoice(file)
+      if (!result || !result.invoice_id) {
+        setError('发票识别失败，请手动填写表单')
+        return
+      }
+      // 预填表单：类别/金额/事由/附票状态/发票关联
+      const prefill = result.prefill || {}
+      setForm((prev) => ({
+        ...prev,
+        invoice_id: result.invoice_id,
+        category: prefill.category || prev.category,
+        amount: prefill.amount != null ? String(prefill.amount) : prev.amount,
+        receipt_amount:
+          prefill.receipt_amount != null ? String(prefill.receipt_amount) : prev.receipt_amount,
+        description: prefill.description || prev.description,
+        has_receipt: prefill.has_receipt ?? prev.has_receipt,
+      }))
+      setInvoiceInfo({
+        invoice_id: result.invoice_id,
+        message: result.message || '识别完成，请核对预填内容',
+        reliable: !!prefill.reliable,
+        summary: prefill.invoice_summary || {},
+      })
+    } catch {
+      setError('发票上传失败，请重试或手动填写')
+    } finally {
+      setUploading(false)
+    }
+  }
 
   const handleSubmit = async () => {
     if (!form.employee_name.trim()) {
@@ -637,6 +687,65 @@ function SubmitReimbursementModal({
         </div>
 
         <div className="p-6 space-y-4">
+          {/* 发票上传识别：解析票面要素并预填表单，减少手工填写 */}
+          <div className="rounded-xl border border-dashed border-[#2a3142] p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ScanLine className="w-4 h-4 text-primary" />
+                <span className="text-xs font-medium text-slate-300">发票识别预填</span>
+                <span className="text-xs text-slate-500">上传 PDF 发票自动填写</span>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) handleInvoiceUpload(file)
+                  e.target.value = ''
+                }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="btn-ghost text-xs px-3 py-1.5 flex items-center gap-1.5"
+              >
+                {uploading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Upload className="w-3.5 h-3.5" />
+                )}
+                {uploading ? '识别中…' : '上传发票 PDF'}
+              </button>
+            </div>
+
+            {invoiceInfo && (
+              <div className={cn(
+                'rounded-lg p-3 space-y-2 text-xs',
+                invoiceInfo.reliable
+                  ? 'bg-primary/5 border border-primary/20'
+                  : 'bg-yellow-500/5 border border-yellow-500/30'
+              )}>
+                <div className="flex items-center justify-between">
+                  <span className={invoiceInfo.reliable ? 'text-primary' : 'text-yellow-400'}>
+                    {invoiceInfo.message}
+                  </span>
+                  <span className="text-slate-500">ID: {invoiceInfo.invoice_id}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-slate-400">
+                  <span>发票种类：<b className="text-slate-200 font-normal">{invoiceInfo.summary.invoice_type ?? '—'}</b></span>
+                  <span>抬头类型：<b className="text-slate-200 font-normal">{invoiceInfo.summary.buyer_type ?? '—'}</b></span>
+                  <span className="col-span-2">购买方抬头：<b className="text-slate-200 font-normal">{invoiceInfo.summary.invoice_title ?? '—'}</b></span>
+                  <span className="col-span-2">纳税人识别号：<b className="text-slate-200 font-normal">{invoiceInfo.summary.taxpayer_id ?? '—'}</b></span>
+                  <span>开票日期：<b className="text-slate-200 font-normal">{invoiceInfo.summary.invoice_date ?? '—'}</b></span>
+                  <span>发票号码：<b className="text-slate-200 font-normal">{invoiceInfo.summary.invoice_number ?? '—'}</b></span>
+                  <span>价税合计：<b className="text-accent font-normal">{invoiceInfo.summary.total_amount != null ? `¥${invoiceInfo.summary.total_amount}` : '—'}</b></span>
+                  <span>税额：<b className="text-slate-200 font-normal">{invoiceInfo.summary.tax_amount != null ? `¥${invoiceInfo.summary.tax_amount}` : '—'}</b></span>
+                </div>
+              </div>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <FormField label="员工姓名" required value={form.employee_name} onChange={(v) => setForm({ ...form, employee_name: v })} placeholder="请输入姓名" />
             <FormField label="员工ID" value={form.employee_id} onChange={(v) => setForm({ ...form, employee_id: v })} placeholder="（选填）" />

@@ -33,6 +33,9 @@ from app.db.repositories.treasury_contract_repository import (
     fund_transfer_repository,
     payment_schedule_repository,
 )
+from app.db.repositories.reimbursement_repository import (
+    reimbursement_invoice_repository,
+)
 
 __all__ = [
     "RepositoryBase",
@@ -49,4 +52,5 @@ __all__ = [
     "fund_transfer_repository",
     "payment_schedule_repository",
     "contract_repository",
+    "reimbursement_invoice_repository",
 ]

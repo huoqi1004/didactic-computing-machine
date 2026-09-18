@@ -261,6 +261,53 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     set((state) => ({ messages: [...state.messages, optimisticMessage] }))
 
+    // Agent 频道：指令模式——走 agent-command 端点（后端执行指令并把
+    // Agent 回复作为消息写回频道）。普通消息端点仅 / 开头才触发 Agent，
+    // 直接说话会被 Agent 无视（历史缺陷）。
+    const targetChannel = get().channels.find((c) => c.channel_id === channelId)
+    if (targetChannel?.channel_type === 'agent') {
+      try {
+        const res = await apiService.sendAgentCommand(channelId, '', content)
+        const cmdMsg = res?.command_message
+        const respMsg = res?.response_message
+        set((state) => {
+          let messages = state.messages
+          // 用服务端持久化的指令消息替换乐观消息
+          if (cmdMsg?.message_id != null) {
+            messages = messages.map((m) =>
+              m.message_id === optimisticMessage.message_id
+                ? { ...m, message_id: cmdMsg.message_id, created_at: cmdMsg.created_at ?? m.created_at }
+                : m,
+            )
+          }
+          // 追加 Agent 回复（WS 广播若先到，按 message_id 去重）
+          if (respMsg?.message_id != null && !messages.some((m) => m.message_id === respMsg.message_id)) {
+            messages = [...messages, respMsg]
+          }
+          return { messages }
+        })
+        set((state) => ({
+          channels: state.channels.map((ch) =>
+            ch.channel_id === channelId
+              ? {
+                  ...ch,
+                  last_message_preview: respMsg?.content ?? content,
+                  last_message_at: new Date().toISOString(),
+                }
+              : ch,
+          ),
+        }))
+      } catch {
+        set((state) => ({
+          messages: state.messages.filter((m) => m.message_id !== optimisticMessage.message_id),
+        }))
+        throw new Error('agent command failed')
+      } finally {
+        set({ sending: false })
+      }
+      return
+    }
+
     try {
       await apiService.sendChannelMessage(channelId, content, messageType)
       // 更新频道列表中的最后消息预览

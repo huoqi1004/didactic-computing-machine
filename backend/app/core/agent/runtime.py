@@ -1,0 +1,262 @@
+"""
+AgentRuntime：LangGraph 单 Agent 场景图模板（路线图 Phase A / A5）
+====================================================================
+
+把"理解意图 → 调用工具 → 综合答复"跑成 LangGraph 状态图：
+
+    START → agent(LLM+bind_tools) →(有 tool_calls?)→ tools → agent → … → END
+                                    └(无)────────────────────────→ END
+
+- **工具执行一律经治理面**（AgentGovernor）：本模块把 ToolSpecV2 包装为
+  LangChain StructuredTool，包装器内调用 governor.execute；
+- **write_high 人审门**：包装器收到 approval 载荷时调用 LangGraph
+  ``interrupt()``——图在 MySQL Checkpointer 落盘暂停，审批路由（A8）
+  收到决定后以 ``Command(resume=...)`` 恢复，工具以 approved=True 重放；
+- **线程上下文**：调用者身份经 contextvar 注入工具（不污染工具签名）；
+- **降级**：LLM 未启用/不可用时由调用方（BaseAgent.llm_chat）回退旧路径。
+
+图按 agent_domain 缓存编译（同一域的多个 Agent 共享图结构，
+线程状态经 thread_id 隔离）。
+"""
+from __future__ import annotations
+
+import contextvars
+from typing import Annotated, Any, Optional
+
+import structlog
+from typing_extensions import TypedDict
+
+from app.core.agent.tools_v2 import ToolContext, tool_registry_v2
+
+logger = structlog.get_logger()
+
+# 调用者上下文（graph.ainvoke 前设置，工具包装器内读取）
+_current_tool_ctx: contextvars.ContextVar[Optional[ToolContext]] = contextvars.ContextVar(
+    "erp_tool_ctx", default=None
+)
+
+
+def get_current_tool_ctx() -> ToolContext:
+    ctx = _current_tool_ctx.get()
+    if ctx is None:
+        raise RuntimeError("工具上下文缺失（必须在 AgentRuntime.run 场景内调用）")
+    return ctx
+
+
+class ScenarioState(TypedDict):
+    """单 Agent 场景图状态：消息列表是唯一通道。"""
+
+    messages: Annotated[list, "__add_messages__"]
+
+
+class AgentRuntime:
+    """按域编译并缓存 ReAct 场景图。"""
+
+    def __init__(self) -> None:
+        self._graphs: dict[str, Any] = {}
+        self._checkpointer: Any = None
+
+    # ------------------------------------------------------------------
+    def _get_checkpointer(self):
+        if self._checkpointer is None:
+            from app.core.agent.checkpoint_mysql import get_mysql_checkpointer
+
+            self._checkpointer = get_mysql_checkpointer()
+        return self._checkpointer
+
+    def _get_llm(self):
+        from app.core.config import settings
+
+        if not settings.llm_enabled:
+            raise RuntimeError("LLM 未启用（ERP_LLM_ENABLED=false）")
+        from langchain_openai import ChatOpenAI
+
+        return ChatOpenAI(
+            model=settings.llm_model,
+            base_url=settings.llm_base_url,
+            api_key=settings.llm_api_key,
+            temperature=0.3,
+            timeout=settings.llm_timeout,
+            max_retries=1,  # 编排路径不做长重试（成本护栏），失败走降级
+        )
+
+    def _wrap_tool(self, spec):
+        """ToolSpecV2 → LangChain StructuredTool（仅供 bind_tools 的 schema 绑定）。
+
+        真正的执行在 :meth:`_invoke_tool_by_call`（治理面 + 人审 interrupt），
+        不经过本包装器——避免两处重复人审逻辑。
+        """
+        from langchain_core.tools import StructuredTool
+
+        async def _not_executed(**kwargs) -> str:
+            raise RuntimeError("工具必须经 AgentRuntime 场景图执行")
+
+        return StructuredTool(
+            name=spec.name,
+            description=spec.description,
+            args_schema=spec.args_model,
+            coroutine=_not_executed,
+        )
+
+    def _build_graph(self, domain: str):
+        from langgraph.graph import END, START, StateGraph
+        from langchain_core.messages import ToolMessage
+
+        specs = tool_registry_v2.list_specs(domain=domain)
+        if not specs:
+            raise RuntimeError(f"域 {domain} 无已注册工具")
+        llm = self._get_llm().bind_tools([self._wrap_tool(s) for s in specs])
+
+        async def node_agent(state: ScenarioState) -> dict:
+            response = await llm.ainvoke(state["messages"])
+            return {"messages": [response]}
+
+        async def node_tools(state: ScenarioState) -> dict:
+            last = state["messages"][-1]
+            results: list[ToolMessage] = []
+            from langgraph.errors import GraphInterrupt
+
+            for tc in (last.tool_calls or []):
+                try:
+                    observation = await self._invoke_tool_by_call(tc)
+                except GraphInterrupt:
+                    raise  # 人审中断必须穿透（暂停图、落盘 Checkpointer）
+                except Exception as e:  # noqa: BLE001
+                    observation = f"[工具异常] {type(e).__name__}: {e}"
+                results.append(
+                    ToolMessage(
+                        content=str(observation),
+                        tool_call_id=tc["id"],
+                        name=tc["name"],
+                    )
+                )
+            return {"messages": results}
+
+        builder = StateGraph(ScenarioState)
+        builder.add_node("agent", node_agent)
+        builder.add_node("tools", node_tools)
+        builder.add_edge(START, "agent")
+        builder.add_conditional_edges(
+            "agent",
+            lambda state: "tools" if (state["messages"][-1].tool_calls) else END,
+            ["tools", END],
+        )
+        builder.add_edge("tools", "agent")
+        return builder.compile(checkpointer=self._get_checkpointer())
+
+    async def _invoke_tool_by_call(self, tool_call: dict) -> str:
+        """按 LLM 的 tool_call 执行单个工具（经治理面包装器，保留人审语义）。"""
+        from app.core.agent.governor import agent_governor
+        from langgraph.types import interrupt
+
+        name = tool_call["name"]
+        spec = tool_registry_v2.get(name)
+        if spec is None:
+            return f"[执行失败] 未知工具: {name}"
+        ctx = get_current_tool_ctx()
+        result = await agent_governor.execute(name, tool_call.get("args") or {}, ctx)
+        if result.approval is not None:
+            decision = interrupt(result.approval)
+            if not isinstance(decision, dict) or not decision.get("approved"):
+                logger.info(
+                    "runtime.approval_rejected",
+                    tool=name, thread=ctx.thread_id,
+                    comment=(decision or {}).get("comment", ""),
+                )
+                return f"[已驳回] 人工审批未通过该操作（{name}），未执行。"
+            result = await agent_governor.execute(
+                name, tool_call.get("args") or {}, ctx, approved=True,
+                approval_comment=str(decision.get("comment", "")),
+            )
+        return result.for_llm()
+
+    def get_graph(self, domain: str):
+        """获取（或编译并缓存）指定域的场景图。"""
+        if domain not in self._graphs:
+            self._graphs[domain] = self._build_graph(domain)
+            logger.info("runtime.graph_compiled", domain=domain,
+                        tools=len(tool_registry_v2.list_specs(domain=domain)))
+        return self._graphs[domain]
+
+    # ------------------------------------------------------------------
+    async def run(
+        self,
+        domain: str,
+        user_message: str,
+        ctx: ToolContext,
+        history: Optional[list] = None,
+    ) -> dict:
+        """
+        执行一轮场景指令。
+
+        Returns:
+            {"status": "done"|"awaiting_approval",
+             "reply": str, "interrupt": dict|None}
+        """
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        graph = self.get_graph(domain)
+        token = _current_tool_ctx.set(ctx)
+        try:
+            messages = list(history or []) + [HumanMessage(content=user_message)]
+            result = await graph.ainvoke(
+                {"messages": messages},
+                {"configurable": {"thread_id": ctx.thread_id}},
+            )
+        finally:
+            _current_tool_ctx.reset(token)
+
+        interrupts = result.get("__interrupt__") or []
+        if interrupts:
+            payload = interrupts[0].value if hasattr(interrupts[0], "value") else interrupts[0]
+            return {
+                "status": "awaiting_approval",
+                "reply": (
+                    "该操作风险较高，已提交人工审批。\n"
+                    f"操作：{payload.get('tool')}\n效果预览：{payload.get('preview')}\n"
+                    "请在审批中心或本频道审批卡片中处理，批准后自动继续执行。"
+                ),
+                "interrupt": payload,
+            }
+
+        reply = ""
+        for msg in reversed(result.get("messages", [])):
+            if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
+                reply = msg.content if isinstance(msg.content, str) else str(msg.content)
+                break
+        return {"status": "done", "reply": reply or "（无回复）", "interrupt": None}
+
+    async def resume(self, domain: str, thread_id: str, decision: dict,
+                     ctx: ToolContext) -> dict:
+        """人审决定后恢复中断的图执行（决策 D1/D6 的落地闭环）。"""
+        from langchain_core.messages import AIMessage
+        from langgraph.types import Command
+
+        graph = self.get_graph(domain)
+        token = _current_tool_ctx.set(ctx)
+        try:
+            result = await graph.ainvoke(
+                Command(resume=decision),
+                {"configurable": {"thread_id": thread_id}},
+            )
+        finally:
+            _current_tool_ctx.reset(token)
+
+        interrupts = result.get("__interrupt__") or []
+        if interrupts:
+            payload = interrupts[0].value if hasattr(interrupts[0], "value") else interrupts[0]
+            return {"status": "awaiting_approval", "reply": "仍有待审批操作。",
+                    "interrupt": payload}
+        reply = ""
+        for msg in reversed(result.get("messages", [])):
+            if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
+                reply = msg.content if isinstance(msg.content, str) else str(msg.content)
+                break
+        return {"status": "done", "reply": reply or "（无回复）", "interrupt": None}
+
+    def has_domain(self, domain: str) -> bool:
+        return bool(tool_registry_v2.list_specs(domain=domain))
+
+
+# 进程内单例
+agent_runtime = AgentRuntime()

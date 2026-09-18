@@ -82,3 +82,13 @@ reportlab==4.2.5            # PDF文档生成（.pdf）
 # 发票上传识别（财务模块 · 报销管理：PDF 文本层票面要素解析）
 # ============================================================
 pdfplumber==0.11.10         # 发票 PDF 文本层抽取（布局感知；PyPDF2 为降级备选）
+
+# ============================================================
+# Agent 编排框架（路线图 Phase A：LangChain/LangGraph 编排闭环）
+# 版本锁定策略：langgraph 1.x API 迭代快，升级须过评测集门禁
+# ============================================================
+langgraph==1.2.11           # 状态图编排（interrupt人审/Command恢复/子图）
+langgraph-checkpoint==4.2.0  # Checkpointer 接口（自研 MySQL Saver 实现其 Base）
+langchain==1.4.1            # 工具/消息模型基础（StructuredTool 等）
+langchain-core==1.6.3       # 核心抽象（BaseChatModel/messages）
+langchain-openai==1.6.2     # ChatOpenAI（OpenAI 兼容端点=DeepSeek）

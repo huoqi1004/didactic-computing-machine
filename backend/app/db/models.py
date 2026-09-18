@@ -44,8 +44,12 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
     Index,
+    Table,
+    Column,
+    LargeBinary,
     text,
 )
+from sqlalchemy.dialects.mysql import LONGBLOB as MYSQL_LONGBLOB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -375,6 +379,16 @@ class Reimbursement(Base):
     req_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     req_number: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     employee_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # 报销场景工具（Phase A/A6）扩展列：与报销 Agent 单据字典对齐
+    employee_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    department: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    has_receipt: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    receipt_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    invoice_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    project_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    project_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
     category: Mapped[str] = mapped_column(String(64), nullable=False)
     amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -1685,3 +1699,68 @@ __all__ = [
     "ChatMessage",
     "ChatFile",
 ]
+
+# ===========================================================================
+# LangGraph Checkpointer 表（路线图 Phase A/A4，决策 D1：自研 MySQL Saver）
+# 人审中断的图状态持久化，支持跨重启断点恢复。由 bootstrap 差集自动建表。
+# ===========================================================================
+
+# 存量 BLOB 列：MySQL 用 LONGBLOB（状态体积可能超 64KB），sqlite 用 BLOB
+_BlobType = MYSQL_LONGBLOB().with_variant(LargeBinary(), "sqlite")
+
+langgraph_checkpoints = Table(
+    "langgraph_checkpoints",
+    Base.metadata,
+    Column("id", BigIntPK, primary_key=True, autoincrement=True),
+    Column("thread_id", String(150), nullable=False),
+    Column("checkpoint_ns", String(150), nullable=False, server_default=text("''")),
+    Column("checkpoint_id", String(64), nullable=False),
+    Column("checkpoint_type", String(32), nullable=False),
+    Column("checkpoint_blob", _BlobType, nullable=False),
+    # 状态格式版本 + 校验和（防隐性损坏，损坏时显式报错而非静默恢复错状态）
+    Column("state_version", Integer, nullable=False, server_default=text("1")),
+    Column("state_checksum", String(32), nullable=False),
+    Column("metadata_type", String(32), nullable=False),
+    Column("metadata_blob", _BlobType, nullable=False),
+    Column("parent_checkpoint_id", String(64), nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint(
+        "thread_id", "checkpoint_ns", "checkpoint_id", name="uq_langgraph_cp"
+    ),
+    Index("ix_langgraph_cp_thread", "thread_id", "checkpoint_ns"),
+)
+
+agent_approval_requests = Table(
+    "agent_approval_requests",
+    Base.metadata,
+    Column("thread_id", String(150), primary_key=True),
+    Column("channel_id", String(64), nullable=True),
+    Column("agent_key", String(64), nullable=False),
+    Column("domain", String(64), nullable=False),
+    Column("tool", String(96), nullable=False),
+    Column("args_json", JSON, nullable=True),
+    Column("preview", Text, nullable=True),
+    Column("risk", String(16), nullable=False),
+    Column("status", String(16), nullable=False, default="pending"),
+    Column("requested_by", String(64), nullable=True),
+    Column("decided_by", String(64), nullable=True),
+    Column("decided_at", DateTime, nullable=True),
+    Column("result_reply", Text, nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Index("ix_agent_approval_status", "status"),
+    Index("ix_agent_approval_channel", "channel_id"),
+)
+
+langgraph_checkpoint_writes = Table(
+    "langgraph_checkpoint_writes",
+    Base.metadata,
+    Column("thread_id", String(150), primary_key=True),
+    Column("checkpoint_ns", String(150), primary_key=True, server_default=text("''")),
+    Column("checkpoint_id", String(64), primary_key=True),
+    Column("task_id", String(96), primary_key=True),
+    Column("idx", Integer, primary_key=True),
+    Column("channel", String(64), nullable=False),
+    Column("value_type", String(32), nullable=False),
+    Column("value_blob", _BlobType, nullable=False),
+    Column("task_path", String(128), nullable=True, server_default=text("''")),
+)

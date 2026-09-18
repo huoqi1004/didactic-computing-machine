@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from app.db.models import ReimbursementInvoice
+from app.db.models import Reimbursement, ReimbursementInvoice
 from app.db.repositories.base import RepositoryBase, has_db, session_scope
 
 
@@ -155,3 +155,86 @@ class ReimbursementInvoiceRepository(RepositoryBase):
 
 # 模块级单例
 reimbursement_invoice_repository = ReimbursementInvoiceRepository()
+
+
+class ReimbursementRequestRepository(RepositoryBase):
+    """报销单据（req_id 主键，Phase A/A6：报销 Agent 单据落库）。"""
+
+    __model__ = Reimbursement
+    __category__ = "reimbursement_request_repo"
+
+    @staticmethod
+    def __to_row__(r: dict) -> dict:
+        from datetime import datetime
+
+        def _dt(v):
+            if not v:
+                return None
+            try:
+                return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                return None
+
+        return {
+            "req_id": r["reimbursement_id"],
+            "req_number": r.get("reimbursement_no") or r["reimbursement_id"],
+            "employee_id": r.get("employee_id") or "unknown",
+            "employee_name": r.get("employee_name") or None,
+            "department": r.get("department") or None,
+            "has_receipt": bool(r.get("has_receipt", False)),
+            "receipt_amount": float(r.get("receipt_amount", 0) or 0),
+            "invoice_id": r.get("invoice_id") or None,
+            "project_id": r.get("project_id") or None,
+            "project_name": r.get("project_name") or None,
+            "category": r.get("category", "other"),
+            "amount": float(r.get("amount", 0) or 0),
+            "description": r.get("description") or None,
+            "status": r.get("status", "pending"),
+            "submitted_at": _dt(r.get("submitted_at")),
+        }
+
+    @staticmethod
+    def __to_dict__(row: Reimbursement) -> dict:
+        from datetime import datetime
+
+        def _iso(v):
+            return v.isoformat() if isinstance(v, datetime) else v
+
+        return {
+            "reimbursement_id": row.req_id,
+            "reimbursement_no": row.req_number,
+            "employee_id": row.employee_id,
+            "employee_name": row.employee_name or "",
+            "department": row.department or "",
+            "category": row.category,
+            "amount": row.amount,
+            "description": row.description or "",
+            "has_receipt": bool(row.has_receipt),
+            "receipt_amount": row.receipt_amount,
+            "invoice_id": row.invoice_id or "",
+            "project_id": row.project_id or "",
+            "project_name": row.project_name or "",
+            "status": row.status,
+            "submitted_at": _iso(row.submitted_at),
+            "created_at": _iso(row.created_at),
+        }
+
+    async def delete_by_id(self, req_id: str) -> bool:
+        """精确回滚用（补偿函数）。"""
+        if not has_db():
+            return False
+        try:
+            from sqlalchemy import delete
+
+            async with session_scope() as session:
+                await session.execute(
+                    delete(self.__model__).where(self.__model__.req_id == req_id)
+                )
+            return True
+        except Exception as e:  # noqa: BLE001
+            self._warn(f"{self.__category__}.delete_failed", error=str(e))
+            return False
+
+
+# 模块级单例
+reimbursement_request_repository = ReimbursementRequestRepository()

@@ -8,6 +8,8 @@ from typing import Optional
 from enum import Enum
 
 from app.core.agent.base import BaseAgent, AgentDecision
+from app.db.repositories.base import has_db, schedule
+from app.db.repositories.reimbursement_repository import reimbursement_request_repository
 from app.core.config import settings
 from app.core.event.models import Event, EventType
 
@@ -85,6 +87,25 @@ class ReimbursementAgent(BaseAgent):
             ],
             handler=self._handle_event,
         )
+
+    async def hydrate_from_db(self) -> bool:
+        """
+        启动水合（Phase A/A6：报销单据落库）。
+
+        Agent 无内存种子——DB 为空属正常（全新部署），
+        返回 False 仅表示"无数据可水合"，不视为降级。
+        """
+        if not has_db():
+            return False
+
+        records = await reimbursement_request_repository.list_all()
+        if records:
+            self._requests = {
+                r["reimbursement_id"]: r for r in records
+            }
+        logger.info("reimbursement_agent.hydrated",
+                    requests=len(self._requests))
+        return bool(records)
 
     async def _handle_event(self, event: Event):
         try:
@@ -368,6 +389,10 @@ class ReimbursementAgent(BaseAgent):
         }
 
         self._requests[reimb_id] = request
+        schedule(
+            reimbursement_request_repository.upsert(request, key_field="reimbursement_id"),
+            "reimbursement_request_repo",
+        )
         await self.record_decision(decision)
 
         await self._publish_event(

@@ -1629,6 +1629,11 @@ async def send_agent_command(
                 messages=[{"role": "user", "content": command}],
                 temperature=0.3,
                 max_tokens=2048,
+                # 编排语境（Phase A：LangGraph 工具调用 + 人审中断归属）
+                user_id=user_id,
+                username=username,
+                channel_id=channel_id,
+                thread_id=f"channel:{channel_id}",
             )
             if response and response.strip():
                 agent_response = response.strip()

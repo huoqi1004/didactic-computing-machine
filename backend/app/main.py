@@ -37,6 +37,7 @@ from app.api.routes import (
     document_router,
     messaging_router,
     reimbursement_router,
+    agent_ops_router,
 )
 from app.api.routes.tenant import router as tenant_router
 from app.core.tenant import TenantMiddleware
@@ -576,6 +577,7 @@ async def lifespan(app: FastAPI):
         "sales": sales_agent,
         "treasury": treasury_agent,
         "contract": contract_agent,
+        "reimbursement": reimbursement_agent,
     }
     for agent_key, agent_obj in batch_persist_agents.items():
         try:
@@ -632,6 +634,23 @@ async def lifespan(app: FastAPI):
     await admin_agent.start()
 
     register_tools()
+
+    # 6.0 注册场景工具（Phase A：报销/资金域治理面工具，LangGraph 编排可调用）
+    try:
+        import app.agents.reimbursement.tools  # noqa: F401
+        import app.agents.treasury.tools  # noqa: F401
+        from app.core.agent.tools_v2 import tool_registry_v2
+
+        logger.info(
+            "app.scenario_tools_registered",
+            count=len(tool_registry_v2.list_specs()),
+            tools=[s.name for s in tool_registry_v2.list_specs()],
+        )
+    except Exception as e:
+        logger.warning(
+            "app.scenario_tools_register_failed",
+            error=str(e), error_type=type(e).__name__,
+        )
 
     # 6.1 注入 Agent 引用到路由模块（供 API 路由访问）
     from app.api.routes._agent_refs import set_agents
@@ -874,6 +893,7 @@ app.include_router(conversation_router)
 app.include_router(document_router)
 app.include_router(messaging_router)
 app.include_router(reimbursement_router)
+app.include_router(agent_ops_router)
 app.include_router(tenant_router)
 
 # Prometheus指标

@@ -169,3 +169,31 @@ class RepositoryBase:
                 self.__category__, f"{self.__category__}.count_failed", error=str(e),
             )
             return -1
+
+def dialect_upsert_stmt(table, values: dict, conflict_cols: Optional[list[str]] = None):
+    """
+    方言感知的 upsert 语句（MySQL: ON DUPLICATE KEY UPDATE；sqlite: ON CONFLICT）。
+
+    :param conflict_cols: 冲突键列名列表；缺省为主键列。当表的真实唯一键
+    不是主键（如 langgraph_checkpoints 的 (thread, ns, checkpoint_id) 唯一约束）
+    时必须显式传入，否则 sqlite 的 ON CONFLICT 语义不匹配。
+    """
+    from app.core.database import _is_mysql_engine
+
+    pk_cols = [c.name for c in table.primary_key.columns]
+    key_cols = conflict_cols or pk_cols
+    update_cols = {k: v for k, v in values.items() if k not in key_cols}
+
+    if _is_mysql_engine():
+        from sqlalchemy.dialects.mysql import insert
+
+        stmt = insert(table).values(**values)
+        return stmt.on_duplicate_key_update(**update_cols)
+    from sqlalchemy.dialects.sqlite import insert
+
+    stmt = insert(table).values(**values)
+    return stmt.on_conflict_do_update(
+        index_elements=key_cols,
+        set_=update_cols,
+    )
+

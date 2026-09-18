@@ -21,6 +21,7 @@ from uuid import uuid4, uuid5, NAMESPACE_DNS
 
 from app.core.config import settings, AgentState
 from app.core.event.bus import event_bus
+from app.db.repositories.base import has_db
 from app.core.event.models import Event, EventType, EventSubscription
 from app.core.security.did import did_registry, AgentIdentity
 from app.core.security.authorization import authz_engine, AuthorizationRequest, Permission
@@ -665,24 +666,47 @@ class BaseAgent(ABC):
 
     async def llm_chat(self, messages: list[dict], **kwargs) -> str:
         """
-        调用LLM进行对话，自动注入系统提示词
+        调用LLM进行对话，自动注入系统提示词。
+
+        编排优先（路线图 Phase A/A5）：若本 Agent 域已注册治理面工具且
+        LLM 可用，走 LangGraph 场景图（工具调用循环 + 人审中断），kwargs
+        支持 user_id/username/channel_id/thread_id 注入调用语境；否则
+        回退单发对话（降级策略不变）。
 
         降级策略：
         - LLM未启用（settings.llm_enabled=False）：记录警告并返回空字符串
         - LLM不可用（连接失败/超时/重试耗尽）：记录警告并返回空字符串
-        - 调用方应根据返回值是否为空字符串判断是否降级到规则模式
+        - 编排路径异常：记录警告并回退单发对话
+        调用方应根据返回值是否为空字符串判断是否降级到规则模式
 
         参数：
         - messages: OpenAI格式消息列表
             [{"role": "user", "content": "..."}]
             如未包含system角色消息，将自动注入系统提示词
-        - **kwargs: 透传给LLM客户端的参数（temperature, max_tokens等）
+        - **kwargs: 透传给LLM客户端的参数（temperature, max_tokens等）；
+          编排路径额外识别 user_id/username/channel_id/thread_id
 
         返回：LLM生成的文本内容（str）；LLM不可用时返回空字符串 ""
         """
         if not settings.llm_enabled:
             logger.debug("agent.llm_disabled", agent=self.name)
             return ""
+
+        # ---- 编排优先：域内有注册工具时走 LangGraph 场景图 ----
+        if has_db():
+            try:
+                from app.core.agent.orchestration_service import run_scenario_for_agent
+
+                runtime_result = await run_scenario_for_agent(
+                    self, messages, kwargs,
+                )
+                if runtime_result is not None:
+                    return runtime_result
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "agent.llm_chat_runtime_fallback",
+                    agent=self.name, error=str(e), error_type=type(e).__name__,
+                )
 
         client = self._get_llm_client()
         if client is None:

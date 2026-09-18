@@ -55,6 +55,10 @@ def _build_engine():
     )
 
     engine_kwargs: dict[str, Any] = {"echo": settings.db_echo}
+    if "sqlite" in (settings.mysql_url or "").lower():
+        # sqlite 并发写互斥：给内建锁加等待窗口，避免测试环境
+        # "database is locked"（fire-and-forget 写穿与 checkpoint 写并发）
+        engine_kwargs["connect_args"] = {"timeout": 30}
     if "mysql" in (settings.mysql_url or "").lower():
         # MySQL 连接池参数；sqlite 等其他后端的池实现不接受这些参数
         engine_kwargs.update(

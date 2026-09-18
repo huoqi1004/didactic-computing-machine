@@ -102,9 +102,12 @@ async def resume_after_decision(
         domain = row.domain
         channel_id = row.channel_id or ""
         agent_key = row.agent_key
+        # 执行权限沿用发起人语境（审批人仅需 agent:approve 权限做决定，
+        # 工具 RBAC 校验的是指令发起人的权限——agent 借用用户权限原则）
+        requested_by = row.requested_by or decided_by
 
     ctx = ToolContext(
-        user_id=decided_by, username=decided_by,
+        user_id=requested_by, username=requested_by,
         agent_key=agent_key, thread_id=thread_id, channel_id=channel_id,
     )
     result = await agent_runtime.resume(
@@ -131,6 +134,20 @@ async def resume_after_decision(
                 result_reply=str(result.get("reply", ""))[:4000],
             )
         )
+
+    try:
+        from app.core.security.audit import audit_chain
+
+        await audit_chain.log(
+            actor_did=decided_by,
+            action="approval.decided",
+            resource=f"agent_approval:{thread_id}",
+            result="success",
+            details={"approved": approved, "comment": comment, "agent": agent_key},
+            risk_level="high" if approved else "medium",
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("orchestration.decision_audit_failed", error=str(e))
 
     logger.info(
         "orchestration.resumed",

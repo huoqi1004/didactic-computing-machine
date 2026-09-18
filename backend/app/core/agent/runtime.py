@@ -43,10 +43,38 @@ def get_current_tool_ctx() -> ToolContext:
     return ctx
 
 
-class ScenarioState(TypedDict):
-    """单 Agent 场景图状态：消息列表是唯一通道。"""
+try:
+    from langgraph.graph.message import add_messages as _add_messages
+except ImportError:  # 兼容旧版本
+    from langgraph.graph import add_messages as _add_messages
 
-    messages: Annotated[list, "__add_messages__"]
+
+class ScenarioState(TypedDict):
+    """单 Agent 场景图状态：消息列表是唯一通道（append-only reducer）。
+
+    注意：reducer 必须用 ``add_messages`` 函数——旧版字符串魔法
+    ``"__add_messages__"`` 在 langgraph 1.x 不生效，会退化为 LastValue
+    （每个节点覆盖整个列表，历史丢失，LLM 收到孤立 ToolMessage 报 400）。
+    """
+
+    messages: Annotated[list, _add_messages]
+
+
+def _sanitize_history(messages: list) -> list:
+    """
+    发送 LLM 前清洗历史：剔除开头的孤立 ToolMessage（崩溃/中断恢复残留）。
+
+    DeepSeek 等严格兼容端点要求 ToolMessage 必须紧跟 assistant(tool_calls)；
+    历史若因异常运行留下残缺序列，整轮对话会 400。防御式修复。
+    """
+    cleaned = list(messages)
+    i = 0
+    while i < len(cleaned) and type(cleaned[i]).__name__ == "ToolMessage":
+        i += 1
+    if i > 0:
+        cleaned = cleaned[i:]
+        logger.warning("runtime.sanitized_orphan_tool_messages", dropped=i)
+    return cleaned
 
 
 class AgentRuntime:
@@ -108,7 +136,8 @@ class AgentRuntime:
         llm = self._get_llm().bind_tools([self._wrap_tool(s) for s in specs])
 
         async def node_agent(state: ScenarioState) -> dict:
-            response = await llm.ainvoke(state["messages"])
+            history = _sanitize_history(state["messages"])
+            response = await llm.ainvoke(history)
             return {"messages": [response]}
 
         async def node_tools(state: ScenarioState) -> dict:

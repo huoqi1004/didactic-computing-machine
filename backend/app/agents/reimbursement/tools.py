@@ -70,10 +70,14 @@ async def reimbursement_query_detail(ctx: ToolContext, reimbursement_id: str):
     return record
 
 
+class StatsArgs(BaseModel):
+    pass
+
+
 @erp_tool(
     name="reimbursement_query_stats",
-    description="查询报销统计（待审数量/金额、按类别与项目分布）",
-    args_model=QueryListArgs,
+    description="查询报销统计（待审数量/金额、按类别与项目分布），无需参数",
+    args_model=StatsArgs,
     risk_level=ToolRisk.READONLY,
     resource="reimbursement", action="read",
     agent_domain="reimbursement",

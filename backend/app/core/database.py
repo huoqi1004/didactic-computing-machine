@@ -368,12 +368,14 @@ async def _reconcile_columns(engine, existing_tables: set[str]) -> dict[str, lis
             for column in table.columns:
                 if column.name in db_cols:
                     continue
+                # CreateColumn 编译输出已包含列名（如 `contract_type` VARCHAR(32)），
+                # 不能再重复拼一次列名（MySQL 1064 语法错误且整个补列事务回滚）
                 col_ddl = str(
                     CreateColumn(column).compile(dialect=sync_conn.dialect)
                 ).strip()
                 stmt = (
                     f"ALTER TABLE {preparer.quote(table_name)} "
-                    f"ADD COLUMN {preparer.quote(column.name)} {col_ddl}"
+                    f"ADD COLUMN {col_ddl}"
                 )
                 sync_conn.execute(sa_text(stmt))
                 added.setdefault(table_name, []).append(column.name)
@@ -418,9 +420,11 @@ async def init_redis():
 
     try:
         import redis.asyncio as aioredis
-        from redis.connection import ConnectionPool
 
-        pool = ConnectionPool.from_url(
+        # 必须用 redis.asyncio 的连接池——误用 redis.connection（同步）的
+        # ConnectionPool 会让异步客户端拿到同步 Connection，
+        # await ping() 时报 "object Connection can't be used in 'await' expression"
+        pool = aioredis.ConnectionPool.from_url(
             settings.redis_url,
             max_connections=settings.redis_max_connections,
             decode_responses=True,

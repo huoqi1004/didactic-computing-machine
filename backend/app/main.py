@@ -391,6 +391,10 @@ async def lifespan(app: FastAPI):
                 "app.mysql_unavailable_degraded_to_memory",
                 impact="auth/rbac/messaging 持久化全部失效，重启即丢数据，请立即排查 MySQL",
             )
+            # 无 DB 降级：内存种子（随机密码）即真实登录凭据，一次性打印
+            from app.core.rbac.seed import print_seed_credentials
+
+            print_seed_credentials()
     except Exception as e:
         logger.error(
             "app.mysql_init_failed",

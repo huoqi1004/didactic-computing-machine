@@ -1114,13 +1114,9 @@ def load_seed_data(engine: "RBACEngine") -> None:
                 departments=len(SEED_DEPARTMENTS),
                 users=len(SEED_USERS))
 
-    # 纯内存模式（无 DB）：内存种子即最终用户态，随机密码打印一次供登录。
-    # DB 模式下不在此打印——内存种子会被 load_from_db 覆盖，实际密码以
-    # 播种结果为准（见 _persist_seed_data_locked）。
-    from app.core.database import get_session_factory
-
-    if get_session_factory() is None:
-        print_seed_credentials()
+    # 注意：此处不打印凭据。导入期 DB 工厂尚未初始化，无法区分部署模式；
+    # 打印责任在调用方——DB 模式由 _persist_seed_data_locked 仅对新播种
+    # 用户打印，无 DB 降级模式由 lifespan 降级分支打印（密码才真实有效）。
 
 
 async def persist_seed_data(engine: "RBACEngine") -> None:

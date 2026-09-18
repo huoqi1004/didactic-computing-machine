@@ -222,7 +222,7 @@ export default function QualityManagement() {
       label: '来源',
       sortable: true,
       render: (row) => {
-        const cfg = SOURCE_CONFIG[row.source]
+        const cfg = SOURCE_CONFIG[row.source] ?? Object.values(SOURCE_CONFIG)[0]
         return <StatusBadge variant={cfg.variant}>{cfg.label}</StatusBadge>
       },
     },
@@ -231,7 +231,7 @@ export default function QualityManagement() {
       label: '严重等级',
       sortable: true,
       render: (row) => {
-        const cfg = SEVERITY_CONFIG[row.severity]
+        const cfg = SEVERITY_CONFIG[row.severity] ?? Object.values(SEVERITY_CONFIG)[0]
         return <StatusBadge variant={cfg.variant} dot>{cfg.label}</StatusBadge>
       },
     },
@@ -240,7 +240,7 @@ export default function QualityManagement() {
       label: '状态',
       sortable: true,
       render: (row) => {
-        const cfg = DEFECT_STATUS_CONFIG[row.status]
+        const cfg = DEFECT_STATUS_CONFIG[row.status] ?? Object.values(DEFECT_STATUS_CONFIG)[0]
         return <StatusBadge variant={cfg.variant} dot>{cfg.label}</StatusBadge>
       },
     },

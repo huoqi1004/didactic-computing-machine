@@ -215,7 +215,7 @@ export default function Dashboard() {
           </ResponsiveContainer>
           <div className="grid grid-cols-2 gap-2 mt-2">
             {(['running', 'paused', 'circuit_open', 'idle'] as const).map((st) => {
-              const cfg = AGENT_STATUS_CONFIG[st]
+              const cfg = AGENT_STATUS_CONFIG[st] ?? Object.values(AGENT_STATUS_CONFIG)[0]
               const count = agents.filter((a) => a.status === st).length
               return (
                 <div key={st} className="flex items-center gap-2">
@@ -244,7 +244,7 @@ export default function Dashboard() {
           </div>
           <div className="space-y-2.5">
             {agents.slice(0, 5).map((agent) => {
-              const cfg = AGENT_STATUS_CONFIG[agent.status]
+              const cfg = AGENT_STATUS_CONFIG[agent.status] ?? Object.values(AGENT_STATUS_CONFIG)[0]
               return (
                 <div
                   key={agent.id}
@@ -289,7 +289,7 @@ export default function Dashboard() {
               <div className="text-center py-8 text-sm text-slate-500">等待事件流入...</div>
             )}
             {events.slice(0, 12).map((event) => {
-              const cfg = EVENT_LEVEL_CONFIG[event.level]
+              const cfg = EVENT_LEVEL_CONFIG[event.level] ?? Object.values(EVENT_LEVEL_CONFIG)[0]
               return (
                 <div
                   key={event.id}
@@ -369,7 +369,7 @@ function StatCard({
     primary: { bg: 'bg-primary/10', text: 'text-primary', glow: 'shadow-glow' },
     accent: { bg: 'bg-accent/10', text: 'text-accent', glow: 'shadow-glow-accent' },
   }
-  const c = colorMap[color]
+  const c = colorMap[color] ?? Object.values(colorMap)[0]
   return (
     <div className="card card-hover relative overflow-hidden">
       <div className="flex items-start justify-between">

@@ -131,7 +131,7 @@ export default function Invoice() {
           `${(inv.tax_rate * 100).toFixed(0)}%`,
           formatCurrency(inv.tax_amount),
           formatCurrency(inv.total),
-          INVOICE_STATUS_CONFIG[inv.status].label,
+          (INVOICE_STATUS_CONFIG[inv.status] ?? Object.values(INVOICE_STATUS_CONFIG)[0]).label,
         ]),
       },
     }
@@ -260,7 +260,7 @@ export default function Invoice() {
                       : 'bg-bg-input text-slate-400 hover:text-white border border-[#2a3142]',
                   )}
                 >
-                  {st === 'all' ? '全部' : INVOICE_STATUS_CONFIG[st].label}
+                  {st === 'all' ? '全部' : (INVOICE_STATUS_CONFIG[st] ?? Object.values(INVOICE_STATUS_CONFIG)[0]).label}
                 </button>
               ))}
             </div>
@@ -286,7 +286,7 @@ export default function Invoice() {
             </thead>
             <tbody>
               {filtered.map((inv) => {
-                const cfg = INVOICE_STATUS_CONFIG[inv.status]
+                const cfg = INVOICE_STATUS_CONFIG[inv.status] ?? Object.values(INVOICE_STATUS_CONFIG)[0]
                 return (
                   <tr key={inv.invoice_id}>
                     <td className="font-mono text-xs text-primary">{inv.invoice_no}</td>

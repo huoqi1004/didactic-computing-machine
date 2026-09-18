@@ -205,7 +205,7 @@ export default function Security() {
                         : 'bg-bg-input text-slate-400 hover:text-white border border-[#2a3142]',
                     )}
                   >
-                    {r === 'all' ? '全部' : AUDIT_RESULT_CONFIG[r].label}
+                    {r === 'all' ? '全部' : (AUDIT_RESULT_CONFIG[r] ?? Object.values(AUDIT_RESULT_CONFIG)[0]).label}
                   </button>
                 ))}
               </div>

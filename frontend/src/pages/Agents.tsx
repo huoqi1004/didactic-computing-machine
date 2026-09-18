@@ -107,7 +107,7 @@ function AgentCard({
   actionLoading: string | null
   onAction: (agent: Agent, action: 'pause' | 'resume' | 'takeover') => void
 }) {
-  const cfg = AGENT_STATUS_CONFIG[agent.status]
+  const cfg = AGENT_STATUS_CONFIG[agent.status] ?? Object.values(AGENT_STATUS_CONFIG)[0]
   const isLoading = (action: string) => actionLoading === `${agent.id}-${action}`
 
   return (

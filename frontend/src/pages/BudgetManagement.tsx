@@ -258,7 +258,7 @@ export default function BudgetManagement() {
       label: '状态',
       sortable: true,
       render: (row) => {
-        const cfg = BUDGET_STATUS_CONFIG[row.status]
+        const cfg = BUDGET_STATUS_CONFIG[row.status] ?? Object.values(BUDGET_STATUS_CONFIG)[0]
         return (
           <StatusBadge variant={cfg.variant} dot>
             {cfg.label}

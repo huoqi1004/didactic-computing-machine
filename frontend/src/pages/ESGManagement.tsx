@@ -293,8 +293,8 @@ export default function ESGManagement() {
             </div>
           ) : (
           projects.map((project) => {
-            const dimCfg = DIMENSION_CONFIG[project.dimension]
-            const statusCfg = PROJECT_STATUS_CONFIG[project.status]
+            const dimCfg = DIMENSION_CONFIG[project.dimension] ?? Object.values(DIMENSION_CONFIG)[0]
+            const statusCfg = PROJECT_STATUS_CONFIG[project.status] ?? Object.values(PROJECT_STATUS_CONFIG)[0]
             const progressColor =
               project.progress === 100
                 ? 'bg-accent'

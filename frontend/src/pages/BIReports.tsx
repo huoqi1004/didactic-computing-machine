@@ -276,7 +276,7 @@ export default function BIReports() {
           ) : (
           reports.map((report) => {
             const Icon = REPORT_TYPE_ICON[report.type]
-            const typeCfg = REPORT_TYPE_CONFIG[report.type]
+            const typeCfg = REPORT_TYPE_CONFIG[report.type] ?? Object.values(REPORT_TYPE_CONFIG)[0]
             return (
               <div
                 key={report.id}

@@ -255,7 +255,7 @@ export default function KnowledgeBase() {
         <div className="flex items-center gap-2.5">
           <span className="text-slate-500">
             {(() => {
-              const Icon = FORMAT_CONFIG[r.format].icon
+              const Icon = (FORMAT_CONFIG[r.format] ?? Object.values(FORMAT_CONFIG)[0]).icon
               return <Icon className="w-4 h-4" />
             })()}
           </span>
@@ -269,7 +269,7 @@ export default function KnowledgeBase() {
       align: 'center',
       sortable: true,
       render: (r) => (
-        <StatusBadge variant={FORMAT_CONFIG[r.format].variant}>{r.format}</StatusBadge>
+        <StatusBadge variant={(FORMAT_CONFIG[r.format] ?? Object.values(FORMAT_CONFIG)[0]).variant}>{r.format}</StatusBadge>
       ),
     },
     {
@@ -297,8 +297,8 @@ export default function KnowledgeBase() {
       align: 'center',
       sortable: true,
       render: (r) => (
-        <StatusBadge variant={STATUS_CONFIG[r.status].variant} dot>
-          {STATUS_CONFIG[r.status].label}
+        <StatusBadge variant={(STATUS_CONFIG[r.status] ?? Object.values(STATUS_CONFIG)[0]).variant} dot>
+          {(STATUS_CONFIG[r.status] ?? Object.values(STATUS_CONFIG)[0]).label}
         </StatusBadge>
       ),
     },
@@ -672,11 +672,11 @@ export default function KnowledgeBase() {
             <div className="rounded-lg bg-bg-input border border-[#1e2536] p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <StatusBadge variant={FORMAT_CONFIG[reviewDoc.format].variant}>
+                  <StatusBadge variant={(FORMAT_CONFIG[reviewDoc.format] ?? Object.values(FORMAT_CONFIG)[0]).variant}>
                     {reviewDoc.format}
                   </StatusBadge>
-                  <StatusBadge variant={STATUS_CONFIG[reviewDoc.status].variant} dot>
-                    {STATUS_CONFIG[reviewDoc.status].label}
+                  <StatusBadge variant={(STATUS_CONFIG[reviewDoc.status] ?? Object.values(STATUS_CONFIG)[0]).variant} dot>
+                    {(STATUS_CONFIG[reviewDoc.status] ?? Object.values(STATUS_CONFIG)[0]).label}
                   </StatusBadge>
                 </div>
                 <span className="text-xs text-slate-500 tabular-nums">{reviewDoc.size}</span>

@@ -156,7 +156,7 @@ export default function AssetManagement() {
       label: '类别',
       sortable: true,
       render: (row) => (
-        <span className="text-slate-400">{CATEGORY_CONFIG[row.category].label}</span>
+        <span className="text-slate-400">{(CATEGORY_CONFIG[row.category] ?? Object.values(CATEGORY_CONFIG)[0]).label}</span>
       ),
     },
     {
@@ -202,7 +202,7 @@ export default function AssetManagement() {
       label: '状态',
       sortable: true,
       render: (row) => {
-        const cfg = ASSET_STATUS_CONFIG[row.status]
+        const cfg = ASSET_STATUS_CONFIG[row.status] ?? Object.values(ASSET_STATUS_CONFIG)[0]
         return (
           <StatusBadge variant={cfg.variant} dot>
             {cfg.label}

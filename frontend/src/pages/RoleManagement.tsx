@@ -215,7 +215,7 @@ export default function RoleManagement() {
       label: '层级',
       sortable: true,
       render: (r) => {
-        const cfg = LEVEL_CONFIG[r.level]
+        const cfg = LEVEL_CONFIG[r.level] ?? Object.values(LEVEL_CONFIG)[0]
         return (
           <span
             className={cn(
@@ -378,7 +378,7 @@ function PermissionView({ role }: { role: Role }) {
               LEVEL_CONFIG[role.level].className,
             )}
           >
-            {LEVEL_CONFIG[role.level].label}
+            {(LEVEL_CONFIG[role.level] ?? Object.values(LEVEL_CONFIG)[0]).label}
           </span>
         </div>
         <div className="w-px h-3 bg-[#2a3142]" />

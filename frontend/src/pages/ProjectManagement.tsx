@@ -184,7 +184,7 @@ export default function ProjectManagement() {
       label: '状态',
       sortable: true,
       render: (row) => {
-        const cfg = STATUS_CONFIG[row.status]
+        const cfg = STATUS_CONFIG[row.status] ?? Object.values(STATUS_CONFIG)[0]
         return (
           <StatusBadge variant={cfg.variant} dot>
             {cfg.label}
@@ -293,7 +293,7 @@ export default function ProjectManagement() {
 /* ===================== 项目详情组件 ===================== */
 
 function ProjectDetail({ project }: { project: Project }) {
-  const cfg = STATUS_CONFIG[project.status]
+  const cfg = STATUS_CONFIG[project.status] ?? Object.values(STATUS_CONFIG)[0]
   const progressColor =
     project.progress === 100
       ? 'bg-accent'

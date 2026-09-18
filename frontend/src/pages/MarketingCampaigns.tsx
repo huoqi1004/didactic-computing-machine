@@ -195,8 +195,8 @@ export default function MarketingCampaigns() {
 /* ===================== 活动卡片 ===================== */
 
 function CampaignCard({ campaign }: { campaign: Campaign }) {
-  const typeCfg = TYPE_CONFIG[campaign.type]
-  const statusCfg = STATUS_CONFIG[campaign.status]
+  const typeCfg = TYPE_CONFIG[campaign.type] ?? Object.values(TYPE_CONFIG)[0]
+  const statusCfg = STATUS_CONFIG[campaign.status] ?? Object.values(STATUS_CONFIG)[0]
   const TypeIcon = typeCfg.icon
   const convRate = campaign.reach > 0 ? ((campaign.conversion / campaign.reach) * 100).toFixed(1) : '0.0'
   const roiVariant = campaign.roi >= 300 ? 'success' : campaign.roi >= 150 ? 'primary' : campaign.roi > 0 ? 'warning' : 'neutral'

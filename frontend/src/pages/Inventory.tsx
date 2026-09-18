@@ -91,7 +91,7 @@ export default function Inventory() {
           item.unit_price,
           item.quantity * item.unit_price,
           item.warehouse,
-          INVENTORY_STATUS_CONFIG[item.status].label,
+          (INVENTORY_STATUS_CONFIG[item.status] ?? Object.values(INVENTORY_STATUS_CONFIG)[0]).label,
         ]),
       },
     }
@@ -269,7 +269,7 @@ export default function Inventory() {
             </thead>
             <tbody>
               {filtered.map((item) => {
-                const cfg = INVENTORY_STATUS_CONFIG[item.status]
+                const cfg = INVENTORY_STATUS_CONFIG[item.status] ?? Object.values(INVENTORY_STATUS_CONFIG)[0]
                 const stockRatio = Math.min((item.quantity / item.max_stock) * 100, 100)
                 return (
                   <tr key={item.id}>

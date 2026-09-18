@@ -364,7 +364,7 @@ function SystemMonitorTab() {
       key: 'level',
       label: '级别',
       render: (r) => {
-        const cfg = alertLevelMap[r.level]
+        const cfg = alertLevelMap[r.level] ?? Object.values(alertLevelMap)[0]
         const icon =
           r.level === 'warning' ? <AlertTriangle className="w-3 h-3" /> :
           r.level === 'critical' ? <AlertCircle className="w-3 h-3" /> :
@@ -396,7 +396,7 @@ function SystemMonitorTab() {
       <Card title="核心服务状态">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {SYSTEM_SERVICES.map((svc) => {
-            const cfg = serviceStatusMap[svc.status]
+            const cfg = serviceStatusMap[svc.status] ?? Object.values(serviceStatusMap)[0]
             const isOk = svc.status === 'running'
             return (
               <div
@@ -493,7 +493,7 @@ function AgentLifecycleTab() {
       label: '状态',
       sortable: true,
       render: (r) => {
-        const cfg = agentStateMap[r.status]
+        const cfg = agentStateMap[r.status] ?? Object.values(agentStateMap)[0]
         return <StatusBadge variant={cfg.variant} dot>{cfg.label}</StatusBadge>
       },
     },
@@ -563,7 +563,7 @@ function AgentLifecycleTab() {
 }
 
 function AgentDetail({ agent }: { agent: AgentRecord }) {
-  const cfg = agentStateMap[agent.status]
+  const cfg = agentStateMap[agent.status] ?? Object.values(agentStateMap)[0]
   return (
     <div className="space-y-5">
       {/* 基本信息 */}
@@ -677,7 +677,7 @@ function ConfigManagementTab() {
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {group.items.map((item) => {
-              const cfg = configTypeMap[item.type]
+              const cfg = configTypeMap[item.type] ?? Object.values(configTypeMap)[0]
               return (
                 <button
                   key={item.id}
@@ -718,7 +718,7 @@ function ConfigManagementTab() {
 
 function ConfigEditForm({ config, onClose }: { config: ConfigItem; onClose: () => void }) {
   const [value, setValue] = useState(config.value)
-  const cfg = configTypeMap[config.type]
+  const cfg = configTypeMap[config.type] ?? Object.values(configTypeMap)[0]
 
   return (
     <div className="space-y-4">
@@ -799,7 +799,7 @@ function SecurityControlTab() {
       label: '风险级别',
       sortable: true,
       render: (r) => {
-        const cfg = riskLevelMap[r.riskLevel]
+        const cfg = riskLevelMap[r.riskLevel] ?? Object.values(riskLevelMap)[0]
         return <StatusBadge variant={cfg.variant} dot>{cfg.label}</StatusBadge>
       },
     },
@@ -968,7 +968,7 @@ function IntegrationPlatformTab() {
       <Card title="集成应用">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {INTEGRATION_APPS.map((app) => {
-            const cfg = integrationStatusMap[app.status]
+            const cfg = integrationStatusMap[app.status] ?? Object.values(integrationStatusMap)[0]
             const isError = app.status === 'error'
             return (
               <div
@@ -1043,7 +1043,7 @@ function BackupRecoveryTab() {
       label: '类型',
       sortable: true,
       render: (r) => {
-        const cfg = backupTypeMap[r.type]
+        const cfg = backupTypeMap[r.type] ?? Object.values(backupTypeMap)[0]
         return <StatusBadge variant={cfg.variant}>{cfg.label}</StatusBadge>
       },
     },
@@ -1055,7 +1055,7 @@ function BackupRecoveryTab() {
       label: '状态',
       sortable: true,
       render: (r) => {
-        const cfg = backupStatusMap[r.status]
+        const cfg = backupStatusMap[r.status] ?? Object.values(backupStatusMap)[0]
         return <StatusBadge variant={cfg.variant} dot>{cfg.label}</StatusBadge>
       },
     },
@@ -1184,7 +1184,7 @@ function BackupRecoveryTab() {
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-500">备份类型</span>
-                <StatusBadge variant={backupTypeMap[restoreTarget.type].variant}>{backupTypeMap[restoreTarget.type].label}</StatusBadge>
+                <StatusBadge variant={(backupTypeMap[restoreTarget.type] ?? Object.values(backupTypeMap)[0]).variant}>{(backupTypeMap[restoreTarget.type] ?? Object.values(backupTypeMap)[0]).label}</StatusBadge>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-500">备份时间</span>

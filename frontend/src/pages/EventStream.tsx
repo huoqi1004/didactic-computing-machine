@@ -154,7 +154,7 @@ export default function EventStream() {
           ) : (
             <div className="divide-y divide-[#1e2536]">
               {filtered.map((event) => {
-                const cfg = EVENT_LEVEL_CONFIG[event.level]
+                const cfg = EVENT_LEVEL_CONFIG[event.level] ?? Object.values(EVENT_LEVEL_CONFIG)[0]
                 const Icon = LEVEL_ICONS[event.level]
                 return (
                   <div
@@ -237,7 +237,7 @@ function FilterStat({
     warning: { dot: 'bg-status-paused', text: 'text-status-paused', activeBg: 'bg-status-paused/10 border-status-paused/40' },
     error: { dot: 'bg-status-circuit', text: 'text-status-circuit', activeBg: 'bg-status-circuit/10 border-status-circuit/40' },
   }
-  const c = colorMap[color]
+  const c = colorMap[color] ?? Object.values(colorMap)[0]
   return (
     <button
       onClick={onClick}

@@ -247,8 +247,8 @@ export default function SalesPipeline() {
       align: 'center',
       sortable: true,
       render: (r) => (
-        <StatusBadge variant={DEAL_STATUS_CONFIG[r.status].variant} dot>
-          {DEAL_STATUS_CONFIG[r.status].label}
+        <StatusBadge variant={(DEAL_STATUS_CONFIG[r.status] ?? Object.values(DEAL_STATUS_CONFIG)[0]).variant} dot>
+          {(DEAL_STATUS_CONFIG[r.status] ?? Object.values(DEAL_STATUS_CONFIG)[0]).label}
         </StatusBadge>
       ),
     },
@@ -384,8 +384,8 @@ function DealDetail({ deal }: { deal: Deal }) {
         <StatusBadge variant={STAGE_VARIANT[deal.stage]} dot>
           {STAGE_LABEL[deal.stage]}阶段
         </StatusBadge>
-        <StatusBadge variant={DEAL_STATUS_CONFIG[deal.status].variant} dot>
-          {DEAL_STATUS_CONFIG[deal.status].label}
+        <StatusBadge variant={(DEAL_STATUS_CONFIG[deal.status] ?? Object.values(DEAL_STATUS_CONFIG)[0]).variant} dot>
+          {(DEAL_STATUS_CONFIG[deal.status] ?? Object.values(DEAL_STATUS_CONFIG)[0]).label}
         </StatusBadge>
       </div>
 

@@ -55,7 +55,7 @@ export default function Accounting() {
       v.credit_account,
       v.amount,
       v.created_by,
-      VOUCHER_STATUS_CONFIG[v.status].label,
+      (VOUCHER_STATUS_CONFIG[v.status] ?? Object.values(VOUCHER_STATUS_CONFIG)[0]).label,
     ]),
     notes: [
       `凭证总数：${vouchers.length} 张`,
@@ -212,7 +212,7 @@ export default function Accounting() {
             </thead>
             <tbody>
               {filtered.map((v) => {
-                const cfg = VOUCHER_STATUS_CONFIG[v.status]
+                const cfg = VOUCHER_STATUS_CONFIG[v.status] ?? Object.values(VOUCHER_STATUS_CONFIG)[0]
                 return (
                   <tr key={v.id}>
                     <td className="font-mono text-xs text-primary">{v.voucher_no}</td>

@@ -400,10 +400,10 @@ function ExceptionCard({
   actionLoading: string | null
 }) {
   const [expanded, setExpanded] = useState(false)
-  const typeCfg = EXCEPTION_TYPE_CONFIG[exception.type]
-  const statusCfg = EXCEPTION_STATUS_CONFIG[exception.status]
-  const catCfg = EXCEPTION_CATEGORY_CONFIG[exception.category]
-  const riskCfg = RISK_LEVEL_CONFIG[exception.riskLevel]
+  const typeCfg = EXCEPTION_TYPE_CONFIG[exception.type] ?? Object.values(EXCEPTION_TYPE_CONFIG)[0]
+  const statusCfg = EXCEPTION_STATUS_CONFIG[exception.status] ?? Object.values(EXCEPTION_STATUS_CONFIG)[0]
+  const catCfg = EXCEPTION_CATEGORY_CONFIG[exception.category] ?? Object.values(EXCEPTION_CATEGORY_CONFIG)[0]
+  const riskCfg = RISK_LEVEL_CONFIG[exception.riskLevel] ?? Object.values(RISK_LEVEL_CONFIG)[0]
   const isPending = exception.status === 'pending'
   const isLoading = (action: string) => actionLoading === `${exception.id}-${action}`
 
@@ -571,9 +571,9 @@ function ExceptionDetail({
   onAction: (e: ExceptionItem, action: 'approve' | 'reject' | 'transfer') => void
   actionLoading: string | null
 }) {
-  const typeCfg = EXCEPTION_TYPE_CONFIG[exception.type]
-  const statusCfg = EXCEPTION_STATUS_CONFIG[exception.status]
-  const riskCfg = RISK_LEVEL_CONFIG[exception.riskLevel]
+  const typeCfg = EXCEPTION_TYPE_CONFIG[exception.type] ?? Object.values(EXCEPTION_TYPE_CONFIG)[0]
+  const statusCfg = EXCEPTION_STATUS_CONFIG[exception.status] ?? Object.values(EXCEPTION_STATUS_CONFIG)[0]
+  const riskCfg = RISK_LEVEL_CONFIG[exception.riskLevel] ?? Object.values(RISK_LEVEL_CONFIG)[0]
   const isPending = exception.status === 'pending'
   const isLoading = (action: string) => actionLoading === `${exception.id}-${action}`
 

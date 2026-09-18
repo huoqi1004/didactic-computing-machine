@@ -236,8 +236,8 @@ export default function ApprovalWorkflow() {
       label: '风险级别',
       sortable: true,
       render: (r) => (
-        <StatusBadge variant={RISK_CONFIG[r.risk_level].variant} dot>
-          {RISK_CONFIG[r.risk_level].label}
+        <StatusBadge variant={(RISK_CONFIG[r.risk_level] ?? Object.values(RISK_CONFIG)[0]).variant} dot>
+          {(RISK_CONFIG[r.risk_level] ?? Object.values(RISK_CONFIG)[0]).label}
         </StatusBadge>
       ),
     },
@@ -254,8 +254,8 @@ export default function ApprovalWorkflow() {
       label: '状态',
       sortable: true,
       render: (r) => (
-        <StatusBadge variant={STATUS_CONFIG[r.status].variant} dot>
-          {STATUS_CONFIG[r.status].label}
+        <StatusBadge variant={(STATUS_CONFIG[r.status] ?? Object.values(STATUS_CONFIG)[0]).variant} dot>
+          {(STATUS_CONFIG[r.status] ?? Object.values(STATUS_CONFIG)[0]).label}
         </StatusBadge>
       ),
     },
@@ -330,7 +330,7 @@ export default function ApprovalWorkflow() {
             <h3 className="text-sm font-semibold text-white">审批流程配置</h3>
           </div>
           {APPROVAL_LEVELS.map((level) => {
-            const cfg = accentMap[level.accent]
+            const cfg = accentMap[level.accent] ?? Object.values(accentMap)[0]
             const pending = levelPendingCount(level.key)
             return (
               <div

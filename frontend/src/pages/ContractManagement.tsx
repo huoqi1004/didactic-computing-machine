@@ -188,8 +188,8 @@ export default function ContractManagement() {
       align: 'center',
       sortable: true,
       render: (r) => (
-        <StatusBadge variant={STATUS_CONFIG[r.status].variant} dot>
-          {STATUS_CONFIG[r.status].label}
+        <StatusBadge variant={(STATUS_CONFIG[r.status] ?? Object.values(STATUS_CONFIG)[0]).variant} dot>
+          {(STATUS_CONFIG[r.status] ?? Object.values(STATUS_CONFIG)[0]).label}
         </StatusBadge>
       ),
     },
@@ -273,7 +273,7 @@ export default function ContractManagement() {
 /* ===================== 合同详情 ===================== */
 
 function ContractDetail({ contract }: { contract: Contract }) {
-  const cfg = STATUS_CONFIG[contract.status]
+  const cfg = STATUS_CONFIG[contract.status] ?? Object.values(STATUS_CONFIG)[0]
   const rows: { label: string; value: string }[] = [
     { label: '合同编号', value: contract.code },
     { label: '合同名称', value: contract.name },
@@ -327,8 +327,8 @@ function ReviewForm({
       <div className="rounded-lg bg-bg-input border border-[#1e2536] p-4">
         <div className="flex items-center justify-between mb-2">
           <span className="font-mono text-xs text-primary">{contract.code}</span>
-          <StatusBadge variant={STATUS_CONFIG[contract.status].variant} dot>
-            {STATUS_CONFIG[contract.status].label}
+          <StatusBadge variant={(STATUS_CONFIG[contract.status] ?? Object.values(STATUS_CONFIG)[0]).variant} dot>
+            {(STATUS_CONFIG[contract.status] ?? Object.values(STATUS_CONFIG)[0]).label}
           </StatusBadge>
         </div>
         <h4 className="text-sm font-semibold text-white">{contract.name}</h4>

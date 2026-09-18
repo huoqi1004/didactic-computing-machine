@@ -228,8 +228,8 @@ export default function RiskManagement() {
       align: 'center',
       sortable: true,
       render: (r) => (
-        <StatusBadge variant={STATUS_CONFIG[r.status].variant} dot>
-          {STATUS_CONFIG[r.status].label}
+        <StatusBadge variant={(STATUS_CONFIG[r.status] ?? Object.values(STATUS_CONFIG)[0]).variant} dot>
+          {(STATUS_CONFIG[r.status] ?? Object.values(STATUS_CONFIG)[0]).label}
         </StatusBadge>
       ),
     },
@@ -361,7 +361,7 @@ function RiskDetail({ risk }: { risk: Risk }) {
     { label: '影响等级', value: LEVEL_LABEL[risk.impact] },
     { label: '概率等级', value: LEVEL_LABEL[risk.probability] },
     { label: '风险评分', value: `${risk.score} 分` },
-    { label: '当前状态', value: STATUS_CONFIG[risk.status].label },
+    { label: '当前状态', value: (STATUS_CONFIG[risk.status] ?? Object.values(STATUS_CONFIG)[0]).label },
     { label: '负责人', value: risk.owner },
   ]
 
@@ -381,8 +381,8 @@ function RiskDetail({ risk }: { risk: Risk }) {
           <StatusBadge variant={LEVEL_VARIANT[lvl]} dot>
             {lvl === 'high' ? '高风险' : lvl === 'medium' ? '中风险' : '低风险'}
           </StatusBadge>
-          <StatusBadge variant={STATUS_CONFIG[risk.status].variant} dot>
-            {STATUS_CONFIG[risk.status].label}
+          <StatusBadge variant={(STATUS_CONFIG[risk.status] ?? Object.values(STATUS_CONFIG)[0]).variant} dot>
+            {(STATUS_CONFIG[risk.status] ?? Object.values(STATUS_CONFIG)[0]).label}
           </StatusBadge>
           <StatusBadge variant="neutral">{CATEGORY_LABEL[risk.category]}</StatusBadge>
         </div>

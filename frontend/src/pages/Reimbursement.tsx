@@ -382,7 +382,7 @@ export default function Reimbursement() {
                       : 'bg-bg-input text-slate-400 hover:text-white border border-[#2a3142]',
                   )}
                 >
-                  {st === 'all' ? '全部' : REIMB_STATUS_CONFIG[st].label}
+                  {st === 'all' ? '全部' : (REIMB_STATUS_CONFIG[st] ?? Object.values(REIMB_STATUS_CONFIG)[0]).label}
                 </button>
               ))}
             </div>
@@ -408,7 +408,7 @@ export default function Reimbursement() {
             </thead>
             <tbody>
               {filtered.map((r) => {
-                const cfg = REIMB_STATUS_CONFIG[r.status]
+                const cfg = REIMB_STATUS_CONFIG[r.status] ?? Object.values(REIMB_STATUS_CONFIG)[0]
                 return (
                   <tr key={r.reimbursement_id}>
                     <td className="font-mono text-xs text-primary">{r.reimbursement_no}</td>

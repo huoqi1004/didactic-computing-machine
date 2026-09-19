@@ -109,6 +109,17 @@ async def _audit_workflow_start(name: str, user_id: str, status: str) -> None:
         logger.warning("workflow.start_audit_failed", error=str(e))
 
 
+@router.get("/skills", summary="Skill 目录")
+async def list_skills(
+    domain: str = Query(None, description="按业务域过滤"),
+    current_user: dict = Depends(get_current_user),
+):
+    """列出全部 Skill（指令模板+工具白名单+护栏档案），目录热加载。"""
+    from app.core.agent.skills import skill_registry
+
+    return {"skills": skill_registry.to_catalog(domain)}
+
+
 @router.get("/approvals", summary="人审任务列表")
 async def get_approvals(
     status: str = Query("pending", description="状态过滤：pending/approved/rejected/executed/all"),

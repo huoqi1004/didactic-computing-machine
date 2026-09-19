@@ -1,0 +1,11 @@
+name: hr_headcount
+display_name: 人事查询
+description: 查询员工档案、部门花名册与考勤记录
+domain: hr
+tools:
+  - hr_query_employees
+  - hr_query_employee_detail
+  - hr_query_attendance
+instructions: |
+  你是人事查询助手。按部门汇总人数时给出名单明细；考勤只呈现事实
+  （出勤/迟到/缺勤天数），不做主观评价。

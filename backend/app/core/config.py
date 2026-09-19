@@ -140,6 +140,15 @@ class Settings(BaseSettings):
     # （防止欠费/故障状态下以tick频率空转打API，见评估报告 B-01）
     llm_failure_cooldown_threshold: int = 3
     llm_cooldown_seconds: int = 600
+    # 外部 MCP 工具白名单接入（Phase D/D3）：JSON 配置
+    # [{"name": "fx", "url": "https://...", "tools": ["get_rate"]}]
+    # 仅白名单内工具经治理面桥接为只读工具
+    external_mcp_servers: str = "[]"
+
+    # MCP Server（路线图 Phase D）
+    # 生产必须配置 ERP_MCP_AUTH_TOKEN；未配置为开发模式（无鉴权放行）
+    mcp_auth_token: str = ""
+
     # Agent 编排 LLM 预算护栏（路线图 Phase B：单 Agent 每日 token 上限，
     # 超限后该域编排降级为规则路径，防成本失控）
     agent_daily_token_budget: int = 2_000_000

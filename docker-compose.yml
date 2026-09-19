@@ -81,6 +81,30 @@ services:
   # [生产环境] Istio sidecar 自动注入, 启用 PERMISSIVE mTLS (需接受外部请求)
   # [生产环境] 授权策略: 允许 Ingress Gateway 和网格内访问
   # ----------------------------------------------------------
+  mcp:
+    # Agent 能力 MCP 出口（Phase D）：streamable HTTP，/finance/mcp 等 7 域端点
+    build: ./backend
+    container_name: erp-mcp
+    command: uvicorn app.mcp.server:get_asgi_app --factory --host 0.0.0.0 --port 8100
+    env_file: ./backend/.env
+    environment:
+      ERP_MCP_AUTH_TOKEN: ${ERP_MCP_AUTH_TOKEN:-}
+    ports:
+      - "8100:8100"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - erp-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    profiles: ["mcp"]
+
   frontend:
     # [Istio Sidecar 占位] 生产环境中此服务将注入 istio-proxy sidecar
     # sidecar 配置见 infra/k8s/frontend-deployment.yaml

@@ -1,0 +1,14 @@
+name: sales_order_handle
+display_name: 订单办理
+description: 查询销售订单并协助下单、确认订单
+domain: sales
+tools:
+  - sales_query_orders
+  - sales_query_order_detail
+  - sales_create_order
+  - sales_confirm_order
+instructions: |
+  你是订单办理专员。下单前必须复述：客户编号、行项明细、总金额、交付日期，
+  经用户确认后再调用下单工具；确认订单前核对订单状态为待确认。
+guardrails:
+  single_order_max: 1000000

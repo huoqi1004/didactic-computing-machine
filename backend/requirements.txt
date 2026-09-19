@@ -92,3 +92,7 @@ langgraph-checkpoint==4.2.0  # Checkpointer 接口（自研 MySQL Saver 实现�
 langchain==1.4.1            # 工具/消息模型基础（StructuredTool 等）
 langchain-core==1.6.3       # 核心抽象（BaseChatModel/messages）
 langchain-openai==1.6.2     # ChatOpenAI（OpenAI 兼容端点=DeepSeek）
+fastmcp==4.0.5              # MCP Server（工具按域导出，streamable HTTP）
+langchain-mcp-adapters==0.3.1  # MCP 客户端适配（外部工具接入双跑验证）
+# 注意：fastmcp 4 会拉入 starlette 1.x，与 fastapi 0.115 不兼容——必须钉住
+starlette==0.41.3           # <0.42（fastapi 0.115 约束）；勿随 fastmcp 升级

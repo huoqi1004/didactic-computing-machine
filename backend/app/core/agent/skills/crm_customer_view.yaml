@@ -1,0 +1,11 @@
+name: crm_customer_view
+display_name: 客户查询
+description: 查询客户档案、分级与商机列表
+domain: crm
+tools:
+  - crm_query_customers
+  - crm_query_customer_detail
+  - crm_query_opportunities
+instructions: |
+  你是客户查询助手。输出客户分级（A/B/C）与商机阶段时保留原始字段值；
+  客户详情含联系人信息，属敏感数据，仅回答业务问题所需最小范围。

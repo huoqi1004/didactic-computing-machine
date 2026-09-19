@@ -428,6 +428,14 @@ function DataCard({ card }: { card: DataCardType }) {
   if (!card || !card.type) {
     return null
   }
+  // 渲染契约守卫：后端规范化之外的异常形状直接不渲染（防白屏）
+  const stats = Array.isArray(card.stats) ? card.stats : []
+  const columns = Array.isArray(card.columns) ? card.columns : []
+  const rows = Array.isArray(card.rows) ? card.rows : []
+  const items = Array.isArray(card.items) ? card.items : []
+  if (card.type === 'stats' && !stats.length) return null
+  if (card.type === 'table' && (!columns.length || !rows.length)) return null
+  if (card.type === 'list' && !items.length) return null
   const Icon = card.type === 'table' ? Table2 : card.type === 'stats' ? BarChart3 : ListOrdered
 
   return (
@@ -439,9 +447,9 @@ function DataCard({ card }: { card: DataCardType }) {
       </div>
 
       {/* 统计型卡片 */}
-      {card.type === 'stats' && card.stats && (
+      {card.type === 'stats' && stats.length > 0 && (
         <div className="grid grid-cols-2 gap-2 p-3">
-          {card.stats.map((stat, i) => (
+          {stats.map((stat: any, i: number) => (
             <div key={i} className="p-2.5 rounded-lg bg-bg-input border border-[#1e2536]">
               <p className="text-[11px] text-slate-500">{stat.label}</p>
               <p className={cn('text-base font-bold tabular-nums mt-0.5', TONE_COLOR_MAP[stat.tone || 'accent'] || 'text-white')}>
@@ -453,12 +461,12 @@ function DataCard({ card }: { card: DataCardType }) {
       )}
 
       {/* 表格型卡片 */}
-      {card.type === 'table' && card.columns && card.rows && (
+      {card.type === 'table' && columns.length > 0 && rows.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-[#1e2536]">
-                {card.columns.map((col) => (
+                {columns.map((col: any) => (
                   <th
                     key={col.key}
                     className="text-left font-semibold text-slate-400 uppercase tracking-wider px-3 py-2 whitespace-nowrap"
@@ -469,7 +477,7 @@ function DataCard({ card }: { card: DataCardType }) {
               </tr>
             </thead>
             <tbody>
-              {card.rows.map((row, i) => (
+              {rows.map((row: any, i: number) => (
                 <tr key={i} className="border-b border-[#1e2536] last:border-0 hover:bg-bg-hover/50 transition-colors">
                   {card.columns!.map((col) => (
                     <td key={col.key} className="px-3 py-2 text-slate-300 whitespace-nowrap">
@@ -486,7 +494,7 @@ function DataCard({ card }: { card: DataCardType }) {
       {/* 列表型卡片 */}
       {card.type === 'list' && card.items && (
         <div className="p-3 space-y-2">
-          {card.items.map((item, i) => (
+          {items.map((item: any, i: number) => (
             <div
               key={i}
               className="flex items-center justify-between gap-3 p-2 rounded-lg bg-bg-input border border-[#1e2536]"

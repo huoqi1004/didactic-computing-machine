@@ -227,3 +227,37 @@ def did_register(agent):
         capabilities=agent.capabilities,
         security_clearance=agent.security_clearance,
     )
+
+
+# ===========================================================================
+# dataCard 规范化（对话页渲染契约防线）
+# ===========================================================================
+
+async def test_datacard_normalizer():
+    """LLM 产出的异常形状 dataCard 统一规范化/丢弃。"""
+    from app.api.routes.conversation import _normalize_data_card
+
+    # 合法 stats
+    ok = _normalize_data_card({"type": "stats", "title": "t",
+                               "stats": [{"label": "笔数", "value": 5, "tone": "accent"}]})
+    assert ok and ok["stats"][0]["label"] == "笔数"
+
+    # stats 为对象（LLM 常见错误形状）→ 取 values 转数组
+    obj = _normalize_data_card({"type": "stats", "title": "t",
+                                "stats": {"a": {"label": "A", "value": 1}}})
+    assert obj and len(obj["stats"]) == 1
+
+    # stats 为字符串 → 丢弃返回 None
+    assert _normalize_data_card({"type": "stats", "stats": "oops"}) is None
+
+    # type 非法 → None
+    assert _normalize_data_card({"type": "chart", "stats": []}) is None
+    assert _normalize_data_card("not-a-dict") is None
+
+    # table：columns/rows 任一缺失 → None
+    assert _normalize_data_card({"type": "table", "columns": [{"k": "v"}]}) is None
+
+    # list items 对象 → values 转数组
+    lst = _normalize_data_card({"type": "list", "items": {"x": {"a": 1}}})
+    assert lst and len(lst["items"]) == 1
+

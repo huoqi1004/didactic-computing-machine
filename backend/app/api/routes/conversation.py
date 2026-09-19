@@ -22,7 +22,7 @@
 """
 import json
 import structlog
-from typing import Optional
+from typing import Any, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -192,6 +192,52 @@ AGENT_SYSTEM_PROMPTS = {
         "不要包含markdown代码块标记。"
     ),
 }
+
+
+def _normalize_data_card(card: Any) -> Optional[dict]:
+    """
+    规范化 LLM 生成的 dataCard（渲染契约防线）。
+
+    LLM 输出的 stats/columns/rows/items 形状不可控（可能是对象/字符串），
+    前端按数组渲染会白屏。此处统一校验：type 白名单、数组字段强制
+    list、非法字段丢弃，任何异常返回 None（前端不渲染卡片）。
+    """
+    if not isinstance(card, dict):
+        return None
+
+    card_type = card.get("type")
+    if card_type not in ("stats", "table", "list"):
+        return None
+
+    def _as_list(value) -> list:
+        if isinstance(value, list):
+            return value
+        if isinstance(value, dict):
+            return list(value.values())
+        return []
+
+    normalized: dict = {
+        "type": card_type,
+        "title": str(card.get("title", ""))[:120],
+    }
+    if card_type == "stats":
+        stats = [s for s in _as_list(card.get("stats")) if isinstance(s, dict)]
+        if not stats:
+            return None
+        normalized["stats"] = stats[:12]
+    elif card_type == "table":
+        columns = [c for c in _as_list(card.get("columns")) if isinstance(c, dict)]
+        rows = [r for r in _as_list(card.get("rows")) if isinstance(r, (list, dict))]
+        if not columns or not rows:
+            return None
+        normalized["columns"] = columns[:20]
+        normalized["rows"] = rows[:100]
+    else:  # list
+        items = [i for i in _as_list(card.get("items")) if isinstance(i, dict)]
+        if not items:
+            return None
+        normalized["items"] = items[:50]
+    return normalized
 
 
 # ========== 业务上下文采集 ==========
@@ -398,7 +444,7 @@ async def _chat_with_llm(
     if not isinstance(thinking_process, list):
         thinking_process = [str(thinking_process)]
 
-    data_card = parsed.get("dataCard") or parsed.get("data_card")
+    data_card = _normalize_data_card(parsed.get("dataCard") or parsed.get("data_card"))
 
     logger.info("conversation.llm_success",
                 agent_id=agent_id,

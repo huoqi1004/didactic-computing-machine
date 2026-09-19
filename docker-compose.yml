@@ -170,10 +170,10 @@ services:
       # 建表由 backend 的 bootstrap_schema()（以 app/db/models.py 为
       # 事实源）完成，无需初始化 SQL。
     environment:
-      MYSQL_ROOT_PASSWORD: root_admin
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_admin}  # 生产必须环境覆盖
       MYSQL_DATABASE: erp_db
       MYSQL_USER: erp
-      MYSQL_PASSWORD: erp_password
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-erp_password}  # 生产必须环境覆盖
       TZ: Asia/Shanghai
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --default-authentication-plugin=mysql_native_password
     healthcheck:
@@ -272,7 +272,7 @@ services:
       - grafana-data:/var/lib/grafana
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_INSTALL_PLUGINS=
       - GF_SERVER_HTTP_PORT=3000

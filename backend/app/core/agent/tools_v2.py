@@ -161,6 +161,15 @@ class ToolRegistryV2:
     def register(self, spec: ToolSpecV2) -> None:
         if spec.name in self._tools:
             raise ValueError(f"工具重复注册: {spec.name}")
+        # E2 沙箱守卫：任意代码执行类工具默认禁用（需容器隔离 + 开关）
+        if "code-exec" in spec.tags:
+            from app.core.config import settings
+
+            if not settings.sandbox_enabled:
+                raise ValueError(
+                    f"工具 {spec.name} 属代码执行类（code-exec），沙箱未启用"
+                    "（ERP_SANDBOX_ENABLED=false），拒绝注册"
+                )
         if spec.risk_level.is_write and spec.compensation is None:
             # 红线：可回滚才可执行——写工具必须提供补偿函数
             raise ValueError(f"写工具缺少补偿函数: {spec.name}（可回滚才可执行）")

@@ -111,10 +111,74 @@ class ScriptedEvalLLM:
         return self.script.pop(0)
 
 
+def _resolve_prev(args: dict, prev_result: dict | None) -> dict:
+    """解析 $prev 占位符："$prev.order_id" → 上一步结果字段（序列用例）。"""
+    if prev_result is None:
+        return args
+    resolved = {}
+    for k, v in args.items():
+        if isinstance(v, str) and v.startswith("$prev."):
+            resolved[k] = prev_result.get(v.split(".", 1)[1])
+        else:
+            resolved[k] = v
+    return resolved
+
+
 @pytest.mark.parametrize("case", _load_cases(), ids=lambda c: c["id"])
 async def test_eval_case_pipeline(case, eval_env, monkeypatch):
-    """CI 模式：每个评测用例走真实图 + 治理面 + DB，断言状态与落库。"""
+    """CI 模式：每个评测用例走真实图 + 治理面 + DB，断言状态与落库。
+
+    序列用例（多工具且参数含 $prev）走治理面序列执行模式：
+    前一步结果经 $prev 解析注入后步参数；write_high 在序列中照常
+    被人审门拦截（状态 awaiting）。
+    """
     from app.core.agent import runtime as runtime_mod
+
+    seq = case["expected_tool_calls"]
+    is_sequence = len(seq) > 1 or any(
+        isinstance(a.get("args"), dict) and any(
+            isinstance(v, str) and v.startswith("$prev.")
+            for v in a.get("args", {}).values())
+        for a in seq
+    ) and len(seq) > 1
+
+    if is_sequence:
+        from app.core.agent.governor import AgentGovernor
+        from app.core.rbac import rbac_engine
+
+        monkeypatch.setattr(rbac_engine, "check_permission",
+                            lambda u, r, a: True, raising=True)
+        gov = AgentGovernor()
+        ctx = runtime_mod.ToolContext(
+            user_id="user_admin", username="admin",
+            agent_key=case["domain"], thread_id=f"eval:{case['id']}",
+        )
+        status = "done"
+        prev_result = None
+        for i, tc in enumerate(seq):
+            args = _resolve_prev(tc.get("args", {}), prev_result)
+            result = await gov.execute(tc["name"], args, ctx)
+            if not result.ok and result.approval is not None:
+                status = "awaiting_approval"
+                break
+            assert result.ok, f"[{case['id']}][{tc['name']}] {result.error}"
+            prev_result = result.data
+        assert status == case["expect_status"], (
+            f"[{case['id']}] 期望 {case['expect_status']}，实际 {status}"
+        )
+        # DB 断言（可选）
+        expect_db = case.get("expect_db")
+        if expect_db:
+            from sqlalchemy import text
+
+            async with eval_env.connect() as conn:
+                row = (await conn.execute(
+                    text(f"SELECT COUNT(*) FROM {expect_db['table']} WHERE {expect_db['where']}")
+                )).scalar()
+            assert row == expect_db["count"], (
+                f"[{case['id']}] DB 断言失败：{expect_db}，实际 count={row}"
+            )
+        return
 
     _scripted_llm_for_case(monkeypatch, case)
     ctx = runtime_mod.ToolContext(

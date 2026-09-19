@@ -149,6 +149,10 @@ class Settings(BaseSettings):
     # 生产必须配置 ERP_MCP_AUTH_TOKEN；未配置为开发模式（无鉴权放行）
     mcp_auth_token: str = ""
 
+    # 代码执行沙箱（Phase E/E2）：含 code-exec 标签的工具（任意代码执行类）
+    # 默认禁用注册；启用需同时部署容器隔离（infra/sandbox/，compose profile: sandbox）
+    sandbox_enabled: bool = False
+
     # Agent 编排 LLM 预算护栏（路线图 Phase B：单 Agent 每日 token 上限，
     # 超限后该域编排降级为规则路径，防成本失控）
     agent_daily_token_budget: int = 2_000_000

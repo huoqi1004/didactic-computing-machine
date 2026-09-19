@@ -9,7 +9,8 @@
       "expected_tool_calls": "期望的工具调用序列 [{name, args}]",
       "expect_status": "done | awaiting_approval",
       "expect_db": "可选 {table, where, count} 执行后 DB 断言"
-    }
+    },
+    "total_after_e3": 50
   },
   "cases": [
     {
@@ -273,6 +274,538 @@
       ],
       "expect_status": "awaiting_approval",
       "_note": "contract_approve 为 write_high，正确行为是进入人审（治理面路由验证）"
+    },
+    {
+      "id": "reimb_query_list_emp_filter",
+      "domain": "reimbursement",
+      "message": "查EMP0001的报销单",
+      "expected_tool_calls": [
+        {
+          "name": "reimbursement_query_list",
+          "args": {
+            "employee_id": "EMP0001"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "reimb_query_list_limit1",
+      "domain": "reimbursement",
+      "message": "给我看一笔最近的报销",
+      "expected_tool_calls": [
+        {
+          "name": "reimbursement_query_list",
+          "args": {
+            "limit": 1
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "reimb_query_detail_missing",
+      "domain": "reimbursement",
+      "message": "查一下报销单 RB-404",
+      "expected_tool_calls": [
+        {
+          "name": "reimbursement_query_detail",
+          "args": {
+            "reimbursement_id": "RB-404"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "reimb_stats_and_list_parallel",
+      "domain": "reimbursement",
+      "message": "报销整体情况和明细都给我",
+      "expected_tool_calls": [
+        {
+          "name": "reimbursement_query_stats",
+          "args": {}
+        },
+        {
+          "name": "reimbursement_query_list",
+          "args": {
+            "limit": 10
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "treasury_transfers_filter",
+      "domain": "treasury",
+      "message": "查一下已批准的调拨",
+      "expected_tool_calls": [
+        {
+          "name": "treasury_fund_transfers",
+          "args": {
+            "status": "approved"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "treasury_schedule_small",
+      "domain": "treasury",
+      "message": "金额5万以内的支付排程有哪些",
+      "expected_tool_calls": [
+        {
+          "name": "treasury_payment_schedule",
+          "args": {}
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "payroll_structure_query",
+      "domain": "payroll",
+      "message": "EMP0003的薪资结构是什么",
+      "expected_tool_calls": [
+        {
+          "name": "payroll_query_structure",
+          "args": {
+            "employee_id": "EMP0003"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "payroll_stats",
+      "domain": "payroll",
+      "message": "薪酬总体情况如何",
+      "expected_tool_calls": [
+        {
+          "name": "payroll_query_stats",
+          "args": {}
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "payroll_records_period",
+      "domain": "payroll",
+      "message": "查2099年1月EMP0001的薪酬",
+      "expected_tool_calls": [
+        {
+          "name": "payroll_query_records",
+          "args": {
+            "employee_id": "EMP0001",
+            "period": "2099-01"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "payroll_calculate_and_verify",
+      "domain": "payroll",
+      "message": "算一下EMP0005在2099-02的工资然后确认记录",
+      "expected_tool_calls": [
+        {
+          "name": "payroll_calculate",
+          "args": {
+            "employee_id": "EMP0005",
+            "period": "2099-02"
+          }
+        },
+        {
+          "name": "payroll_query_records",
+          "args": {
+            "employee_id": "EMP0005",
+            "period": "2099-02"
+          }
+        }
+      ],
+      "expect_status": "done",
+      "expect_db": {
+        "table": "payroll_records",
+        "where": "employee_id='EMP0005' AND period='2099-02'",
+        "count": 1
+      }
+    },
+    {
+      "id": "payroll_structure_high_v2",
+      "domain": "payroll",
+      "message": "EMP0004薪资调到12000",
+      "expected_tool_calls": [
+        {
+          "name": "payroll_set_salary_structure",
+          "args": {
+            "employee_id": "EMP0004",
+            "base_salary": 12000
+          }
+        }
+      ],
+      "expect_status": "awaiting_approval"
+    },
+    {
+      "id": "hr_employees_all",
+      "domain": "hr",
+      "message": "列出所有员工",
+      "expected_tool_calls": [
+        {
+          "name": "hr_query_employees",
+          "args": {}
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "hr_attendance_all",
+      "domain": "hr",
+      "message": "看看最近的考勤记录",
+      "expected_tool_calls": [
+        {
+          "name": "hr_query_attendance",
+          "args": {}
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "hr_detail_emp0001",
+      "domain": "hr",
+      "message": "EMP0001的档案详情",
+      "expected_tool_calls": [
+        {
+          "name": "hr_query_employee_detail",
+          "args": {
+            "employee_id": "EMP0001"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "hr_add_and_update_seq",
+      "domain": "hr",
+      "message": "新增演练序列员工到技术部并把他职位改成资深工程师",
+      "expected_tool_calls": [
+        {
+          "name": "hr_add_employee",
+          "args": {
+            "name": "序列演练员工",
+            "department": "技术部",
+            "position": "工程师"
+          }
+        },
+        {
+          "name": "hr_update_employee",
+          "args": {
+            "employee_id": "$prev.employee_id",
+            "position": "资深工程师"
+          }
+        }
+      ],
+      "expect_status": "done",
+      "expect_db": {
+        "table": "employees",
+        "where": "full_name='序列演练员工'",
+        "count": 1
+      }
+    },
+    {
+      "id": "crm_customers_all",
+      "domain": "crm",
+      "message": "列出全部客户",
+      "expected_tool_calls": [
+        {
+          "name": "crm_query_customers",
+          "args": {}
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "crm_customers_seg_b",
+      "domain": "crm",
+      "message": "B级客户有哪些",
+      "expected_tool_calls": [
+        {
+          "name": "crm_query_customers",
+          "args": {
+            "segment": "B"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "crm_detail_seed1",
+      "domain": "crm",
+      "message": "CUST-SEED-001的详情和商机",
+      "expected_tool_calls": [
+        {
+          "name": "crm_query_customer_detail",
+          "args": {
+            "customer_id": "CUST-SEED-001"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "sales_orders_confirmed",
+      "domain": "sales",
+      "message": "已确认的订单有哪些",
+      "expected_tool_calls": [
+        {
+          "name": "sales_query_orders",
+          "args": {
+            "status": "confirmed"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "sales_orders_by_customer",
+      "domain": "sales",
+      "message": "CUST-SEED-002的订单",
+      "expected_tool_calls": [
+        {
+          "name": "sales_query_orders",
+          "args": {
+            "customer_id": "CUST-SEED-002"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "sales_order_detail_missing",
+      "domain": "sales",
+      "message": "查订单SO-404",
+      "expected_tool_calls": [
+        {
+          "name": "sales_query_order_detail",
+          "args": {
+            "order_id": "SO-404"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "sales_create_then_confirm_seq",
+      "domain": "sales",
+      "message": "给CUST-SEED-003下一单15万的培训服务然后直接确认",
+      "expected_tool_calls": [
+        {
+          "name": "sales_create_order",
+          "args": {
+            "customer_id": "CUST-SEED-003",
+            "total_amount": 150000,
+            "items": [
+              {
+                "product_id": "P-TRN",
+                "product_name": "培训",
+                "qty": 1,
+                "unit_price": 150000
+              }
+            ],
+            "delivery_date": ""
+          }
+        },
+        {
+          "name": "sales_confirm_order",
+          "args": {
+            "order_id": "$prev.order_id"
+          }
+        }
+      ],
+      "expect_status": "done",
+      "expect_db": {
+        "table": "sales_orders",
+        "where": "customer_id='CUST-SEED-003' AND total_amount=150000 AND status='confirmed'",
+        "count": 1
+      }
+    },
+    {
+      "id": "contract_list_draft",
+      "domain": "contract",
+      "message": "草稿态的合同有哪些",
+      "expected_tool_calls": [
+        {
+          "name": "contract_query_list",
+          "args": {
+            "status": "draft"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "contract_list_type",
+      "domain": "contract",
+      "message": "采购类合同列表",
+      "expected_tool_calls": [
+        {
+          "name": "contract_query_list",
+          "args": {
+            "contract_type": "采购"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "contract_expiring_7d",
+      "domain": "contract",
+      "message": "未来7天要到期的合同",
+      "expected_tool_calls": [
+        {
+          "name": "contract_query_expiring",
+          "args": {
+            "days": 7
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "contract_create_low_then_gate",
+      "domain": "contract",
+      "message": "创建一份演练服务合同金额3万，然后走审批",
+      "expected_tool_calls": [
+        {
+          "name": "contract_create",
+          "args": {
+            "title": "评测服务合同",
+            "type": "服务",
+            "counterparty": "评测方",
+            "amount": 30000,
+            "department": "技术部",
+            "start_date": "2026-12-01",
+            "end_date": "2027-11-30",
+            "terms": ""
+          }
+        },
+        {
+          "name": "contract_approve",
+          "args": {
+            "contract_id": "$prev.contract_id",
+            "comment": ""
+          }
+        }
+      ],
+      "expect_status": "awaiting_approval"
+    },
+    {
+      "id": "reimb_submit_invalid_amount",
+      "domain": "reimbursement",
+      "message": "提交一笔-100元的报销",
+      "expected_tool_calls": [
+        {
+          "name": "reimbursement_submit",
+          "args": {
+            "employee_name": "边界测试",
+            "amount": -100,
+            "description": "非法金额"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "treasury_transfer_invalid_amount",
+      "domain": "treasury",
+      "message": "调拨负数金额",
+      "expected_tool_calls": [
+        {
+          "name": "treasury_fund_transfer_request",
+          "args": {
+            "amount": -1,
+            "from_account": "A",
+            "to_account": "B"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "treasury_transfer_no_args",
+      "domain": "treasury",
+      "message": "随便调点钱",
+      "expected_tool_calls": [
+        {
+          "name": "treasury_fund_transfer_request",
+          "args": {}
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "payroll_structure_emp0005",
+      "domain": "payroll",
+      "message": "EMP0005的薪资结构",
+      "expect_status": "done",
+      "expected_tool_calls": [
+        {
+          "name": "payroll_query_structure",
+          "args": {
+            "employee_id": "EMP0005"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hr_detail_emp0002",
+      "domain": "hr",
+      "message": "EMP0002的档案",
+      "expect_status": "done",
+      "expected_tool_calls": [
+        {
+          "name": "hr_query_employee_detail",
+          "args": {
+            "employee_id": "EMP0002"
+          }
+        }
+      ]
+    },
+    {
+      "id": "crm_opp_by_customer",
+      "domain": "crm",
+      "message": "CUST-SEED-001的商机",
+      "expect_status": "done",
+      "expected_tool_calls": [
+        {
+          "name": "crm_query_opportunities",
+          "args": {
+            "customer_id": "CUST-SEED-001"
+          }
+        }
+      ]
+    },
+    {
+      "id": "treasury_transfers_all",
+      "domain": "treasury",
+      "message": "全部调拨记录",
+      "expect_status": "done",
+      "expected_tool_calls": [
+        {
+          "name": "treasury_fund_transfers",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "id": "contract_list_all",
+      "domain": "contract",
+      "message": "全部合同",
+      "expect_status": "done",
+      "expected_tool_calls": [
+        {
+          "name": "contract_query_list",
+          "args": {}
+        }
+      ]
     }
   ]
 }

@@ -105,6 +105,23 @@ services:
           cpus: "0.5"
     profiles: ["mcp"]
 
+  sandbox:
+    # 代码执行沙箱（Phase E/E2，默认随 profile: sandbox 关闭）
+    # 隔离基线：无网络 / 只读FS / 非root / 资源限额；仅白名单回传输出
+    image: python:3.12-slim
+    container_name: erp-sandbox
+    command: ["sleep", "infinity"]
+    read_only: true
+    network_mode: none
+    tmpfs:
+      - /tmp:size=64m
+    mem_limit: 512m
+    cpus: "0.5"
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+    profiles: ["sandbox"]
+
   frontend:
     # [Istio Sidecar 占位] 生产环境中此服务将注入 istio-proxy sidecar
     # sidecar 配置见 infra/k8s/frontend-deployment.yaml

@@ -83,7 +83,10 @@ class TransferRequestArgs(BaseModel):
 
 
 async def _transfer_compensation(ctx: ToolContext, args: dict, result) -> None:
-    """精确软撤销：按 transfer_id 将调拨置为 cancelled（内存 + DB）。"""
+    """精确软撤销：按 transfer_id 将调拨置为 cancelled（内存 + DB 同步写）。
+
+    补偿路径必须同步落库——fire-and-forget 会让演练断言读到未撤销状态。
+    """
     if not result:
         return
     transfer_id = result.get("transfer_id")
@@ -93,10 +96,7 @@ async def _transfer_compensation(ctx: ToolContext, args: dict, result) -> None:
     transfer = agent._fund_transfers.get(transfer_id)
     if transfer is not None:
         transfer["status"] = "cancelled"
-        schedule(
-            fund_transfer_repository.upsert(transfer, "transfer_id"),
-            "fund_transfer_repo",
-        )
+        await fund_transfer_repository.upsert(transfer, "transfer_id")
 
 
 @erp_tool(

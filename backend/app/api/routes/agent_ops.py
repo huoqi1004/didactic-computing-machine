@@ -73,15 +73,24 @@ async def start_workflow_route(
         raise HTTPException(status_code=404, detail=f"未知工作流: {name}")
 
     user_id = current_user.get("user_id", "unknown")
-    ctx = ToolContext(user_id=user_id, username=current_user.get("username", ""),
-                      agent_key=f"workflow:{name}")
-    result = await start_workflow(name, req.input, ctx, thread_id=req.thread_id)
+    result = await start_workflow(
+        name, req.input,
+        ToolContext(user_id=user_id, username=current_user.get("username", ""),
+                    agent_key=f"workflow:{name}"),
+        thread_id=req.thread_id,
+    )
 
-    # awaiting → 落审批行（复用审批面板与决定路由）
+    # awaiting → 落审批行（复用审批面板与决定路由；thread_id 必须回填，
+    # 否则审批行主键为空串、列表查不到）
     if result["status"] == "awaiting_approval" and has_db():
         from app.core.agent.orchestration_service import _create_approval_record
 
-        await _create_approval_record(result.get("interrupt") or {}, ctx)
+        approval_ctx = ToolContext(
+            user_id=user_id, username=current_user.get("username", ""),
+            agent_key=f"workflow:{name}",
+            thread_id=result.get("thread_id", ""),
+        )
+        await _create_approval_record(result.get("interrupt") or {}, approval_ctx)
 
     await _audit_workflow_start(name, user_id, result["status"])
     return result

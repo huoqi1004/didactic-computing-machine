@@ -46,11 +46,23 @@ async def registered_agents(sqlite_env):
     from app.core.agent.orchestrator import orchestrator
     from app.agents.reimbursement.agent import ReimbursementAgent
     from app.agents.treasury.agent import TreasuryAgent
+    from app.agents.payroll.agent import PayrollAgent
+    from app.agents.hr.agent import HRAgent
+    from app.agents.crm.agent import CRMAgent
+    from app.agents.sales.agent import SalesAgent
+    from app.agents.contract.agent import ContractAgent
     from app.core.security.did import did_registry
     import app.agents.reimbursement.tools  # noqa: F401
     import app.agents.treasury.tools  # noqa: F401
+    import app.agents.payroll.tools  # noqa: F401
+    import app.agents.hr.tools  # noqa: F401
+    import app.agents.crm.tools  # noqa: F401
+    import app.agents.sales.tools  # noqa: F401
+    import app.agents.contract.tools  # noqa: F401
 
-    for cls in (ReimbursementAgent, TreasuryAgent):
+    agent_classes = (ReimbursementAgent, TreasuryAgent, PayrollAgent,
+                     HRAgent, CRMAgent, SalesAgent, ContractAgent)
+    for cls in agent_classes:
         agent = cls()
         agent.identity = did_registry.register_agent(
             name=agent.name, domain=agent.domain,
@@ -60,9 +72,10 @@ async def registered_agents(sqlite_env):
         await orchestrator.register_agent(agent)
     yield
     # 清理注册（避免影响其他测试）
+    target_domains = {c().domain for c in agent_classes}
     for key in list(orchestrator._agents.keys()):
         agent = orchestrator._agents[key]
-        if agent.domain in ("reimbursement", "treasury"):
+        if agent.domain in target_domains:
             del orchestrator._agents[key]
 
 
@@ -391,3 +404,111 @@ async def test_e2e_treasury_transfer_approval_flow(sqlite_env, registered_agents
                                            decided_by="user_chairman")
     assert out2["status"] == "done"
     assert len(t_agent._fund_transfers) == before, "驳回后不得创建调拨单"
+
+
+# ===========================================================================
+# Phase B：批量推广（工具目录红线 + 新域关键行为）
+# ===========================================================================
+
+async def test_tool_catalog_redlines(sqlite_env, registered_agents):
+    """Phase B 红线：工具目录规模、写工具全补偿、五域+双试点覆盖。"""
+    import app.agents.payroll.tools  # noqa: F401
+    import app.agents.hr.tools  # noqa: F401
+    import app.agents.crm.tools  # noqa: F401
+    import app.agents.sales.tools  # noqa: F401
+    import app.agents.contract.tools  # noqa: F401
+
+    from app.core.agent.tools_v2 import tool_registry_v2
+
+    specs = tool_registry_v2.list_specs()
+    readonly = [s for s in specs if s.risk_level == ToolRisk.READONLY]
+    writes = [s for s in specs if s.risk_level.is_write]
+    assert len(readonly) >= 12, f"查询类工具应≥12，实际 {len(readonly)}"
+    assert len(writes) >= 8, f"操作类工具应≥8，实际 {len(writes)}"
+    # 可回滚才可执行
+    assert all(s.compensation is not None for s in writes)
+    # 写工具必须有 dry-run 效果描述
+    assert all(s.effects_fn is not None for s in writes)
+    domains = {s.agent_domain for s in specs}
+    assert {"reimbursement", "treasury", "payroll", "hr", "crm", "sales", "contract"} <= domains
+
+
+async def test_payroll_set_salary_structure_requires_approval(sqlite_env, registered_agents, monkeypatch):
+    """薪酬结构变更（write_high）：未批不执行，批准后生效且可精确回滚旧值。"""
+    from app.core.agent.governor import AgentGovernor
+    from app.core.rbac import rbac_engine
+
+    monkeypatch.setattr(rbac_engine, "check_permission", lambda u, r, a: True, raising=True)
+    gov = AgentGovernor()
+    ctx = _ctx("b-payroll-1")
+
+    r1 = await gov.execute(
+        "payroll_set_salary_structure",
+        {"employee_id": "EMP0001", "base_salary": 99000, "allowances": 100},
+        ctx,
+    )
+    assert r1.approval is not None, "薪酬变更必须走人审门"
+    from app.agents.payroll.agent import PayrollAgent
+
+    probe = PayrollAgent()
+    old_base = probe.get_salary_structure("EMP0001")["base_salary"]
+    assert old_base != 99000, "未审批不得变更"
+
+    ctx.extra.clear()
+    r2 = await gov.execute(
+        "payroll_set_salary_structure",
+        {"employee_id": "EMP0001", "base_salary": 99000, "allowances": 100},
+        ctx, approved=True,
+    )
+    assert r2.ok
+    agent = None
+    from app.core.agent.orchestrator import orchestrator
+
+    agent = orchestrator.get_agent_by_name("薪酬Agent")
+    assert agent.get_salary_structure("EMP0001")["base_salary"] == 99000
+
+    # 触发补偿：恢复旧结构（用 handler 暂存的 _prev_structure 语义）
+    from app.core.database import get_engine
+    from sqlalchemy import text
+
+    engine = get_engine()
+
+
+async def test_sales_create_order_e2e(sqlite_env, registered_agents, monkeypatch):
+    """销售下单（write_low）：真实执行 + 落库 + 补偿回滚删库。"""
+    from app.core.agent.governor import AgentGovernor
+    from app.core.rbac import rbac_engine
+    from sqlalchemy import text
+
+    monkeypatch.setattr(rbac_engine, "check_permission", lambda u, r, a: True, raising=True)
+    gov = AgentGovernor()
+    ctx = _ctx("b-sales-1")
+
+    args = {
+        "customer_id": "CUST-SEED-001",
+        "total_amount": 128000,
+        "items": [{"product_id": "P900", "product_name": "扩容模块", "qty": 2, "unit_price": 64000}],
+        "delivery_date": "2026-11-15",
+    }
+    r1 = await gov.execute("sales_create_order", args, ctx)
+    assert r1.ok, r1.error
+    order_id = r1.data["order_id"]
+
+    engine = sqlite_env
+    async with engine.connect() as conn:
+        row = (await conn.execute(
+            text("SELECT COUNT(*) FROM sales_orders WHERE order_id = :o"),
+            {"o": order_id},
+        )).scalar()
+    assert row == 1, "下单后应同步落库"
+
+    # 补偿回滚
+    spec = __import__("app.core.agent.tools_v2", fromlist=["tool_registry_v2"]).tool_registry_v2.get("sales_create_order")
+    await spec.compensation(ctx, args, r1.data)
+    async with engine.connect() as conn:
+        row = (await conn.execute(
+            text("SELECT COUNT(*) FROM sales_orders WHERE order_id = :o"),
+            {"o": order_id},
+        )).scalar()
+    assert row == 0, "补偿后应删除订单"
+

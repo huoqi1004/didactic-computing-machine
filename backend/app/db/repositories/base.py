@@ -153,6 +153,26 @@ class RepositoryBase:
             )
             return []
 
+    async def delete_by_id(self, key_value) -> bool:
+        """按主键删除一行（工具补偿函数用）。失败返回 False。"""
+        if not has_db():
+            return False
+        try:
+            from sqlalchemy import delete
+
+            pk_col = list(self.__model__.__table__.primary_key.columns)[0]
+            async with session_scope() as session:
+                await session.execute(
+                    delete(self.__model__).where(pk_col == key_value)
+                )
+            return True
+        except Exception as e:  # noqa: BLE001
+            warn_throttled(
+                self.__category__, f"{self.__category__}.delete_failed",
+                key=str(key_value), error=str(e),
+            )
+            return False
+
     async def count(self) -> int:
         """表行数（用于空库判定/水合决策）。失败返回 -1。"""
         if not has_db():

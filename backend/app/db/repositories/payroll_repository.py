@@ -108,6 +108,23 @@ class PayrollRecordRepository(RepositoryBase):
         return await self.upsert(record, key_field="record_id")
 
 
+    async def delete_by_record_id(self, record_id: str) -> bool:
+        """按 record_id 删除（薪酬计算工具的补偿回滚）。"""
+        if not record_id or not has_db():
+            return False
+        try:
+            from sqlalchemy import delete
+
+            async with session_scope() as session:
+                await session.execute(
+                    delete(self.__model__).where(self.__model__.record_id == record_id)
+                )
+            return True
+        except Exception as e:  # noqa: BLE001
+            self._warn(f"{self.__category__}.delete_failed", error=str(e))
+            return False
+
+
 # 模块级单例
 salary_structure_repository = SalaryStructureRepository()
 payroll_record_repository = PayrollRecordRepository()

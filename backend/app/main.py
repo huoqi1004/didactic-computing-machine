@@ -639,6 +639,11 @@ async def lifespan(app: FastAPI):
     try:
         import app.agents.reimbursement.tools  # noqa: F401
         import app.agents.treasury.tools  # noqa: F401
+        import app.agents.payroll.tools  # noqa: F401  (Phase B)
+        import app.agents.hr.tools  # noqa: F401  (Phase B)
+        import app.agents.crm.tools  # noqa: F401  (Phase B)
+        import app.agents.sales.tools  # noqa: F401  (Phase B)
+        import app.agents.contract.tools  # noqa: F401  (Phase B)
         from app.core.agent.tools_v2 import tool_registry_v2
 
         logger.info(

@@ -21,6 +21,7 @@ AgentRuntime：LangGraph 单 Agent 场景图模板（路线图 Phase A / A5）
 from __future__ import annotations
 
 import contextvars
+from datetime import timezone
 from typing import Annotated, Any, Optional
 
 import structlog
@@ -224,6 +225,10 @@ class AgentRuntime:
         """
         from langchain_core.messages import AIMessage, HumanMessage
 
+        if not self._check_budget(domain):
+            logger.warning("runtime.token_budget_exceeded", domain=domain)
+            raise RuntimeError(f"域 {domain} 当日 LLM token 预算已耗尽，编排降级")
+
         graph = self.get_graph(domain)
         token = _current_tool_ctx.set(ctx)
         try:
@@ -234,6 +239,10 @@ class AgentRuntime:
             )
         finally:
             _current_tool_ctx.reset(token)
+
+        tokens = self._sum_tokens(result.get("messages", []))
+        self._record_tokens(domain, tokens)
+        await self._audit_tokens(domain, ctx, tokens)
 
         interrupts = result.get("__interrupt__") or []
         if interrupts:
@@ -271,6 +280,10 @@ class AgentRuntime:
         finally:
             _current_tool_ctx.reset(token)
 
+        tokens = self._sum_tokens(result.get("messages", []))
+        self._record_tokens(domain, tokens)
+        await self._audit_tokens(domain, ctx, tokens)
+
         interrupts = result.get("__interrupt__") or []
         if interrupts:
             payload = interrupts[0].value if hasattr(interrupts[0], "value") else interrupts[0]
@@ -282,6 +295,67 @@ class AgentRuntime:
                 reply = msg.content if isinstance(msg.content, str) else str(msg.content)
                 break
         return {"status": "done", "reply": reply or "（无回复）", "interrupt": None}
+
+    @staticmethod
+    async def _audit_tokens(domain: str, ctx, tokens: int) -> None:
+        """token 消耗入审计哈希链（路线图 B 阶段：单指令成本可追溯）。"""
+        if tokens <= 0:
+            return
+        try:
+            from app.core.security.audit import audit_chain
+
+            await audit_chain.log(
+                actor_did=ctx.user_id or "unknown",
+                action="llm.tokens",
+                resource=f"agent:{domain}",
+                result="success",
+                details={"tokens": tokens, "thread_id": ctx.thread_id},
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("runtime.token_audit_failed", error=str(e))
+
+    def has_domain(self, domain: str) -> bool:
+        return bool(tool_registry_v2.list_specs(domain=domain))
+
+    # ------------------------------------------------------------------
+    # LLM 成本计量与预算护栏（路线图 Phase B）
+    # ------------------------------------------------------------------
+
+    _token_usage_today: dict[str, int] = {}
+    _usage_date: str = ""
+
+    @classmethod
+    def _check_budget(cls, domain: str) -> bool:
+        """该域当日 token 预算检查（超限返回 False，调用方降级规则路径）。"""
+        from app.core.config import settings as _settings
+        from datetime import datetime as _dt
+
+        today = _dt.now(timezone.utc).strftime("%Y-%m-%d")
+        if cls._usage_date != today:
+            cls._usage_date = today
+            cls._token_usage_today.clear()
+        used = cls._token_usage_today.get(domain, 0)
+        return used < _settings.agent_daily_token_budget
+
+    @classmethod
+    def _record_tokens(cls, domain: str, tokens: int) -> None:
+        from datetime import datetime as _dt
+
+        today = _dt.now(timezone.utc).strftime("%Y-%m-%d")
+        if cls._usage_date != today:
+            cls._usage_date = today
+            cls._token_usage_today.clear()
+        cls._token_usage_today[domain] = cls._token_usage_today.get(domain, 0) + tokens
+
+    @staticmethod
+    def _sum_tokens(messages: list) -> int:
+        """聚合 AIMessage 的 usage_metadata（输入+输出 token）。"""
+        total = 0
+        for msg in messages:
+            usage = getattr(msg, "usage_metadata", None)
+            if usage:
+                total += int(usage.get("input_tokens", 0)) + int(usage.get("output_tokens", 0))
+        return total
 
     def has_domain(self, domain: str) -> bool:
         return bool(tool_registry_v2.list_specs(domain=domain))

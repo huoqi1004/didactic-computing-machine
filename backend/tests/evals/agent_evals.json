@@ -1,0 +1,278 @@
+{
+  "_meta": {
+    "version": 1,
+    "description": "Agent 编排评测集 v1（路线图 Phase B/B6）。CI 模式：脚本 LLM 回放 expected_tool_calls 验证编排管线（治理面/执行/落库/人审路由）；在线模式：设置 ERP_EVAL_LLM_ENABLED=true 后由真模型执行并断言行为一致（tests/test_agent_evals.py::test_online_eval）。新增场景请保持相同结构。",
+    "fields": {
+      "id": "用例唯一标识",
+      "domain": "Agent 域（决定场景图）",
+      "message": "用户指令",
+      "expected_tool_calls": "期望的工具调用序列 [{name, args}]",
+      "expect_status": "done | awaiting_approval",
+      "expect_db": "可选 {table, where, count} 执行后 DB 断言"
+    }
+  },
+  "cases": [
+    {
+      "id": "reimb_query_list",
+      "domain": "reimbursement",
+      "message": "查一下最近的报销单",
+      "expected_tool_calls": [
+        {
+          "name": "reimbursement_query_list",
+          "args": {
+            "limit": 20
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "reimb_query_stats",
+      "domain": "reimbursement",
+      "message": "报销整体情况怎么样",
+      "expected_tool_calls": [
+        {
+          "name": "reimbursement_query_stats",
+          "args": {}
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "reimb_submit_low",
+      "domain": "reimbursement",
+      "message": "帮李四提交一笔300元的餐费报销",
+      "expected_tool_calls": [
+        {
+          "name": "reimbursement_submit",
+          "args": {
+            "employee_name": "李四",
+            "category": "meal",
+            "amount": 300,
+            "description": "餐费报销",
+            "has_receipt": true
+          }
+        }
+      ],
+      "expect_status": "done",
+      "expect_db": {
+        "table": "reimbursements",
+        "where": "employee_name = '李四'",
+        "count": 1
+      }
+    },
+    {
+      "id": "treasury_balance",
+      "domain": "treasury",
+      "message": "现在账上还有多少钱",
+      "expected_tool_calls": [
+        {
+          "name": "treasury_cash_balance",
+          "args": {}
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "treasury_schedule",
+      "domain": "treasury",
+      "message": "看看最近的支付排程",
+      "expected_tool_calls": [
+        {
+          "name": "treasury_payment_schedule",
+          "args": {}
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "treasury_transfer_high",
+      "domain": "treasury",
+      "message": "调拨25万到应急账户",
+      "expected_tool_calls": [
+        {
+          "name": "treasury_fund_transfer_request",
+          "args": {
+            "amount": 250000,
+            "from_account": "主账户",
+            "to_account": "应急账户",
+            "reason": ""
+          }
+        }
+      ],
+      "expect_status": "awaiting_approval"
+    },
+    {
+      "id": "payroll_records",
+      "domain": "payroll",
+      "message": "查一下EMP0001的薪酬记录",
+      "expected_tool_calls": [
+        {
+          "name": "payroll_query_records",
+          "args": {
+            "employee_id": "EMP0001"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "payroll_structure_high",
+      "domain": "payroll",
+      "message": "把EMP0002的基本工资调到50000",
+      "expected_tool_calls": [
+        {
+          "name": "payroll_set_salary_structure",
+          "args": {
+            "employee_id": "EMP0002",
+            "base_salary": 50000
+          }
+        }
+      ],
+      "expect_status": "awaiting_approval"
+    },
+    {
+      "id": "hr_employees",
+      "domain": "hr",
+      "message": "技术部有哪些人",
+      "expected_tool_calls": [
+        {
+          "name": "hr_query_employees",
+          "args": {
+            "department": "技术部"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "hr_add_employee",
+      "domain": "hr",
+      "message": "新入职一位测试工程师王五，放到技术部",
+      "expected_tool_calls": [
+        {
+          "name": "hr_add_employee",
+          "args": {
+            "name": "王五",
+            "department": "技术部",
+            "position": "测试工程师"
+          }
+        }
+      ],
+      "expect_status": "done",
+      "expect_db": {
+        "table": "employees",
+        "where": "full_name = '王五'",
+        "count": 1
+      }
+    },
+    {
+      "id": "crm_customers",
+      "domain": "crm",
+      "message": "列出A级客户",
+      "expected_tool_calls": [
+        {
+          "name": "crm_query_customers",
+          "args": {
+            "segment": "A"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "crm_create_customer",
+      "domain": "crm",
+      "message": "新增一个客户：星辰传媒，联系人赵敏 13900001111",
+      "expected_tool_calls": [
+        {
+          "name": "crm_create_customer",
+          "args": {
+            "name": "星辰传媒",
+            "contact_name": "赵敏",
+            "contact_phone": "13900001111"
+          }
+        }
+      ],
+      "expect_status": "done",
+      "expect_db": {
+        "table": "customers",
+        "where": "customer_name = '星辰传媒'",
+        "count": 1
+      }
+    },
+    {
+      "id": "sales_orders",
+      "domain": "sales",
+      "message": "看看待确认的销售订单",
+      "expected_tool_calls": [
+        {
+          "name": "sales_query_orders",
+          "args": {
+            "status": "pending"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "sales_create_order",
+      "domain": "sales",
+      "message": "给CUST-SEED-001下一单ERP扩容，总金额20万",
+      "expected_tool_calls": [
+        {
+          "name": "sales_create_order",
+          "args": {
+            "customer_id": "CUST-SEED-001",
+            "total_amount": 200000,
+            "items": [
+              {
+                "product_id": "P-ERP",
+                "product_name": "ERP扩容",
+                "qty": 1,
+                "unit_price": 200000
+              }
+            ],
+            "delivery_date": ""
+          }
+        }
+      ],
+      "expect_status": "done",
+      "expect_db": {
+        "table": "sales_orders",
+        "where": "customer_id = 'CUST-SEED-001' AND total_amount = 200000",
+        "count": 1
+      }
+    },
+    {
+      "id": "contract_list",
+      "domain": "contract",
+      "message": "查一下执行中的合同",
+      "expected_tool_calls": [
+        {
+          "name": "contract_query_list",
+          "args": {
+            "status": "executing"
+          }
+        }
+      ],
+      "expect_status": "done"
+    },
+    {
+      "id": "contract_approve_high",
+      "domain": "contract",
+      "message": "把测试合同CT-EVAL-001审批通过",
+      "expected_tool_calls": [
+        {
+          "name": "contract_approve",
+          "args": {
+            "contract_id": "CT-EVAL-001",
+            "comment": ""
+          }
+        }
+      ],
+      "expect_status": "awaiting_approval",
+      "_note": "contract_approve 为 write_high，正确行为是进入人审（治理面路由验证）"
+    }
+  ]
+}

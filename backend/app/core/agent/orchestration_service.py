@@ -43,6 +43,16 @@ async def run_scenario_for_agent(agent, messages: list[dict], kwargs: dict) -> O
     if not has_db() or not agent_runtime.has_domain(agent.domain):
         return None
 
+    # 预算护栏：该域当日 token 超限时抛出（llm_chat 捕获后回退规则路径）
+    if not agent_runtime._check_budget(agent.domain):
+        from app.core.agent.runtime import AgentRuntime as _AR
+
+        from app.core.config import settings as _s
+
+        raise RuntimeError(
+            f"域 {agent.domain} 当日 LLM token 预算已耗尽（上限 {_s.agent_daily_token_budget}），编排降级"
+        )
+
     # 提取最后一条用户消息作为指令
     user_message = ""
     for msg in reversed(messages):

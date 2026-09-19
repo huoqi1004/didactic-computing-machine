@@ -140,6 +140,10 @@ class Settings(BaseSettings):
     # （防止欠费/故障状态下以tick频率空转打API，见评估报告 B-01）
     llm_failure_cooldown_threshold: int = 3
     llm_cooldown_seconds: int = 600
+    # Agent 编排 LLM 预算护栏（路线图 Phase B：单 Agent 每日 token 上限，
+    # 超限后该域编排降级为规则路径，防成本失控）
+    agent_daily_token_budget: int = 2_000_000
+
     # DeepSeek思考模式开关：V4-Pro默认开启，关闭可获更快响应
     # 开启时 temperature/top_p 等参数不生效，由模型自主控制推理深度
     llm_thinking_enabled: bool = True

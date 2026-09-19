@@ -220,8 +220,12 @@ class HybridRetrievalEngine:
         self.vector_weight = vector_weight
         self.keyword_weight = keyword_weight
         self.graph_weight = graph_weight
+        self.semantic_weight = 0.25
         self.top_k = top_k
         self.bm25 = BM25Retriever()
+        # 语义通道（知识库改进）：chunk_id -> L2 归一化向量（水合/摄取时注入）。
+        # embedding 提供方由 retrieve 时惰性获取；无向量时该通道自动跳过。
+        self.semantic_vectors: dict[str, list[float]] = {}
 
     async def retrieve(
         self,
@@ -311,6 +315,22 @@ class HybridRetrievalEngine:
                     continue
             filtered_doc_ids.add(doc_id)
 
+        # ---- 通道 4: 语义向量检索（EmbeddingProvider 余弦；无向量时跳过）----
+        semantic_scores: dict[str, float] = {}
+        if self.semantic_vectors and filtered_doc_ids:
+            try:
+                from app.core.knowledge.embeddings import get_embedding_provider
+
+                provider = get_embedding_provider()
+                qvec = (await provider.embed([query]))[0]
+                for doc_id, vec in self.semantic_vectors.items():
+                    if doc_id in filtered_doc_ids:
+                        semantic_scores[doc_id] = sum(
+                            a * b for a, b in zip(qvec, vec)
+                        )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("hybrid.semantic_channel_failed", error=str(e))
+
         # ---- 分数归一化与融合 ----
         vec_normalized = _normalize_scores(
             [(did, vector_scores[did]) for did in filtered_doc_ids if did in vector_scores]
@@ -321,11 +341,15 @@ class HybridRetrievalEngine:
         graph_normalized = _normalize_scores(
             [(did, graph_scores[did]) for did in filtered_doc_ids if did in graph_scores]
         )
+        semantic_normalized = _normalize_scores(
+            [(did, semantic_scores[did]) for did in filtered_doc_ids if did in semantic_scores]
+        )
 
         # 构建最终分数
         vec_map = {did: score for did, score in vec_normalized}
         kw_map = {did: score for did, score in kw_normalized}
         graph_map = {did: score for did, score in graph_normalized}
+        semantic_map = {did: score for did, score in semantic_normalized}
 
         results: list[dict] = []
         for doc_id in filtered_doc_ids:
@@ -336,17 +360,27 @@ class HybridRetrievalEngine:
             v_score = vec_map.get(doc_id, 0.0)
             k_score = kw_map.get(doc_id, 0.0)
             g_score = graph_map.get(doc_id, 0.0)
+            s_score = semantic_map.get(doc_id, 0.0)
 
-            # 加权融合
-            total_weight = self.vector_weight + self.keyword_weight + self.graph_weight
-            if total_weight == 0:
-                total_weight = 1.0
-
-            fused_score = (
-                v_score * self.vector_weight
-                + k_score * self.keyword_weight
-                + g_score * self.graph_weight
-            ) / total_weight
+            # 加权融合（语义通道有向量时归一化四路权重；否则退回三路）
+            if semantic_scores:
+                weights_sum = (self.vector_weight + self.keyword_weight
+                               + self.graph_weight + self.semantic_weight)
+                fused_score = (
+                    v_score * self.vector_weight
+                    + k_score * self.keyword_weight
+                    + g_score * self.graph_weight
+                    + s_score * self.semantic_weight
+                ) / (weights_sum or 1.0)
+            else:
+                total_weight = self.vector_weight + self.keyword_weight + self.graph_weight
+                if total_weight == 0:
+                    total_weight = 1.0
+                fused_score = (
+                    v_score * self.vector_weight
+                    + k_score * self.keyword_weight
+                    + g_score * self.graph_weight
+                ) / total_weight
 
             results.append({
                 "doc_id": doc_id,
@@ -356,6 +390,7 @@ class HybridRetrievalEngine:
                 "vector_score": round(v_score, 4),
                 "keyword_score": round(k_score, 4),
                 "graph_score": round(g_score, 4),
+                "semantic_score": round(s_score, 4),
             })
 
         # 按融合分数降序排列

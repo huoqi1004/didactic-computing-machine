@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
-from app.core.knowledge.rag import Document
+from app.core.knowledge.rag import Document, vector_store
 
 logger = structlog.get_logger()
 
@@ -304,6 +304,57 @@ def extract_text(
 # 文档分块器
 # =============================================================================
 
+async def _vectorize_and_persist(parent_doc_id: str, documents: list) -> None:
+    """向量化（EmbeddingProvider）+ knowledge_chunks 落库 + 语义索引注入。
+
+    失败降级：仅 BM25/TF-IDF 通道可用（语义通道跳过），不影响检索可用性。
+    """
+    try:
+        from app.core.knowledge.embeddings import get_embedding_provider
+        from app.core.knowledge.hybrid import hybrid_engine
+        from app.core.knowledge.persistence import save_chunks
+
+        # 1) 内存检索索引立即重建（TF-IDF 向量库 + BM25，先于向量化——
+        #    保证语义通道失败时 BM25/TF-IDF 仍可用）
+        await vector_store.add_documents(documents)
+        hybrid_engine.sync_bm25_index()
+
+        # 2) 向量化（失败降级：仅落库无向量，语义通道跳过）
+        provider = get_embedding_provider()
+        embeddings = None
+        if provider.name != "none":
+            embeddings = await provider.embed([d.content for d in documents])
+            for d, v in zip(documents, embeddings):
+                d.embedding = v
+                hybrid_engine.semantic_vectors[d.doc_id] = v
+        model_name = provider.name if embeddings else ""
+        await save_chunks(parent_doc_id, documents, embeddings,
+                          embedding_model=model_name)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("ingestion.vectorize_failed", parent=parent_doc_id, error=str(e))
+        try:
+            from app.core.knowledge.persistence import save_chunks
+
+            await save_chunks(parent_doc_id, documents)  # 无向量落库
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _schedule_vectorize_and_persist(parent_doc_id: str, documents: list) -> None:
+    """在可用事件循环上调度流水线（无循环时同步执行——测试/脚本场景）。"""
+    import asyncio as _asyncio
+
+    coro = _vectorize_and_persist(parent_doc_id, documents)
+    try:
+        loop = _asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None:
+        _asyncio.ensure_future(coro, loop=loop)
+    else:
+        _asyncio.run(coro)
+
+
 def chunk_text(
     text: str,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
@@ -504,6 +555,8 @@ class DocumentIngester:
             permission_level=permission_level,
         )
 
+        _schedule_vectorize_and_persist(parent_doc_id, documents)
+
         return documents
 
     def ingest_text(
@@ -571,6 +624,7 @@ class DocumentIngester:
             chunks=len(documents),
             char_count=len(text),
         )
+        _schedule_vectorize_and_persist(parent_doc_id, documents)
         return documents
 
 

@@ -1730,6 +1730,26 @@ langgraph_checkpoints = Table(
     Index("ix_langgraph_cp_thread", "thread_id", "checkpoint_ns"),
 )
 
+knowledge_chunks = Table(
+    "knowledge_chunks",
+    Base.metadata,
+    Column("chunk_id", String(64), primary_key=True),
+    Column("parent_doc_id", String(80), nullable=False, index=True),
+    Column("chunk_index", Integer, nullable=False, server_default=text("0")),
+    Column("title", String(256), nullable=True),
+    Column("content", Text, nullable=False),
+    # 语义向量（float32 序列化 BLOB；未向量化为 NULL → 语义通道跳过）
+    Column("embedding", LargeBinary, nullable=True),
+    Column("embedding_model", String(64), nullable=True),
+    Column("source", String(256), nullable=True),
+    Column("permission_level", String(16), nullable=False, server_default=text("'internal'")),
+    Column("department", String(128), nullable=True),
+    Column("tags", JSON, nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Index("ix_knowledge_chunks_parent", "parent_doc_id"),
+    Index("ix_knowledge_chunks_perm", "permission_level"),
+)
+
 agent_approval_requests = Table(
     "agent_approval_requests",
     Base.metadata,

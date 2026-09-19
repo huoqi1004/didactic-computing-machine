@@ -140,6 +140,14 @@ class Settings(BaseSettings):
     # （防止欠费/故障状态下以tick频率空转打API，见评估报告 B-01）
     llm_failure_cooldown_threshold: int = 3
     llm_cooldown_seconds: int = 600
+    # 知识库 Embedding（知识库改进 / WeKnora 可插拔模型）
+    # auto: 配置了 API Key 用 openai 兼容 /embeddings，否则 hashing 零成本兜底
+    embedding_provider: str = "auto"          # auto | openai | hashing | none
+    embedding_api_base: str = "https://api.siliconflow.cn/v1"
+    embedding_api_key: str = ""               # 推荐硅基流动 BGE-m3 系列（性价比）
+    embedding_model: str = "BAAI/bge-m3"
+    embedding_dims: int = 256                 # hashing 向量维度
+
     # 外部 MCP 工具白名单接入（Phase D/D3）：JSON 配置
     # [{"name": "fx", "url": "https://...", "tools": ["get_rate"]}]
     # 仅白名单内工具经治理面桥接为只读工具

@@ -485,6 +485,11 @@ async def lifespan(app: FastAPI):
             documents=kb_stats.get("documents", 0),
             rules=kb_stats.get("rules", 0),
         )
+        # 知识分块持久化水合（E-04：重启不归零——DB 分块重建内存索引）
+        from app.core.knowledge.persistence import hydrate_knowledge_from_db
+
+        hydrate_info = await hydrate_knowledge_from_db()
+        logger.info("app.knowledge_hydrated", **hydrate_info)
     except Exception as e:
         logger.warning(
             "app.knowledge_base_init_failed",
@@ -634,6 +639,15 @@ async def lifespan(app: FastAPI):
     await admin_agent.start()
 
     register_tools()
+
+    # 5.4 注册知识检索工具（知识库改进：Agent 问答赋能）
+    try:
+        import app.agents.knowledge.tools  # noqa: F401
+
+        logger.info("app.knowledge_tools_registered")
+    except Exception as e:
+        logger.warning("app.knowledge_tools_register_failed",
+                       error=str(e), error_type=type(e).__name__)
 
     # 5.5 总调度 Agent（Phase C：多域协同入口）——非 BaseAgent，
     # 不进 orchestrator 状态机；经 messaging _AGENT_REFS_GETTERS 暴露

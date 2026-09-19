@@ -19,6 +19,7 @@ import {
   type Column,
 } from '../components/ui'
 import { cn, formatDateTime } from '../lib/utils'
+import { AgentApprovalPanel } from '../components/AgentApprovalPanel'
 
 /* ===================== 类型定义 ===================== */
 
@@ -297,6 +298,9 @@ export default function ApprovalWorkflow() {
         description="多级审批流程配置与待办请求处理"
         icon={<GitBranch className="w-5 h-5" />}
       />
+
+      {/* Agent 工具人审（write_high 中断任务，批准后自动恢复执行） */}
+      <AgentApprovalPanel />
 
       {/* 顶部统计卡片 */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

@@ -1566,6 +1566,22 @@ export const apiService = {
       return res
     }, {} as any),
 
+  // Agent 工具人审任务（Phase B）
+  getAgentApprovals: (status: string = 'pending'): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get(`/agent-ops/approvals?status=${status}`)
+      return res as any
+    }, { approvals: [] }),
+
+  decideAgentApproval: (threadId: string, approved: boolean, comment: string = ''): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.post(`/agent-ops/approvals/${encodeURIComponent(threadId)}/decide`, {
+        approved,
+        comment,
+      })
+      return res as any
+    }, {} as any),
+
   // 上传发票 PDF 并识别票面要素（返回报销表单预填建议）
   uploadReimbursementInvoice: (file: File): Promise<any> =>
     withFallback(async () => {

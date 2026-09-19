@@ -81,6 +81,9 @@ MAX_PAGE_SIZE = 200
 # display_name 是聊天界面展示的中文名称。
 
 AGENT_CATALOG: list[dict[str, str]] = [
+    # ---- 跨域协同 ----
+    {"key": "supervisor", "orchestrator_name": "总调度Agent", "display_name": "总调度",
+     "description": "跨域指令路由与汇总：意图分类后委派各业务域助手协同完成", "icon": "Network"},
     # ---- 核心财务运营 Agent ----
     {"key": "inventory", "orchestrator_name": "库存守护Agent", "display_name": "库存管家",
      "description": "负责库存监控、自动补货决策与出入库核对", "icon": "Package"},

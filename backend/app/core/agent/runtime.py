@@ -314,6 +314,15 @@ class AgentRuntime:
         except Exception as e:  # noqa: BLE001
             logger.warning("runtime.token_audit_failed", error=str(e))
 
+    async def sub_pending(self, domain: str, thread_id: str) -> bool:
+        """该域场景图在指定线程上是否有挂起的人审中断（supervisor 重放探测）。"""
+        try:
+            graph = self.get_graph(domain)
+            state = await graph.aget_state({"configurable": {"thread_id": thread_id}})
+            return any(getattr(t, "interrupts", None) for t in state.tasks)
+        except Exception:  # noqa: BLE001
+            return False
+
     def has_domain(self, domain: str) -> bool:
         return bool(tool_registry_v2.list_specs(domain=domain))
 

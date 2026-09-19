@@ -73,7 +73,15 @@ async def run_scenario_for_agent(agent, messages: list[dict], kwargs: dict) -> O
         user_id=user_id, username=username,
         agent_key=agent.domain, thread_id=thread_id, channel_id=channel_id,
     )
-    result = await agent_runtime.run(agent.domain, user_message, ctx)
+
+    # Supervisor 跨域协同（Phase C）：意图分类→委派子域→综合
+    if agent.domain == "supervisor":
+        from app.core.agent.supervisor import start_supervisor
+
+        result = await start_supervisor(user_message, ctx, thread_id=thread_id)
+        if result["status"] == "awaiting_approval":
+            await _create_approval_record(result.get("interrupt") or {}, ctx)
+        return str(result.get("reply") or "")
 
     if result["status"] == "awaiting_approval":
         await _create_approval_record(result.get("interrupt") or {}, ctx)
@@ -120,6 +128,34 @@ async def resume_after_decision(
         user_id=requested_by, username=requested_by,
         agent_key=agent_key, thread_id=thread_id, channel_id=channel_id,
     )
+
+    # Supervisor 协同人审恢复（Phase C：先恢复子图、再综合）
+    if domain == "supervisor":
+        from app.core.agent.supervisor import resume_supervisor
+
+        sup_result = await resume_supervisor(
+            thread_id, {"approved": approved, "comment": comment}, ctx,
+        )
+        status = {"done": "executed"}.get(sup_result["status"], sup_result["status"])
+        if not approved:
+            status = "rejected"
+        async with session_scope() as session:
+            from app.db.models import agent_approval_requests
+            from sqlalchemy import update
+
+            await session.execute(
+                update(agent_approval_requests)
+                .where(agent_approval_requests.c.thread_id == thread_id)
+                .values(
+                    status=status,
+                    decided_by=decided_by,
+                    decided_at=datetime.now(timezone.utc),
+                    result_reply=str(sup_result.get("reply", ""))[:4000],
+                )
+            )
+        await _audit_decision(decided_by, thread_id, approved, comment, agent_key)
+        return {"reply": str(sup_result.get("reply", "")),
+                "status": sup_result["status"], "channel_id": channel_id}
 
     # 跨域工作流的人审恢复（domain 形如 "workflow:reimbursement_approval"）
     if domain.startswith("workflow:"):

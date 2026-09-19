@@ -635,6 +635,22 @@ async def lifespan(app: FastAPI):
 
     register_tools()
 
+    # 5.5 注册总调度 Agent（Phase C：多域协同入口）
+    try:
+        from app.core.agent.supervisor import SupervisorAgent
+
+        supervisor_agent = SupervisorAgent()
+        supervisor_agent.identity = did_registry.register_agent(
+            name=supervisor_agent.name, domain=supervisor_agent.domain,
+            capabilities=supervisor_agent.capabilities,
+            security_clearance="confidential",
+        )
+        await orchestrator.register_agent(supervisor_agent)
+        logger.info("app.supervisor_agent_registered", domain="supervisor")
+    except Exception as e:
+        logger.warning("app.supervisor_agent_register_failed",
+                       error=str(e), error_type=type(e).__name__)
+
     # 6.0 注册场景工具（Phase A：报销/资金域治理面工具，LangGraph 编排可调用）
     try:
         import app.agents.reimbursement.tools  # noqa: F401

@@ -525,6 +525,16 @@ from contextvars import ContextVar  # noqa: E402
 _ctx_var: ContextVar[Optional[ToolContext]] = ContextVar("wf_tool_ctx", default=None)
 
 
+async def _graph_pending(name: str, thread_id: str) -> bool:
+    """工作流在指定线程上是否有挂起的人审中断（supervisor 重放探测）。"""
+    try:
+        graph = _get_graph(name)
+        state = await graph.aget_state({"configurable": {"thread_id": thread_id}})
+        return any(getattr(t, "interrupts", None) for t in state.tasks)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def list_workflows() -> list[dict]:
     return [{"name": name, "description": meta["description"],
              "input_hint": meta["input_hint"]}

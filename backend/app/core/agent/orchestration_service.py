@@ -40,7 +40,11 @@ async def run_scenario_for_agent(agent, messages: list[dict], kwargs: dict) -> O
     from app.core.agent.runtime import agent_runtime
     from app.db.repositories.base import has_db
 
-    if not has_db() or not agent_runtime.has_domain(agent.domain):
+    # supervisor 是特判域（无治理面工具，走分类+委派），跳过工具域检查
+    if agent.domain != "supervisor":
+        if not has_db() or not agent_runtime.has_domain(agent.domain):
+            return None
+    elif not has_db():
         return None
 
     # 预算护栏：该域当日 token 超限时抛出（llm_chat 捕获后回退规则路径）

@@ -382,3 +382,13 @@ class SupervisorAgent:
             logger.warning("supervisor.llm_chat_failed", error=str(e))
             return ""
 
+
+# 模块级单例（不注册 orchestrator：非 BaseAgent，经 messaging getter 暴露）
+_supervisor_agent: Optional[SupervisorAgent] = None
+
+
+def get_supervisor_agent() -> SupervisorAgent:
+    global _supervisor_agent
+    if _supervisor_agent is None:
+        _supervisor_agent = SupervisorAgent()
+    return _supervisor_agent

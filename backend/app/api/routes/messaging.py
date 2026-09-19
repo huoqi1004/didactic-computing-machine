@@ -161,6 +161,9 @@ _AGENT_KEY_MAP: dict[str, dict[str, str]] = {a["key"]: a for a in AGENT_CATALOG}
 
 # Phase 4/5 Agent 的 _agent_refs getter 映射
 _AGENT_REFS_GETTERS = {
+    "supervisor": lambda: __import__(
+        "app.core.agent.supervisor", fromlist=["get_supervisor_agent"]
+    ).get_supervisor_agent(),
     "hr": _agent_refs.get_hr_agent,
     "recruitment": _agent_refs.get_recruitment_agent,
     "performance": _agent_refs.get_performance_agent,

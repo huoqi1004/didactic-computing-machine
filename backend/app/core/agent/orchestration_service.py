@@ -120,6 +120,39 @@ async def resume_after_decision(
         user_id=requested_by, username=requested_by,
         agent_key=agent_key, thread_id=thread_id, channel_id=channel_id,
     )
+
+    # 跨域工作流的人审恢复（domain 形如 "workflow:reimbursement_approval"）
+    if domain.startswith("workflow:"):
+        from app.core.agent.workflows import resume_workflow
+
+        wf_result = await resume_workflow(
+            domain.split(":", 1)[1], thread_id,
+            {"approved": approved, "comment": comment},
+            ctx,
+        )
+        status = {"done": "executed", "error": "rejected"}.get(
+            wf_result["status"], wf_result["status"]
+        )
+        if not approved:
+            status = "rejected"
+        async with session_scope() as session:
+            from app.db.models import agent_approval_requests
+            from sqlalchemy import update
+
+            await session.execute(
+                update(agent_approval_requests)
+                .where(agent_approval_requests.c.thread_id == thread_id)
+                .values(
+                    status=status,
+                    decided_by=decided_by,
+                    decided_at=datetime.now(timezone.utc),
+                    result_reply=str(wf_result.get("reply", ""))[:4000],
+                )
+            )
+        await _audit_decision(decided_by, thread_id, approved, comment, agent_key)
+        return {"reply": str(wf_result.get("reply", "")),
+                "status": wf_result["status"], "channel_id": channel_id}
+
     result = await agent_runtime.resume(
         domain, thread_id,
         {"approved": approved, "comment": comment},
@@ -145,19 +178,7 @@ async def resume_after_decision(
             )
         )
 
-    try:
-        from app.core.security.audit import audit_chain
-
-        await audit_chain.log(
-            actor_did=decided_by,
-            action="approval.decided",
-            resource=f"agent_approval:{thread_id}",
-            result="success",
-            details={"approved": approved, "comment": comment, "agent": agent_key},
-            risk_level="high" if approved else "medium",
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("orchestration.decision_audit_failed", error=str(e))
+    await _audit_decision(decided_by, thread_id, approved, comment, agent_key)
 
     logger.info(
         "orchestration.resumed",
@@ -203,6 +224,23 @@ async def _create_approval_record(payload: dict, ctx: ToolContext) -> None:
         )
     except Exception as e:  # noqa: BLE001
         logger.error("orchestration.approval_record_failed", error=str(e))
+
+
+async def _audit_decision(decided_by: str, thread_id: str, approved: bool,
+                          comment: str, agent_key: str) -> None:
+    try:
+        from app.core.security.audit import audit_chain
+
+        await audit_chain.log(
+            actor_did=decided_by,
+            action="approval.decided",
+            resource=f"agent_approval:{thread_id}",
+            result="success",
+            details={"approved": approved, "comment": comment, "agent": agent_key},
+            risk_level="high" if approved else "medium",
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("orchestration.decision_audit_failed", error=str(e))
 
 
 async def list_approvals(status: str = "pending", limit: int = 50) -> list[dict]:

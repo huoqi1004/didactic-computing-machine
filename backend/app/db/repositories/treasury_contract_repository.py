@@ -174,10 +174,19 @@ class ContractRepository(RepositoryBase):
         try:
             from sqlalchemy import update
 
+            from datetime import datetime
+
             values: dict = {"status": status}
             for key, value in (extra or {}).items():
-                if value is not None:
-                    values[key] = value
+                if value is None:
+                    continue
+                if key.endswith("_at") and isinstance(value, str):
+                    # Agent 内存存 ISO 字符串；DateTime 列需要 datetime 对象
+                    try:
+                        value = datetime.fromisoformat(value)
+                    except ValueError:
+                        continue
+                values[key] = value
             async with session_scope() as session:
                 await session.execute(
                     update(self.__model__)

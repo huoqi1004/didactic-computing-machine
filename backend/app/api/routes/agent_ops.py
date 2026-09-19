@@ -31,12 +31,73 @@ class ApprovalDecisionRequest(BaseModel):
     comment: str = Field("", max_length=500, description="审批意见")
 
 
+class WorkflowStartRequest(BaseModel):
+    """工作流启动请求"""
+    input: dict = Field(..., description="工作流输入参数（见各工作流 input_hint）")
+    thread_id: str = Field("", max_length=150, description="可选：指定线程ID（默认自动生成）")
+
+
 @router.get("/tools", summary="工具目录")
 async def list_tools(current_user: dict = Depends(get_current_user)):
     """列出治理面注册的全部工具（含风险级/权限要求/调用统计）。"""
     from app.core.agent.governor import agent_governor
 
     return agent_governor.get_stats()
+
+
+@router.get("/workflows", summary="可用工作流目录")
+async def list_workflows_route(current_user: dict = Depends(get_current_user)):
+    """列出全部跨域工作流（名称/描述/输入参数说明）。"""
+    from app.core.agent.workflows import list_workflows
+
+    return {"workflows": list_workflows()}
+
+
+@router.post("/workflows/{name}/start", summary="启动跨域工作流")
+async def start_workflow_route(
+    name: str,
+    req: WorkflowStartRequest,
+    current_user: dict = Depends(require_permission("agent", "execute")),
+):
+    """
+    启动跨域业务工作流（报销审批流/采购到支付/合同审批流）。
+
+    遇人审节点时中断并落审批行（审批中心可见），
+    经 approvals/{thread_id}/decide 批准后从断点恢复。
+    """
+    from app.core.agent.workflows import WORKFLOW_CATALOG, start_workflow
+    from app.core.agent.tools_v2 import ToolContext
+    from app.db.repositories.base import has_db
+
+    if name not in WORKFLOW_CATALOG:
+        raise HTTPException(status_code=404, detail=f"未知工作流: {name}")
+
+    user_id = current_user.get("user_id", "unknown")
+    ctx = ToolContext(user_id=user_id, username=current_user.get("username", ""),
+                      agent_key=f"workflow:{name}")
+    result = await start_workflow(name, req.input, ctx, thread_id=req.thread_id)
+
+    # awaiting → 落审批行（复用审批面板与决定路由）
+    if result["status"] == "awaiting_approval" and has_db():
+        from app.core.agent.orchestration_service import _create_approval_record
+
+        await _create_approval_record(result.get("interrupt") or {}, ctx)
+
+    await _audit_workflow_start(name, user_id, result["status"])
+    return result
+
+
+async def _audit_workflow_start(name: str, user_id: str, status: str) -> None:
+    try:
+        from app.core.security.audit import audit_chain
+
+        await audit_chain.log(
+            actor_did=user_id, action=f"workflow.{name}.started",
+            resource=f"workflow:{name}", result=status,
+            details={"status": status},
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("workflow.start_audit_failed", error=str(e))
 
 
 @router.get("/approvals", summary="人审任务列表")

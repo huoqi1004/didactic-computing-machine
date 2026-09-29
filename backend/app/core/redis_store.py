@@ -218,3 +218,31 @@ async def bump_rbac_version() -> Optional[int]:
     except Exception as e:
         _warn_throttled("rbac_version", "redis.rbac_version_bump_failed", error=str(e))
         return None
+
+# ===========================================================================
+# 通用键读写（定制层版本信号等非专用键）
+# ===========================================================================
+
+async def get_key_value(key: str) -> Optional[str]:
+    """读取通用键值（无 TTL 概念，长期存在）。不可用返回 None。"""
+    client = await get_client()
+    if client is None:
+        return None
+    try:
+        return await client.get(key)
+    except Exception as e:
+        _warn_throttled("generic_read", "redis.generic_read_failed", error=str(e))
+        return None
+
+
+async def bump_key_value(key: str) -> Optional[int]:
+    """递增通用计数键（INCR）。不可用返回 None。"""
+    client = await get_client()
+    if client is None:
+        return None
+    try:
+        return int(await client.incr(key))
+    except Exception as e:
+        _warn_throttled("generic_incr", "redis.generic_incr_failed", error=str(e))
+        return None
+

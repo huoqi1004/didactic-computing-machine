@@ -112,6 +112,7 @@ RESOURCES: dict[str, str] = {
     "budget": "预算管理",
     "bi": "商业智能",
     "esg": "ESG管理",
+    "customization": "Agent定制",
     "knowledge": "知识管理",
     "admin": "行政管理",
     "document": "文档管理",
@@ -125,6 +126,7 @@ _CRITICAL_RESOURCES: set[str] = {
     "treasury", "permission", "security", "system",
     "agent", "user", "role", "audit",
     "payroll",  # 薪酬数据属企业最高敏数据（评估报告 D-01）
+    "customization",  # Agent 定制：放宽类变更可降低审批强度（Phase F1）
 }
 
 
@@ -179,6 +181,24 @@ SEED_PERMISSIONS.extend([
 # ===================================================================
 
 SEED_ROLES: list[dict] = [
+    # ---- Phase F1：Agent 定制平台角色（附录 B）----
+    {
+        "role_id": "role_025",
+        "role_code": "customization_admin",
+        "role_name": "定制平台管理员",
+        "level": 2,
+        "parent_role_id": "role_001",
+        "description": "Agent 定制平台全域管理：工具启停/风险分级/阈值/工作流/Skill/MCP",
+    },
+    {
+        "role_id": "role_026",
+        "role_code": "customization_approver",
+        "role_name": "定制变更审批人",
+        "level": 1,
+        "parent_role_id": "role_001",
+        "description": "放宽类定制变更的审批（administrator 之外角色，防自我审批）",
+    },
+
     # ---- L1 ----
     {
         "role_id": "role_001",
@@ -744,6 +764,13 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
 for _role_code in ROLE_PERMISSION_MATRIX:
     ROLE_PERMISSION_MATRIX[_role_code]["message"] = _MSG_ALL
 
+# ---- Phase F1：Agent 定制平台角色（附录 B）----
+ROLE_PERMISSION_MATRIX["customization_admin"] = {"customization": _ALL}
+ROLE_PERMISSION_MATRIX["customization_approver"] = {"customization": _RA}
+ROLE_PERMISSION_MATRIX["cio"]["customization"] = {"read", "update", "approve", "create"}
+ROLE_PERMISSION_MATRIX["chairman"]["customization"] = {"read", "approve", "create"}
+
+
 
 def _expand_matrix_to_permissions() -> dict[str, list[str]]:
     """
@@ -762,6 +789,9 @@ def _expand_matrix_to_permissions() -> dict[str, list[str]]:
 
 
 # 角色-权限 ID 映射（展开后）
+# ---- Phase F1：Agent 定制平台角色（附录 B）----
+# customization_admin：定制平台管理员（全部定制权限，全域范围）
+
 ROLE_PERMISSION_IDS: dict[str, list[str]] = _expand_matrix_to_permissions()
 
 

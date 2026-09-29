@@ -1730,6 +1730,49 @@ langgraph_checkpoints = Table(
     Index("ix_langgraph_cp_thread", "thread_id", "checkpoint_ns"),
 )
 
+# ---- Agent 定制层（Phase F1：管理端可配置化）----
+
+agent_customizations = Table(
+    "agent_customizations",
+    Base.metadata,
+    Column("id", BigIntPK, primary_key=True, autoincrement=True),
+    # 定制类型白名单：tool / gate（阈值）/ agent / workflow / skill
+    Column("type", String(32), nullable=False),
+    Column("target", String(128), nullable=False),
+    Column("enabled", Boolean, nullable=False, server_default=text("1")),
+    # 覆盖内容（JSON，schema 按 type 定义；带 schema_version 供演进回滚兼容）
+    Column("overrides", JSON, nullable=True),
+    Column("schema_version", Integer, nullable=False, server_default=text("1")),
+    # status: active（生效中）/ pending_approval（放宽类待批）/ rejected / removed
+    Column("status", String(24), nullable=False, default="active"),
+    Column("environment", String(16), nullable=False, default="prod"),
+    Column("updated_by", String(64), nullable=True),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("type", "target", "environment", name="uq_agent_custom_target"),
+    Index("ix_agent_custom_status", "status"),
+    Index("ix_agent_custom_type", "type"),
+)
+
+customization_versions = Table(
+    "customization_versions",
+    Base.metadata,
+    Column("id", BigIntPK, primary_key=True, autoincrement=True),
+    Column("type", String(32), nullable=False),
+    Column("target", String(128), nullable=False),
+    Column("environment", String(16), nullable=False, default="prod"),
+    # 快照（该次变更后的完整 overrides）+ 变更前后摘要
+    Column("overrides", JSON, nullable=True),
+    Column("old_summary", JSON, nullable=True),
+    Column("new_summary", JSON, nullable=True),
+    Column("status", String(24), nullable=False),
+    Column("comment", String(512), nullable=True),
+    Column("changed_by", String(64), nullable=True),
+    Column("approved_by", String(64), nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Index("ix_cust_ver_target", "type", "target"),
+)
+
 knowledge_chunks = Table(
     "knowledge_chunks",
     Base.metadata,

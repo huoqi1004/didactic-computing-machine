@@ -30,6 +30,7 @@ from app.api.routes.document import router as document_router
 from app.api.routes.messaging import router as messaging_router
 from app.api.routes.reimbursement import router as reimbursement_router
 from app.api.routes.agent_ops import router as agent_ops_router
+from app.api.routes.customizations import router as customizations_router
 
 # 兼容旧导入: from app.api.routes import router
 router = legacy_router
@@ -48,9 +49,11 @@ api_router.include_router(document_router)
 api_router.include_router(messaging_router)
 api_router.include_router(reimbursement_router)
 api_router.include_router(agent_ops_router)
+api_router.include_router(customizations_router)
 
 # 导出所有子路由器，供 main.py 直接包含
 phase2_routers = [
+    customizations_router,
     agent_ops_router,
     reimbursement_router,
     auth_router,

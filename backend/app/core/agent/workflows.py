@@ -38,6 +38,17 @@ REIMB_AUTO_APPROVE_LIMIT = 5000.0
 PAYMENT_HUMAN_GATE_LIMIT = 100_000.0
 
 
+def _threshold(key: str, default: float) -> float:
+    """读取定制层阈值覆盖（管理端可调；无覆盖用内置默认）。"""
+    try:
+        from app.core.agent.customization import customization_service
+
+        override = customization_service.get_threshold(key)
+        return override if override is not None else default
+    except Exception:  # noqa: BLE001
+        return default
+
+
 class WorkflowState(TypedDict, total=False):
     """工作流通用状态。"""
 
@@ -147,7 +158,7 @@ def _build_reimbursement_approval():
 
     async def approval_gate(state: WorkflowState) -> dict:
         amount = float(state["input"].get("amount", 0))
-        if amount < REIMB_AUTO_APPROVE_LIMIT:
+        if amount < _threshold("reimbursement_auto_approve_limit", REIMB_AUTO_APPROVE_LIMIT):
             # 小额：免人审，直接核验+自动审批（决策 D6：write_low 免审）
             return {"steps": state["steps"] + ["approval_gate(auto)"]}
 
@@ -260,7 +271,7 @@ def _build_procure_to_pay():
 
     async def payment_gate(state: WorkflowState) -> dict:
         amount = float(state["result"].get("amount", 0))
-        if amount < PAYMENT_HUMAN_GATE_LIMIT:
+        if amount < _threshold("payment_human_gate_limit", PAYMENT_HUMAN_GATE_LIMIT):
             return {"steps": state["steps"] + ["payment_gate(auto)"]}
 
         decision = interrupt({

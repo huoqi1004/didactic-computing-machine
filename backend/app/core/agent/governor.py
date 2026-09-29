@@ -109,6 +109,33 @@ class AgentGovernor:
             )
             logger.warning("governor.permission_denied", tool=tool_name, user=ctx.user_id)
             return ToolResult(ok=False, error=f"权限不足：需要 {spec.resource}:{spec.action} 权限")
+        # ---- 定制层接入（Phase F1）：工具启停/风险分级覆盖 ----
+        # 失败安全：定制读取异常按"无覆盖"处理（不阻断工具调用）
+        try:
+            from app.core.agent.customization import customization_service
+
+            await customization_service.ensure_fresh()
+            if not customization_service.is_tool_enabled(tool_name):
+                self.registry.bump_stat(tool_name, "denied")
+                await _audit("disabled", "denied",
+                             {"reason": "工具已被管理员停用"}, "medium")
+                logger.warning("governor.tool_disabled", tool=tool_name)
+                return ToolResult(ok=False, error=f"工具 {tool_name} 已被管理员停用")
+            risk_override = customization_service.get_tool_risk_override(tool_name)
+            if risk_override:
+                spec = spec.__class__(
+                    name=spec.name, description=spec.description,
+                    handler=spec.handler, args_model=spec.args_model,
+                    risk_level=__import__("app.core.agent.tools_v2",
+                                          fromlist=["ToolRisk"]).ToolRisk(risk_override),
+                    resource=spec.resource, action=spec.action,
+                    compensation=spec.compensation, effects_fn=spec.effects_fn,
+                    agent_domain=spec.agent_domain, tags=spec.tags,
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("governor.customization_read_failed",
+                           tool=tool_name, error=str(e))
+
 
         # 2. 限流（每用户滑窗）
         if not self._check_rate_limit(ctx.user_id):

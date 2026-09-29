@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AgentCustomizationCenter } from '../components/AgentCustomizationCenter'
 import {
   Settings,
   Activity,
@@ -37,6 +38,7 @@ import {
   ToggleRight,
   CloudUpload,
   FileCheck2,
+  SlidersHorizontal,
 } from 'lucide-react'
 import {
   PageHeader,
@@ -308,6 +310,7 @@ interface TabItem {
 
 const TABS: TabItem[] = [
   { key: 'monitor', label: '系统监控', icon: Activity },
+  { key: 'customization', label: 'Agent 定制中心', icon: SlidersHorizontal },
   { key: 'agent', label: 'Agent 生命周期', icon: Bot },
   { key: 'config', label: '配置管理', icon: Settings },
   { key: 'security', label: '安全控制', icon: ShieldCheck },
@@ -1222,6 +1225,8 @@ export default function CIOAdmin() {
     switch (activeTab) {
       case 'monitor':
         return <SystemMonitorTab />
+      case 'customization':
+        return <AgentCustomizationCenter />
       case 'agent':
         return <AgentLifecycleTab />
       case 'config':

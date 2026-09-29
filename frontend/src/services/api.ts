@@ -1744,6 +1744,37 @@ export const apiService = {
       return res
     }, {} as any),
 
+  // Agent 定制中心（Phase F1）
+  getAgentTools: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/agent-ops/tools')
+      return res as any
+    }, { tools: [] }),
+
+  getAgentCustomizations: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/agent-ops/customizations')
+      return res as any
+    }, { customizations: [] }),
+
+  getCustomizationVersions: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/agent-ops/customizations/versions')
+      return res as any
+    }, { versions: [] }),
+
+  putAgentCustomization: (
+    type: string, target: string,
+    body: { overrides: Record<string, unknown>; enabled: boolean },
+  ): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.put(
+        `/agent-ops/customizations/${encodeURIComponent(type)}/${encodeURIComponent(target)}`,
+        body,
+      )
+      return res as any
+    }, {} as any),
+
   // Agent 工具人审任务（Phase B）
   getAgentApprovals: (status: string = 'pending'): Promise<any> =>
     withFallback(async () => {

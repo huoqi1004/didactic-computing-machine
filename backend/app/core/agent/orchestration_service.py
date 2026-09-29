@@ -133,6 +133,36 @@ async def resume_after_decision(
         agent_key=agent_key, thread_id=thread_id, channel_id=channel_id,
     )
 
+    # 定制变更审批恢复（Phase F1：批准生效/驳回）
+    if domain == "customization":
+        from app.core.agent.customization import customization_service
+
+        # row.tool 形如 "tool:sales_create_order" / "gate:reimbursement_..."
+        ctype, _, ctarget = (row.tool or "").partition(":")
+        cust_result = await customization_service.apply_pending(
+            ctype, ctarget, approved, comment, decided_by,
+        )
+        status = "executed" if cust_result.get("status") == "executed" else (
+            "rejected" if not approved else "failed")
+        async with session_scope() as session:
+            from app.db.models import agent_approval_requests
+            from sqlalchemy import update
+
+            await session.execute(
+                update(agent_approval_requests)
+                .where(agent_approval_requests.c.thread_id == thread_id)
+                .values(
+                    status=status,
+                    decided_by=decided_by,
+                    decided_at=datetime.now(timezone.utc),
+                    result_reply=str(cust_result.get("reply", ""))[:4000],
+                )
+            )
+        await _audit_decision(decided_by, thread_id, approved, comment, agent_key)
+        return {"reply": str(cust_result.get("reply", "")),
+                "status": cust_result.get("status", "done"),
+                "channel_id": channel_id}
+
     # Supervisor 协同人审恢复（Phase C：先恢复子图、再综合）
     if domain == "supervisor":
         from app.core.agent.supervisor import resume_supervisor

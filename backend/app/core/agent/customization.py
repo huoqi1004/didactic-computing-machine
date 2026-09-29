@@ -145,6 +145,50 @@ class CustomizationService:
             return None
 
     # ------------------------------------------------------------------
+    # 审批人路由矩阵（Phase F2 / F2.5）
+    # ------------------------------------------------------------------
+
+    def resolve_approve_roles(self, document_type: str,
+                              amount: Optional[float] = None) -> Optional[list[str]]:
+        """
+        按「单据类型 × 金额区间 → 审批角色」矩阵解析审批角色。
+
+        矩阵存于定制层：gate:approval_route_matrix =
+        {"rules": [{"document_type": "...", "amount_min": ..., "amount_max": ...,
+                    "approve_roles": [...], "mode": "any_of"}],
+         "default": "legacy"}
+
+        Returns:
+            角色列表；None = 未命中 → 落入存量三级审批链（向后兼容）。
+        """
+        entry = self._cache.get("gate:approval_route_matrix")
+        if entry is None:
+            return None
+        rules = (entry.get("overrides") or {}).get("rules") or []
+        for rule in rules:
+            if rule.get("document_type") != document_type:
+                continue
+            a_min = rule.get("amount_min")
+            a_max = rule.get("amount_max")
+            if a_min is not None and amount is not None and amount < float(a_min):
+                continue
+            if a_max is not None and amount is not None and amount > float(a_max):
+                continue
+            roles = rule.get("approve_roles") or []
+            return [str(r) for r in roles] or None
+        return None
+
+    # ------------------------------------------------------------------
+    # 域业务参数（Phase F2 / F2.3-F2.4：声明式域参数，管理端可调）
+    # ------------------------------------------------------------------
+
+    def get_domain_param(self, domain: str, key: str, default: Any = None) -> Any:
+        """读取域业务参数（agent:{domain} 定制的 overrides.params）。"""
+        entry = self._cache.get(f"agent:{domain}")
+        params = (entry or {}).get("overrides", {}).get("params") or {}
+        return params.get(key, default)
+
+    # ------------------------------------------------------------------
     # 变更（管理端 API 调用；收紧即时 / 放宽转人审）
     # ------------------------------------------------------------------
 
@@ -179,6 +223,12 @@ class CustomizationService:
                     return "relax"  # 风险降级 = 放宽
                 return "tighten"
             return "tighten"
+        if ctype == "agent":
+            # agent 级定制（人设/温度/预算/白名单/域参数）即时生效：
+            # 白名单仅收窄 LLM 可见集（治理面仍逐调用校验），不构成权限放宽
+            return "tighten"
+        if ctype == "gate" and target == "approval_route_matrix":
+            return "relax"  # 审批路由矩阵变更影响面大，一律人审（红线 2）
         if ctype == "gate":
             old_val = float((old or {}).get("overrides", {}).get("value",
                              THRESHOLD_DEFAULTS.get(target, 0)))

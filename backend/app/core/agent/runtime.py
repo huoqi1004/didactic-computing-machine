@@ -132,12 +132,30 @@ class AgentRuntime:
         from langchain_core.messages import ToolMessage
 
         specs = tool_registry_v2.list_specs(domain=domain)
+        # per-Agent 工具白名单（agent 级定制）：仅 LLM 可见子集变化；
+        # 治理面仍逐调用校验（白名单是收窄，不放宽权限）
+        cfg = self._agent_cfg(domain)
+        whitelist = cfg.get("tool_whitelist") or None
+        if whitelist:
+            allowed = set(whitelist)
+            specs = [s for s in specs if s.name in allowed]
         if not specs:
-            raise RuntimeError(f"域 {domain} 无已注册工具")
+            raise RuntimeError(f"域 {domain} 无已注册工具（或白名单过滤后为空）")
         llm = self._get_llm().bind_tools([self._wrap_tool(s) for s in specs])
+        # per-Agent 温度覆盖（构造后设置；_get_llm 无域上下文）
+        if "temperature" in cfg:
+            llm.temperature = float(cfg["temperature"])
 
         async def node_agent(state: ScenarioState) -> dict:
             history = _sanitize_history(state["messages"])
+            # Agent 级人设定制：prompt_override 非空时前置 System 消息
+            persona = self._agent_cfg(domain).get("prompt_override")
+            if persona:
+                from langchain_core.messages import SystemMessage
+
+                has_system = any(getattr(m, "type", "") == "system" for m in history)
+                if not has_system:
+                    history = [SystemMessage(content=str(persona))] + history
             response = await llm.ainvoke(history)
             return {"messages": [response]}
 
@@ -201,12 +219,18 @@ class AgentRuntime:
         return result.for_llm()
 
     def get_graph(self, domain: str):
-        """获取（或编译并缓存）指定域的场景图。"""
-        if domain not in self._graphs:
-            self._graphs[domain] = self._build_graph(domain)
-            logger.info("runtime.graph_compiled", domain=domain,
+        """获取（或编译并缓存）指定域的场景图（缓存键含配置哈希）。
+
+        agent 级定制（人设/温度/工具白名单）变更 → 配置哈希变化 →
+        下次调用重新编译新图（旧线程 checkpoint 的 channel 结构不变，兼容）。
+        """
+        cfg_hash = self._cfg_hash(self._agent_cfg(domain))
+        cache_key = f"{domain}:{cfg_hash}"
+        if cache_key not in self._graphs:
+            self._graphs[cache_key] = self._build_graph(domain)
+            logger.info("runtime.graph_compiled", domain=domain, cfg=cfg_hash,
                         tools=len(tool_registry_v2.list_specs(domain=domain)))
-        return self._graphs[domain]
+        return self._graphs[cache_key]
 
     # ------------------------------------------------------------------
     async def run(
@@ -323,6 +347,27 @@ class AgentRuntime:
         except Exception:  # noqa: BLE001
             return False
 
+    @staticmethod
+    def _agent_cfg(domain: str) -> dict:
+        """读取 agent 级定制覆盖（人设/温度/预算/工具子集；无定制=空）。"""
+        try:
+            from app.core.agent.customization import customization_service
+
+            entry = customization_service.get_override("agent", domain)
+            return (entry or {}).get("overrides") or {}
+        except Exception:  # noqa: BLE001
+            return {}
+
+    @staticmethod
+    def _cfg_hash(cfg: dict) -> str:
+        import hashlib
+        import json as _json
+
+        if not cfg:
+            return "default"
+        raw = _json.dumps(cfg, sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.md5(raw.encode("utf-8")).hexdigest()[:8]
+
     def has_domain(self, domain: str) -> bool:
         return bool(tool_registry_v2.list_specs(domain=domain))
 
@@ -335,16 +380,19 @@ class AgentRuntime:
 
     @classmethod
     def _check_budget(cls, domain: str) -> bool:
-        """该域当日 token 预算检查（超限返回 False，调用方降级规则路径）。"""
-        from app.core.config import settings as _settings
+        """该域当日 token 预算检查（per-agent 定制覆盖优先，超限降级规则路径）。"""
         from datetime import datetime as _dt
 
+        from app.core.config import settings as _settings
+
+        limit = cls._agent_cfg(domain).get("daily_token_budget")
+        limit = float(limit) if limit else _settings.agent_daily_token_budget
         today = _dt.now(timezone.utc).strftime("%Y-%m-%d")
         if cls._usage_date != today:
             cls._usage_date = today
             cls._token_usage_today.clear()
         used = cls._token_usage_today.get(domain, 0)
-        return used < _settings.agent_daily_token_budget
+        return used < limit
 
     @classmethod
     def _record_tokens(cls, domain: str, tokens: int) -> None:

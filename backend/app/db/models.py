@@ -1806,6 +1806,8 @@ agent_approval_requests = Table(
     Column("risk", String(16), nullable=False),
     Column("status", String(16), nullable=False, default="pending"),
     Column("requested_by", String(64), nullable=True),
+    # 审批人路由矩阵（F2.5）：命中的审批角色清单；NULL=默认链（全员可见）
+    Column("approve_roles", JSON, nullable=True),
     Column("decided_by", String(64), nullable=True),
     Column("decided_at", DateTime, nullable=True),
     Column("result_reply", Text, nullable=True),

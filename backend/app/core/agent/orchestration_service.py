@@ -267,6 +267,20 @@ async def _create_approval_record(payload: dict, ctx: ToolContext) -> None:
 
     if not has_db():
         return
+    # 审批人路由矩阵（F2.5）：按单据类型（工具/工作流名）与金额解析审批角色；
+    # 未命中 → None（落入存量三级审批链，向后兼容）
+    approve_roles = None
+    try:
+        doc_type = str(payload.get("tool", "")).split(":")[-1]
+        amount = (payload.get("args") or {}).get("amount")
+        from app.core.agent.customization import customization_service
+
+        approve_roles = customization_service.resolve_approve_roles(
+            doc_type, float(amount) if amount is not None else None,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("customization.route_resolve_failed", error=str(e))
+
     try:
         from app.db.repositories.base import dialect_upsert_stmt
 
@@ -284,6 +298,7 @@ async def _create_approval_record(payload: dict, ctx: ToolContext) -> None:
                 risk=str(payload.get("risk", "write_high")),
                 status="pending",
                 requested_by=ctx.user_id,
+                approve_roles=approve_roles,
             )
             await session.execute(
                 dialect_upsert_stmt(agent_approval_requests, values)
@@ -313,8 +328,12 @@ async def _audit_decision(decided_by: str, thread_id: str, approved: bool,
         logger.warning("orchestration.decision_audit_failed", error=str(e))
 
 
-async def list_approvals(status: str = "pending", limit: int = 50) -> list[dict]:
-    """审批列表（审批路由/前端卡片数据源）。"""
+async def list_approvals(status: str = "pending", limit: int = 50,
+                         approve_role: Optional[str] = None) -> list[dict]:
+    """审批列表（审批路由/前端卡片数据源）。
+
+    approve_role：按路由矩阵的审批角色过滤（命中角色或未路由单据均可见）。
+    """
     from app.db.repositories.base import has_db, session_scope
 
     if not has_db():
@@ -334,6 +353,10 @@ async def list_approvals(status: str = "pending", limit: int = 50) -> list[dict]
 
     result = []
     for r in rows:
+        if approve_role:
+            roles = r.approve_roles or []
+            if roles and approve_role not in roles:
+                continue  # 路由至其他角色的任务对本角色不可见
         created = r.created_at
         result.append({
             "thread_id": r.thread_id,
@@ -350,5 +373,6 @@ async def list_approvals(status: str = "pending", limit: int = 50) -> list[dict]
             "decided_at": decided_at.isoformat() if (decided_at := r.decided_at) else None,
             "result_reply": r.result_reply,
             "created_at": created.isoformat() if created else None,
+            "approve_roles": r.approve_roles,
         })
     return result

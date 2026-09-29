@@ -135,7 +135,12 @@ def _build_reimbursement_approval():
             problems.append("金额必须大于0")
         if not inp.get("description"):
             problems.append("缺少报销事由")
-        if not inp.get("has_receipt", False):
+        # 域业务参数（F2.3/F2.4）：require_receipt 管理端可关（免票场景）
+        from app.core.agent.runtime import AgentRuntime
+
+        require_receipt = AgentRuntime._agent_cfg("reimbursement").get(
+            "params", {}).get("require_receipt", True)
+        if require_receipt and not inp.get("has_receipt", False):
             problems.append("未附发票")
         if problems:
             reimb_id = state["result"].get("reimbursement_id", "")

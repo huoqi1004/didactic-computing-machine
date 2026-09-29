@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from app.agents.bi.agent import BIAgent
     from app.agents.esg.agent import ESGAgent
     from app.agents.admin.agent import AdminAgent
+    from app.agents.project_supervisor.agent import ProjectSupervisorAgent
 
 # 全局引用（由 main.py lifespan 初始化时设置）
 _hr_agent: Optional["HRAgent"] = None
@@ -48,6 +49,7 @@ _budget_agent: Optional["BudgetAgent"] = None
 _bi_agent: Optional["BIAgent"] = None
 _esg_agent: Optional["ESGAgent"] = None
 _admin_agent: Optional["AdminAgent"] = None
+_project_supervisor_agent: Optional["ProjectSupervisorAgent"] = None
 
 
 def set_agents(**kwargs):
@@ -65,7 +67,7 @@ def set_agents(**kwargs):
     global _crm_agent, _sales_agent, _marketing_agent, _customer_service_agent
     global _legal_agent, _risk_agent, _contract_agent, _quality_agent
     global _asset_agent, _project_agent, _budget_agent, _bi_agent, _esg_agent
-    global _admin_agent
+    global _admin_agent, _project_supervisor_agent
     for key, val in kwargs.items():
         if key == "hr":
             _hr_agent = val
@@ -103,6 +105,8 @@ def set_agents(**kwargs):
             _esg_agent = val
         elif key == "admin":
             _admin_agent = val
+        elif key == "project_supervisor":
+            _project_supervisor_agent = val
 
 
 def get_hr_agent() -> Optional["HRAgent"]:
@@ -175,3 +179,7 @@ def get_esg_agent() -> Optional["ESGAgent"]:
 
 def get_admin_agent() -> Optional["AdminAgent"]:
     return _admin_agent
+
+
+def get_project_supervisor_agent() -> Optional["ProjectSupervisorAgent"]:
+    return _project_supervisor_agent

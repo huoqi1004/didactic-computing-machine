@@ -88,6 +88,7 @@ from app.agents.budget.agent import BudgetAgent
 from app.agents.bi.agent import BIAgent
 from app.agents.esg.agent import ESGAgent
 from app.agents.admin.agent import AdminAgent
+from app.agents.project_supervisor.agent import ProjectSupervisorAgent
 
 # 初始化结构化日志（JSON 格式，便于 Loki / ELK 采集）
 configure_logging(debug=settings.debug)
@@ -130,6 +131,7 @@ budget_agent: BudgetAgent = None
 bi_agent: BIAgent = None
 esg_agent: ESGAgent = None
 admin_agent: AdminAgent = None
+project_supervisor_agent: ProjectSupervisorAgent = None
 
 
 def register_tools():
@@ -350,7 +352,7 @@ async def lifespan(app: FastAPI):
     global crm_agent, sales_agent, marketing_agent, customer_service_agent
     global legal_agent, risk_agent, contract_agent, quality_agent
     global asset_agent, project_agent, budget_agent, bi_agent, esg_agent
-    global admin_agent
+    global admin_agent, project_supervisor_agent
 
     logger.info("app.starting", version=settings.app_version)
 
@@ -534,6 +536,7 @@ async def lifespan(app: FastAPI):
     bi_agent = BIAgent()
     esg_agent = ESGAgent()
     admin_agent = AdminAgent()
+    project_supervisor_agent = ProjectSupervisorAgent()
 
     await orchestrator.register_agent(inventory_agent)
     await orchestrator.register_agent(bookkeeping_agent)
@@ -570,6 +573,7 @@ async def lifespan(app: FastAPI):
     await orchestrator.register_agent(bi_agent)
     await orchestrator.register_agent(esg_agent)
     await orchestrator.register_agent(admin_agent)
+    await orchestrator.register_agent(project_supervisor_agent)
 
     # 4.5 Agent 状态持久化水合（路线图 2.2/2.3：重启一致性）
     # DB 有数据则以库为准覆盖内存种子；DB 空则将内存种子幂等播种入库；
@@ -637,6 +641,7 @@ async def lifespan(app: FastAPI):
     await bi_agent.start()
     await esg_agent.start()
     await admin_agent.start()
+    await project_supervisor_agent.start()
 
     register_tools()
 
@@ -700,6 +705,7 @@ async def lifespan(app: FastAPI):
         bi=bi_agent,
         esg=esg_agent,
         admin=admin_agent,
+        project_supervisor=project_supervisor_agent,
     )
 
     # 6.1 初始化版本化与灰度发布系统
@@ -750,6 +756,7 @@ async def lifespan(app: FastAPI):
                 bi_agent,
                 esg_agent,
                 admin_agent,
+                project_supervisor_agent,
             ]
             for agent in initial_agents:
                 if agent is None:

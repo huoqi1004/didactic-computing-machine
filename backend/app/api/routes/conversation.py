@@ -102,6 +102,16 @@ CHAT_AGENTS = [
         "capabilities": ["日清日结", "对账核销", "资金调度", "流水核对"],
         "quickCommands": ["对账状态查询", "资金流水核对", "应收应付统计"],
     },
+    {
+        "id": "project-supervisor-agent",
+        "name": "项目监理agent",
+        "type": "project",
+        "status": "online",
+        "icon": "ClipboardCheck",
+        "description": "监理和审计公司项目从立项到上线的全流程合规，可查询项目进展、合规状态与监理报告",
+        "capabilities": ["立项审批", "进度监理", "上线审计", "合规检查", "监理报告"],
+        "quickCommands": ["查询项目进展", "检查项目合规", "上线审计", "生成监理报告"],
+    },
 ]
 
 # Agent ID → 系统提示词映射
@@ -183,6 +193,25 @@ AGENT_SYSTEM_PROMPTS = {
         "1. 根据用户具体问题给出有针对性的回复\n"
         "2. 涉及对账时返回对账状态表\n"
         "3. 涉及资金时返回资金流水统计\n\n"
+        "你必须返回合法的JSON，格式如下：\n"
+        "{\n"
+        '  "content": "给用户的自然语言回复（50-200字）",\n'
+        '  "thinkingProcess": ["推理步骤1", "推理步骤2", ...],\n'
+        '  "dataCard": { "type": "stats|table|list", "title": "...", ... }\n'
+        "}\n"
+        "不要包含markdown代码块标记。"
+    ),
+    "project-supervisor-agent": (
+        "你是「项目监理agent」，一个运行在企业ERP系统中的智能监理Agent，"
+        "负责监理和审计公司项目从立项到上线的全流程合规。\n"
+        "能力域：立项审批监理、进度监理、UAT与验收监理、上线发布审计、合规检查、监理报告。\n\n"
+        "回复规则：\n"
+        "1. 根据用户具体问题给出有针对性的回复，结论先行\n"
+        "2. 用户问「进展/进度/现状」时，返回项目进展与里程碑完成情况\n"
+        "3. 用户问「合规/检查/风险」时，返回各阶段合规核对结果与风险分级\n"
+        "4. 用户问「上线/审计/发布」时，返回上线就绪度审计结论\n"
+        "5. 用户问「监理报告」时，生成结构化监理报告\n"
+        "6. 高风险问题必须提示需人工介入\n\n"
         "你必须返回合法的JSON，格式如下：\n"
         "{\n"
         '  "content": "给用户的自然语言回复（50-200字）",\n'
@@ -298,6 +327,42 @@ def _collect_business_context(agent_id: str) -> str:
             "结算概览：今日日清日结尚未执行。待对账记录12条，"
             "应收账款总额¥2,340,000，应付账款总额¥1,860,000。"
             "银行流水已同步至09:00，共320条记录。"
+        )
+
+    elif agent_id == "project-supervisor-agent":
+        # 从项目Agent拉取实时项目数据
+        project_agent = orchestrator.get_agent_by_name("项目Agent")
+        if project_agent:
+            projects = project_agent.get_projects()
+            if projects:
+                context_parts.append(
+                    "在监项目实时数据："
+                    f"{json.dumps(projects, ensure_ascii=False, default=str)}"
+                )
+            stats = project_agent.get_stats()
+            if stats:
+                context_parts.append(
+                    "项目统计："
+                    f"{json.dumps(stats, ensure_ascii=False, default=str)}"
+                )
+        # 从合规Agent拉取控制点/合规状态
+        compliance_agent = orchestrator.get_agent_by_name("合规Agent")
+        if compliance_agent:
+            cps = compliance_agent.get_control_points()
+            if cps:
+                context_parts.append(
+                    "合规控制点："
+                    f"{json.dumps(cps, ensure_ascii=False, default=str)}"
+                )
+        # 补充监理概览数据
+        context_parts.append(
+            "在监项目概览：当前共3个在建项目——"
+            "ERP系统实施项目（proj-001，进行中，里程碑2/3完成，预算使用率40%，2026-09-30上线）、"
+            "企业官网改版项目（proj-002，进行中，前端开发进行中）、"
+            "新产品研发项目（proj-003，进行中，工程样机阶段）。"
+            "立项审批：3个项目均已通过立项评审并冻结需求基线；"
+            "上线审计：ERP实施项目尚未达到上线节点，UAT测试未完成，暂不具备上线条件；"
+            "风险提示：proj-001进度按时间基准存在轻微落后，需关注上线窗口。"
         )
 
     return "\n".join(context_parts) if context_parts else "（暂无实时业务数据）"
@@ -670,6 +735,108 @@ def _rule_based_response(agent_id: str, message: str, agent_config: dict) -> dic
         return {
             "content": "结算管家当前离线，请稍后再试。",
             "thinkingProcess": ["检查Agent状态", "Agent离线"],
+        }
+
+    # --- 项目监理agent ---
+    if agent_id == "project-supervisor-agent":
+        # 上线/发布审计类（最具体，优先匹配）
+        if any(kw in lower for kw in ["上线", "发布", "审计", "就绪"]):
+            return {
+                "content": (
+                    "上线就绪度审计结论：当前3个在建项目均未达到上线节点。"
+                    "其中 ERP系统实施项目（proj-001）计划2026-09-30上线，"
+                    "但 UAT 测试尚未完成、上线变更审批未发起，暂不具备上线条件，"
+                    "建议完成 UAT 验收并走变更流程后再安排上线。"
+                ),
+                "thinkingProcess": [
+                    "识别意图：上线/发布审计",
+                    "逐个项目核对上线前置条件（UAT、变更审批、回滚预案）",
+                    "判定上线就绪度",
+                    "输出审计结论与上线建议",
+                ],
+                "dataCard": {
+                    "type": "table",
+                    "title": "上线就绪度审计",
+                    "columns": [
+                        {"key": "project", "label": "项目"},
+                        {"key": "stage", "label": "当前阶段"},
+                        {"key": "uat", "label": "UAT验收"},
+                        {"key": "release", "label": "上线审批"},
+                        {"key": "verdict", "label": "审计结论"},
+                    ],
+                    "rows": [
+                        {"project": "ERP系统实施项目", "stage": "开发/测试", "uat": "未完成", "release": "未发起", "verdict": "暂不具备上线条件"},
+                        {"project": "企业官网改版项目", "stage": "前端开发", "uat": "未开始", "release": "未发起", "verdict": "不适用（未到上线节点）"},
+                        {"project": "新产品研发项目", "stage": "工程样机", "uat": "未开始", "release": "未发起", "verdict": "不适用（未到上线节点）"},
+                    ],
+                },
+            }
+
+        # 合规/风险检查类
+        if any(kw in lower for kw in ["合规", "检查", "风险", "违规"]):
+            return {
+                "content": (
+                    "项目合规检查完成。3个在建项目的立项审批、需求基线均已完成，流程合规。"
+                    "主要风险：proj-001 时间进度轻微落后，可能影响9-30上线窗口；"
+                    "无预算超支、无违规上线行为。整体合规，建议关注里程碑交付。"
+                ),
+                "thinkingProcess": [
+                    "识别意图：项目合规检查",
+                    "逐阶段核对立项/需求/开发/UAT/上线合规清单",
+                    "分级标注风险项",
+                    "生成合规检查结论",
+                ],
+                "dataCard": {
+                    "type": "table",
+                    "title": "项目合规检查结果",
+                    "columns": [
+                        {"key": "stage", "label": "阶段"},
+                        {"key": "status", "label": "状态"},
+                        {"key": "note", "label": "说明"},
+                    ],
+                    "rows": [
+                        {"stage": "立项审批", "status": "通过", "note": "3个项目均完成立项评审与预算审批"},
+                        {"stage": "需求评审", "status": "通过", "note": "需求基线已冻结"},
+                        {"stage": "开发测试", "status": "进行中", "note": "proj-001 集成测试执行中"},
+                        {"stage": "UAT验收", "status": "未完成", "note": "未到验收节点"},
+                        {"stage": "上线发布", "status": "未发起", "note": "未到上线节点"},
+                    ],
+                },
+            }
+
+        # 进展/进度/项目状态类（最宽泛，放最后）
+        if any(kw in lower for kw in ["进展", "进度", "项目", "里程碑", "状态", "现状", "报告"]):
+            return {
+                "content": (
+                    "项目进展监理报告：当前3个在建项目整体正常。"
+                    "ERP系统实施项目（proj-001）进行中，里程碑完成2/3，预算使用率40%，进度轻微落后，需关注9-30上线窗口；"
+                    "企业官网改版项目（proj-002）前端开发进行中；"
+                    "新产品研发项目（proj-003）处于工程样机阶段。"
+                ),
+                "thinkingProcess": [
+                    "识别意图：查询项目进展",
+                    "汇总各项目里程碑完成率与预算使用率",
+                    "计算进度偏差",
+                    "生成项目进展监理总览",
+                ],
+                "dataCard": {
+                    "type": "stats",
+                    "title": "项目进展监理总览",
+                    "stats": [
+                        {"label": "在建项目", "value": "3", "tone": "primary"},
+                        {"label": "里程碑完成", "value": "3/8", "tone": "accent"},
+                        {"label": "预算超支", "value": "0", "tone": "accent"},
+                        {"label": "进度风险", "value": "1", "tone": "paused"},
+                    ],
+                },
+            }
+
+        return {
+            "content": (
+                "项目监理agent已就绪。我可以帮您查询项目进展、检查合规状态、"
+                "执行上线审计或生成监理报告。请问您需要监理哪个项目？"
+            ),
+            "thinkingProcess": ["解析用户输入", "未命中具体意图", "返回能力引导"],
         }
 
     # 默认回复

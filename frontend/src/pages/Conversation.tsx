@@ -6,6 +6,7 @@ import {
   ShieldAlert,
   Wallet,
   Search,
+  ClipboardCheck,
   Send,
   Trash2,
   ChevronDown,
@@ -29,6 +30,7 @@ const AGENT_ICON_MAP: Record<string, LucideIcon> = {
   ShieldAlert,
   Wallet,
   Search,
+  ClipboardCheck,
 }
 
 /* Agent 状态配置 */

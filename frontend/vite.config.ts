@@ -15,7 +15,8 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        // 可由 ERP_API_TARGET 环境变量覆盖 (端口冲突时脚本自动降级用)
+        target: process.env.ERP_API_TARGET || 'http://localhost:8000',
         changeOrigin: true,
         // WebSocket 升级支持
         ws: true,

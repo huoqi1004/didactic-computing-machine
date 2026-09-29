@@ -396,6 +396,16 @@ const MOCK_CHAT_AGENTS: ChatAgent[] = [
     capabilities: ['合规审计', '行为溯源', '留痕校验', '报告生成'],
     quickCommands: ['生成审计报告', '检查操作留痕', '合规审计', '异常行为溯源'],
   },
+  {
+    id: 'project-supervisor-agent',
+    name: '项目监理agent',
+    type: 'project',
+    status: 'online',
+    icon: 'ClipboardCheck',
+    description: '监理和审计公司项目从立项到上线的全流程合规，可查询项目进展、合规状态与监理报告',
+    capabilities: ['立项审批', '进度监理', '上线审计', '合规检查', '监理报告'],
+    quickCommands: ['查询项目进展', '检查项目合规', '上线审计', '生成监理报告'],
+  },
 ]
 
 /* 预置示例对话（首次访问时作为历史展示） */
@@ -558,6 +568,84 @@ const PRESET_CONVERSATIONS: Record<string, ChatMessage[]> = {
           { label: '华南金属制品厂', value: '¥36.5/件 · 交货 5 天 · 评分 92.4' },
           { label: '华东铝业集团', value: '¥37.2/件 · 交货 3 天 · 评分 88.1' },
           { label: '深圳精密五金', value: '¥35.8/件 · 交货 8 天 · 评分 85.6' },
+        ],
+      },
+      status: 'sent',
+    },
+  ],
+  'project-supervisor-agent': [
+    {
+      id: 'msg-preset-psu-1',
+      role: 'user',
+      agentId: 'project-supervisor-agent',
+      agentName: '当前用户',
+      content: '查询项目进展',
+      timestamp: new Date(Date.now() - 1800000).toISOString(),
+      status: 'sent',
+    },
+    {
+      id: 'msg-preset-psu-2',
+      role: 'agent',
+      agentId: 'project-supervisor-agent',
+      agentName: '项目监理agent',
+      content:
+        '项目进展监理报告：当前3个在建项目整体正常。ERP系统实施项目（proj-001）进行中，里程碑完成2/3，预算使用率40%，进度轻微落后，需关注2026-09-30上线窗口；企业官网改版项目（proj-002）前端开发进行中；新产品研发项目（proj-003）处于工程样机阶段。',
+      timestamp: new Date(Date.now() - 1740000).toISOString(),
+      thinkingProcess: [
+        '识别意图：查询项目进展',
+        '汇总各项目里程碑完成率与预算使用率',
+        '计算进度偏差',
+        '生成项目进展监理总览',
+      ],
+      dataCard: {
+        type: 'stats',
+        title: '项目进展监理总览',
+        stats: [
+          { label: '在建项目', value: '3', tone: 'primary' },
+          { label: '里程碑完成', value: '3/8', tone: 'accent' },
+          { label: '预算超支', value: '0', tone: 'accent' },
+          { label: '进度风险', value: '1', tone: 'paused' },
+        ],
+      },
+      status: 'sent',
+    },
+    {
+      id: 'msg-preset-psu-3',
+      role: 'user',
+      agentId: 'project-supervisor-agent',
+      agentName: '当前用户',
+      content: '检查项目合规',
+      timestamp: new Date(Date.now() - 1200000).toISOString(),
+      status: 'sent',
+    },
+    {
+      id: 'msg-preset-psu-4',
+      role: 'agent',
+      agentId: 'project-supervisor-agent',
+      agentName: '项目监理agent',
+      content:
+        '项目合规检查完成。3个在建项目的立项审批、需求基线均已完成，流程合规。主要风险：proj-001 时间进度轻微落后，可能影响9-30上线窗口；无预算超支、无违规上线行为。整体合规，建议关注里程碑交付。',
+      timestamp: new Date(Date.now() - 1140000).toISOString(),
+      thinkingProcess: [
+        '识别意图：项目合规检查',
+        '逐阶段核对立项/需求/开发/UAT/上线合规清单',
+        '分级标注风险项',
+        '生成合规检查结论',
+      ],
+      dataCard: {
+        type: 'table',
+        title: '项目合规检查结果',
+        columns: [
+          { key: 'stage', label: '阶段' },
+          { key: 'status', label: '状态' },
+          { key: 'note', label: '说明' },
+        ],
+        rows: [
+          { stage: '立项审批', status: '通过', note: '3个项目均完成立项评审与预算审批' },
+          { stage: '需求评审', status: '通过', note: '需求基线已冻结' },
+          { stage: '开发测试', status: '进行中', note: 'proj-001 集成测试执行中' },
+          { stage: 'UAT验收', status: '未完成', note: '未到验收节点' },
+          { stage: '上线发布', status: '未发起', note: '未到上线节点' },
         ],
       },
       status: 'sent',
@@ -765,6 +853,96 @@ function buildMockConversationResponse(agentId: string, message: string): Conver
       content:
         '审计巡检报告已生成。7 月份共完成 3 轮合规审计，操作留痕完整率 100%，未发现数据篡改。详细报告可导出查看。',
       thinkingProcess: ['加载审计日志', '校验操作留痕完整性', '生成审计摘要'],
+    }
+  }
+
+  // 项目监理相关
+  if (agentId === 'project-supervisor-agent') {
+    // 上线/发布审计类（最具体，优先匹配）
+    if (lower.includes('上线') || lower.includes('发布') || lower.includes('审计') || lower.includes('就绪')) {
+      return {
+        content:
+          '上线就绪度审计结论：当前3个在建项目均未达到上线节点。其中 ERP系统实施项目（proj-001）计划2026-09-30上线，但 UAT 测试尚未完成、上线变更审批未发起，暂不具备上线条件，建议完成 UAT 验收并走变更流程后再安排上线。',
+        thinkingProcess: [
+          '识别意图：上线/发布审计',
+          '逐个项目核对上线前置条件（UAT、变更审批、回滚预案）',
+          '判定上线就绪度',
+          '输出审计结论与上线建议',
+        ],
+        dataCard: {
+          type: 'table',
+          title: '上线就绪度审计',
+          columns: [
+            { key: 'project', label: '项目' },
+            { key: 'stage', label: '当前阶段' },
+            { key: 'uat', label: 'UAT验收' },
+            { key: 'release', label: '上线审批' },
+            { key: 'verdict', label: '审计结论' },
+          ],
+          rows: [
+            { project: 'ERP系统实施项目', stage: '开发/测试', uat: '未完成', release: '未发起', verdict: '暂不具备上线条件' },
+            { project: '企业官网改版项目', stage: '前端开发', uat: '未开始', release: '未发起', verdict: '不适用（未到上线节点）' },
+            { project: '新产品研发项目', stage: '工程样机', uat: '未开始', release: '未发起', verdict: '不适用（未到上线节点）' },
+          ],
+        },
+      }
+    }
+    // 合规/风险检查类
+    if (lower.includes('合规') || lower.includes('检查') || lower.includes('风险') || lower.includes('违规')) {
+      return {
+        content:
+          '项目合规检查完成。3个在建项目的立项审批、需求基线均已完成，流程合规。主要风险：proj-001 时间进度轻微落后，可能影响9-30上线窗口；无预算超支、无违规上线行为。整体合规，建议关注里程碑交付。',
+        thinkingProcess: [
+          '识别意图：项目合规检查',
+          '逐阶段核对立项/需求/开发/UAT/上线合规清单',
+          '分级标注风险项',
+          '生成合规检查结论',
+        ],
+        dataCard: {
+          type: 'table',
+          title: '项目合规检查结果',
+          columns: [
+            { key: 'stage', label: '阶段' },
+            { key: 'status', label: '状态' },
+            { key: 'note', label: '说明' },
+          ],
+          rows: [
+            { stage: '立项审批', status: '通过', note: '3个项目均完成立项评审与预算审批' },
+            { stage: '需求评审', status: '通过', note: '需求基线已冻结' },
+            { stage: '开发测试', status: '进行中', note: 'proj-001 集成测试执行中' },
+            { stage: 'UAT验收', status: '未完成', note: '未到验收节点' },
+            { stage: '上线发布', status: '未发起', note: '未到上线节点' },
+          ],
+        },
+      }
+    }
+    // 进展/进度/项目状态类（最宽泛，放最后）
+    if (lower.includes('进展') || lower.includes('进度') || lower.includes('项目') || lower.includes('里程碑') || lower.includes('状态') || lower.includes('现状') || lower.includes('报告')) {
+      return {
+        content:
+          '项目进展监理报告：当前3个在建项目整体正常。ERP系统实施项目（proj-001）进行中，里程碑完成2/3，预算使用率40%，进度轻微落后，需关注9-30上线窗口；企业官网改版项目（proj-002）前端开发进行中；新产品研发项目（proj-003）处于工程样机阶段。',
+        thinkingProcess: [
+          '识别意图：查询项目进展',
+          '汇总各项目里程碑完成率与预算使用率',
+          '计算进度偏差',
+          '生成项目进展监理总览',
+        ],
+        dataCard: {
+          type: 'stats',
+          title: '项目进展监理总览',
+          stats: [
+            { label: '在建项目', value: '3', tone: 'primary' },
+            { label: '里程碑完成', value: '3/8', tone: 'accent' },
+            { label: '预算超支', value: '0', tone: 'accent' },
+            { label: '进度风险', value: '1', tone: 'paused' },
+          ],
+        },
+      }
+    }
+    return {
+      content:
+        '项目监理agent已就绪。我可以帮您查询项目进展、检查合规状态、执行上线审计或生成监理报告。请问您需要监理哪个项目？',
+      thinkingProcess: ['解析用户输入', '未命中具体意图', '返回能力引导'],
     }
   }
 

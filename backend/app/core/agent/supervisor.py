@@ -156,6 +156,7 @@ def build_supervisor_graph():
             sub_ctx = ToolContext(
                 user_id=ctx.user_id, username=ctx.username,
                 agent_key=route, thread_id=sub_thread, channel_id=ctx.channel_id,
+                trace_id=ctx.trace_id, business_key=ctx.business_key,
                 extra=dict(ctx.extra),
             )
             try:

@@ -14,6 +14,7 @@ from typing import Any, Optional
 import structlog
 
 from app.core.agent.tools_v2 import ToolContext, tool_registry_v2
+from app.core.observability.trace import get_business_key, get_trace_id
 
 logger = structlog.get_logger()
 
@@ -76,6 +77,7 @@ async def run_scenario_for_agent(agent, messages: list[dict], kwargs: dict) -> O
     ctx = ToolContext(
         user_id=user_id, username=username,
         agent_key=agent.domain, thread_id=thread_id, channel_id=channel_id,
+        trace_id=get_trace_id(), business_key=get_business_key(),
     )
 
     # Supervisor 跨域协同（Phase C）：意图分类→委派子域→综合
@@ -131,6 +133,7 @@ async def resume_after_decision(
     ctx = ToolContext(
         user_id=requested_by, username=requested_by,
         agent_key=agent_key, thread_id=thread_id, channel_id=channel_id,
+        trace_id=get_trace_id(), business_key=get_business_key(),
     )
 
     # 定制变更审批恢复（Phase F1：批准生效/驳回）

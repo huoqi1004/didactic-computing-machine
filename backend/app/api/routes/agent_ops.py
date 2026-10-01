@@ -36,6 +36,8 @@ class WorkflowStartRequest(BaseModel):
     """工作流启动请求"""
     input: dict = Field(..., description="工作流输入参数（见各工作流 input_hint）")
     thread_id: str = Field("", max_length=150, description="可选：指定线程ID（默认自动生成）")
+    document_key: str = Field("", max_length=128,
+                              description="可选：业务单据号（G1.3 追踪根键，凭单据号反查全链路）")
 
 
 @router.get("/tools", summary="工具目录")
@@ -74,11 +76,15 @@ async def start_workflow_route(
         raise HTTPException(status_code=404, detail=f"未知工作流: {name}")
 
     user_id = current_user.get("user_id", "unknown")
+    from app.core.observability.trace import get_business_key, get_trace_id
+
     result = await start_workflow(
         name, req.input,
         ToolContext(user_id=user_id, username=current_user.get("username", ""),
-                    agent_key=f"workflow:{name}"),
+                    agent_key=f"workflow:{name}",
+                    trace_id=get_trace_id(), business_key=get_business_key()),
         thread_id=req.thread_id,
+        document_key=req.document_key,
     )
 
     # awaiting → 落审批行（复用审批面板与决定路由；thread_id 必须回填，
@@ -90,6 +96,7 @@ async def start_workflow_route(
             user_id=user_id, username=current_user.get("username", ""),
             agent_key=f"workflow:{name}",
             thread_id=result.get("thread_id", ""),
+            trace_id=get_trace_id(), business_key=get_business_key(),
         )
         await _create_approval_record(result.get("interrupt") or {}, approval_ctx)
 

@@ -1942,3 +1942,43 @@ langgraph_checkpoint_writes = Table(
     Column("value_blob", _BlobType, nullable=False),
     Column("task_path", String(128), nullable=True, server_default=text("''")),
 )
+
+
+# ===========================================================================
+# 操作回滚账本（roadmap-logging-sandbox G1.2 建表 / G4 接入写入）
+# 一次写操作一行：正向留痕 + 补偿指针 + 回滚状态机。
+# 红线：只允许状态机推进，禁止 DELETE / UPDATE 历史行（状态列除外）。
+# ===========================================================================
+operation_ledger = Table(
+    "operation_ledger",
+    Base.metadata,
+    Column("id", BigIntPK, primary_key=True, autoincrement=True),
+    Column("ledger_id", String(64), nullable=False, unique=True),
+    # 追踪键（G1.1 三层模型）：business_key 为主查键（单据号反查链路），
+    # trace_id 为链路实例键；二者均可为空（追踪键缺失是可接受降级）
+    Column("business_key", String(128), nullable=True),
+    Column("trace_id", String(64), nullable=True),
+    Column("actor", String(128), nullable=False, server_default=text("''")),
+    Column("tool", String(128), nullable=False),
+    Column("domain", String(64), nullable=False, server_default=text("''")),
+    # 正向留痕：参数快照（脱敏后）与执行结果（可 JSON 序列化部分）
+    Column("forward_args", JSON, nullable=True),
+    Column("forward_result", JSON, nullable=True),
+    # 补偿函数指针（tools_v2 注册表名，登记时校验存在性）
+    Column("compensation_ref", String(128), nullable=False, server_default=text("''")),
+    # 状态机：executed → compensating → compensated / compensate_failed；
+    # backfilled=true 表示该行由对账任务补登记（审计有而账本无的缺口）
+    Column("status", String(24), nullable=False, server_default=text("'executed'")),
+    Column("backfilled", Boolean, nullable=False, server_default=text("0")),
+    # 回滚前置检查结果（下游引用清单，G4.3）
+    Column("precheck_result", JSON, nullable=True),
+    Column("rolled_by", String(128), nullable=True),
+    Column("rolled_at", DateTime, nullable=True),
+    Column("rollback_approval_id", String(64), nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Index("ix_op_ledger_business", "business_key"),
+    Index("ix_op_ledger_trace", "trace_id"),
+    Index("ix_op_ledger_status", "status"),
+    Index("ix_op_ledger_tool", "tool"),
+)

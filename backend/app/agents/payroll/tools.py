@@ -101,6 +101,7 @@ async def _calculate_compensation(ctx: ToolContext, args: dict, result) -> None:
     risk_level=ToolRisk.WRITE_LOW, resource="payroll", action="create",
     agent_domain="payroll",
     compensation=_calculate_compensation,
+    idempotent=True,  # G1.4 红线2：补偿幂等（已核阅）
     effects_fn=lambda a: f"将为员工[{a.get('employee_id')}]计算 {a.get('period')} 周期薪酬并生成薪酬记录",
 )
 async def payroll_calculate(ctx: ToolContext, employee_id: str, period: str):
@@ -139,6 +140,7 @@ async def _set_structure_compensation(ctx: ToolContext, args: dict, result) -> N
     risk_level=ToolRisk.WRITE_HIGH, resource="payroll", action="create",
     agent_domain="payroll",
     compensation=_set_structure_compensation,
+    idempotent=True,  # G1.4 红线2：补偿幂等（已核阅）
     effects_fn=lambda a: (
         f"将设置员工[{a.get('employee_id')}]的薪资结构："
         f"基本工资 ¥{a.get('base_salary')}/月，津贴 ¥{a.get('allowances')}，扣款 ¥{a.get('deductions')}"

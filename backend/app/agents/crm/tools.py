@@ -105,6 +105,7 @@ async def _create_customer_compensation(ctx: ToolContext, args: dict, result) ->
     risk_level=ToolRisk.WRITE_LOW, resource="crm", action="create",
     agent_domain="crm",
     compensation=_create_customer_compensation,
+    idempotent=True,  # G1.4 红线2：补偿幂等（已核阅）
     effects_fn=lambda a: (
         f"将新增客户[{a.get('name')}]（{a.get('industry') or '行业未填'}/分级{a.get('segment')}），"
         f"主联系人[{a.get('contact_name')}]"

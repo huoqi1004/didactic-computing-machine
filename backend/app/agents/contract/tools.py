@@ -110,6 +110,7 @@ async def _create_contract_compensation(ctx: ToolContext, args: dict, result) ->
     risk_level=ToolRisk.WRITE_LOW, resource="contract", action="create",
     agent_domain="contract",
     compensation=_create_contract_compensation,
+    idempotent=True,  # G1.4 红线2：补偿幂等（已核阅）
     effects_fn=lambda a: (
         f"将创建合同草稿[{a.get('title')}]：对方[{a.get('counterparty')}] "
         f"金额 ¥{a.get('amount')}，部门[{a.get('department')}]"
@@ -150,6 +151,7 @@ async def _approve_contract_compensation(ctx: ToolContext, args: dict, result) -
     risk_level=ToolRisk.WRITE_HIGH, resource="contract", action="approve",
     agent_domain="contract",
     compensation=_approve_contract_compensation,
+    idempotent=True,  # G1.4 红线2：补偿幂等（已核阅）
     effects_fn=lambda a: f"将审批通过合同[{a.get('contract_id')}]，状态从草稿变为已批准",
 )
 async def contract_approve(ctx: ToolContext, contract_id: str, comment: str = ""):

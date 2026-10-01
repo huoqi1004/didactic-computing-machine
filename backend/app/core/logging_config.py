@@ -140,6 +140,17 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         # 生成或复用 request_id
         request_id = request.headers.get("X-Request-Id", str(uuid.uuid4())[:12])
 
+        # 链路键：续传上游 X-Trace-Id（W3C 兼容 32 hex），无则生成（G1.1）
+        from app.core.observability.trace import (
+            bind_trace,
+            is_valid_trace_id,
+            new_trace_id,
+        )
+
+        trace_id = request.headers.get("X-Trace-Id", "")
+        if not is_valid_trace_id(trace_id):
+            trace_id = new_trace_id()
+
         # 注入 structlog 上下文
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(
@@ -147,6 +158,8 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             path=request.url.path,
             method=request.method,
         )
+        # trace 键双写：module contextvar（get_trace_id() 取值）+ structlog（日志行携带）
+        bind_trace(trace_id=trace_id)
 
         # 从已认证的用户中提取 user_id
         user = getattr(request.state, "user", None)
@@ -186,4 +199,5 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
         # 写入响应头
         response.headers["X-Request-Id"] = request_id
+        response.headers["X-Trace-Id"] = trace_id
         return response

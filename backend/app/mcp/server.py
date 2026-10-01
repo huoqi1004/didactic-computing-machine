@@ -74,8 +74,11 @@ def _build_generic_handler(domain: str, tool_name: str):
             return {"status": "error",
                     "error": f"工具 {tool_name} 未开放 MCP 出口（域 {domain} 已关闭或工具已停用）"}
 
+        from app.core.observability.trace import get_business_key, get_trace_id
+
         ctx = ToolContext(user_id=user_id, username=username,
-                          agent_key=f"mcp:{domain}")
+                          agent_key=f"mcp:{domain}",
+                          trace_id=get_trace_id(), business_key=get_business_key())
         result = await agent_governor.execute(tool_name, tool_args or {}, ctx)
         if result.approval is not None:
             return {"status": "approval_required",

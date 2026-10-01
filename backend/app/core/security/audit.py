@@ -32,7 +32,8 @@ logger = structlog.get_logger()
 class AuditEntry:
     """审计日志条目"""
     def __init__(self, actor_did: str, action: str, resource: str,
-                 result: str, details: dict, risk_level: str = "low"):
+                 result: str, details: dict, risk_level: str = "low",
+                 trace_id: str = "", business_key: str = ""):
         self.entry_id = str(uuid4())
         self.actor_did = actor_did          # 操作者DID
         self.action = action                # 操作类型
@@ -40,6 +41,10 @@ class AuditEntry:
         self.result = result                # 操作结果 (success/failed/denied)
         self.details = details              # 详细信息
         self.risk_level = risk_level        # 风险等级
+        # 追踪键（G1.1 三层模型）：不参与 compute_hash——哈希覆盖既有字段，
+        # 补列不破坏哈希链连续性；防篡改由链本体保证
+        self.trace_id = trace_id            # 链路实例键（32 hex）
+        self.business_key = business_key    # 业务根键（单据号）
         self.timestamp = datetime.now(timezone.utc)
         self.prev_hash: Optional[str] = None
         self.hash: Optional[str] = None
@@ -257,7 +262,8 @@ class AuditChain:
     # ===================================================================
 
     async def log(self, actor_did: str, action: str, resource: str,
-                  result: str, details: dict, risk_level: str = "low") -> str:
+                  result: str, details: dict, risk_level: str = "low",
+                  trace_id: str = "", business_key: str = "") -> str:
         """
         记录审计日志。
 
@@ -266,8 +272,18 @@ class AuditChain:
         2. 数据库层：``_db_available`` 为 True 时写入 MySQL ``audit_logs`` 表
         3. 数据库写入失败时记录警告，不影响内存写入（降级模式）
 
+        追踪键（G1.1）：未显式传 ``trace_id``/``business_key`` 时自动取当前
+        上下文（observability.trace 的 contextvars）——所有经治理面/HTTP
+        中间件的调用无需改造即获得链路关联。
+
         返回审计条目ID。
         """
+        if not trace_id or not business_key:
+            from app.core.observability.trace import get_business_key, get_trace_id
+
+            trace_id = trace_id or get_trace_id()
+            business_key = business_key or get_business_key()
+
         entry = AuditEntry(
             actor_did=actor_did,
             action=action,
@@ -275,6 +291,8 @@ class AuditChain:
             result=result,
             details=details,
             risk_level=risk_level,
+            trace_id=trace_id,
+            business_key=business_key,
         )
 
         # 计算哈希链
@@ -364,10 +382,12 @@ class AuditChain:
                     text("""
                         INSERT INTO audit_logs
                             (entry_id, actor_did, action, resource, result,
-                             details, risk_level, prev_hash, entry_hash, timestamp)
+                             details, risk_level, prev_hash, entry_hash,
+                             trace_id, business_key, timestamp)
                         VALUES
                             (:entry_id, :actor_did, :action, :resource, :result,
-                             CAST(:details AS JSON), :risk_level, :prev_hash, :entry_hash, :timestamp)
+                             CAST(:details AS JSON), :risk_level, :prev_hash, :entry_hash,
+                             :trace_id, :business_key, :timestamp)
                     """),
                     {
                         "entry_id": entry.entry_id,
@@ -379,6 +399,8 @@ class AuditChain:
                         "risk_level": entry.risk_level,
                         "prev_hash": entry.prev_hash,
                         "entry_hash": entry.hash,
+                        "trace_id": getattr(entry, "trace_id", "") or None,
+                        "business_key": getattr(entry, "business_key", "") or None,
                         "timestamp": entry.timestamp,
                     }
                 )

@@ -133,6 +133,8 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     risk_level  VARCHAR(16)  NOT NULL DEFAULT 'low',
     prev_hash   VARCHAR(128),
     entry_hash  VARCHAR(128),
+    trace_id    VARCHAR(64),
+    business_key VARCHAR(128),
     timestamp   {_TS}        NOT NULL DEFAULT {_NOW}
 );
 """
@@ -146,6 +148,10 @@ CREATE INDEX IF NOT EXISTS ix_audit_logs_risk_level
     ON audit_logs (risk_level);
 CREATE INDEX IF NOT EXISTS ix_audit_logs_entry_hash
     ON audit_logs (entry_hash);
+CREATE INDEX IF NOT EXISTS ix_audit_logs_trace
+    ON audit_logs (trace_id);
+CREATE INDEX IF NOT EXISTS ix_audit_logs_business
+    ON audit_logs (business_key);
 """
 
 # --- Saga 事务 ---
@@ -193,6 +199,74 @@ _ALL_DDL: list[str] = [
 # 迁移执行
 # ===========================================================================
 
+async def _audit_column_exists(conn: Any, column: str) -> bool:
+    """检测 audit_logs 表是否已存在指定列（MySQL 走 information_schema，其余走 PRAGMA）。"""
+    from sqlalchemy import text
+
+    if _is_mysql():
+        row = (
+            await conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM information_schema.columns "
+                    "WHERE table_schema = DATABASE() AND table_name = 'audit_logs' "
+                    "AND column_name = :c"
+                ),
+                {"c": column},
+            )
+        ).scalar()
+        return bool(row)
+    rows = await conn.execute(text("PRAGMA table_info(audit_logs)"))
+    return any(getattr(r, "_mapping", {}).get("name") == column or (not hasattr(r, "_mapping") and r[1] == column) for r in rows)
+
+
+async def ensure_audit_trace_columns(engine: Optional[Any] = None) -> bool:
+    """
+    G1.2：audit_logs 存量表增量补 trace_id / business_key 列与索引（幂等）。
+
+    新库由 ``_CREATE_AUDIT_LOGS_TABLE`` 直接带出；存量库（含生产 38 表库）
+    走本函数逐列检测后 ``ALTER TABLE ADD COLUMN``。追踪键不参与哈希计算
+    （compute_hash 覆盖既有字段，补列不影响哈希链连续性）。
+
+    返回 ``True`` 表示补列流程执行成功（含"无需补列"）。
+    """
+    if engine is None:
+        engine = db_module.get_engine()
+    if engine is None:
+        logger.warning("migrations.trace_columns_skipped_no_engine")
+        return False
+
+    from sqlalchemy import text
+
+    try:
+        async with engine.begin() as conn:
+            added: list[str] = []
+            for col, ctype in (("trace_id", "VARCHAR(64)"), ("business_key", "VARCHAR(128)")):
+                if not await _audit_column_exists(conn, col):
+                    await conn.execute(
+                        text(f"ALTER TABLE audit_logs ADD COLUMN {col} {ctype}")
+                    )
+                    added.append(col)
+            # 索引：MySQL 无 CREATE INDEX IF NOT EXISTS，重复创建的
+            # errno 1061 / duplicate 与 sqlite "exists" 均按已存在忽略
+            for idx_sql in (
+                "CREATE INDEX ix_audit_logs_trace ON audit_logs (trace_id)",
+                "CREATE INDEX ix_audit_logs_business ON audit_logs (business_key)",
+            ):
+                try:
+                    await conn.execute(text(idx_sql))
+                except Exception as idx_err:  # noqa: BLE001
+                    err_str = str(idx_err).lower()
+                    if "1061" in err_str or "duplicate" in err_str or "exists" in err_str:
+                        continue
+                    raise
+        if added:
+            logger.info("migrations.audit_trace_columns_added", columns=added)
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning("migrations.audit_trace_columns_failed", error=str(e))
+        return False
+
+
 async def run_migrations(engine: Optional[Any] = None) -> bool:
     """
     执行全部数据库迁移（建表 + 建索引）。
@@ -234,6 +308,12 @@ async def run_migrations(engine: Optional[Any] = None) -> bool:
                         raise
 
         logger.info("migrations.completed", tables=["events", "snapshots", "audit_logs", "sagas"])
+
+        # G1.2：建表后对存量 audit_logs 补追踪键列（补列失败不判定迁移失败——
+        # 追踪键为可观测性增强，不影响既有哈希链与业务功能）
+        if not await ensure_audit_trace_columns(engine):
+            logger.warning("migrations.trace_columns_degraded")
+
         return True
 
     except Exception as e:

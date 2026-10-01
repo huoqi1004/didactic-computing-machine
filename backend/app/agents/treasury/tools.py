@@ -107,6 +107,7 @@ async def _transfer_compensation(ctx: ToolContext, args: dict, result) -> None:
     resource="treasury", action="create",
     agent_domain="treasury",
     compensation=_transfer_compensation,
+    idempotent=True,  # G1.4 红线2：补偿幂等（已核阅）
     effects_fn=lambda a: (
         f"将发起资金调拨 ¥{a.get('amount')}：{a.get('from_account')} → "
         f"{a.get('to_account')}（{a.get('reason') or '未填写原因'}），"

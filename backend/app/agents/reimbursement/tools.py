@@ -123,6 +123,7 @@ async def _submit_compensation(ctx: ToolContext, args: dict, result) -> None:
     resource="reimbursement", action="create",
     agent_domain="reimbursement",
     compensation=_submit_compensation,
+    idempotent=True,  # G1.4 红线2：补偿幂等（已核阅）
     effects_fn=lambda a: (
         f"将创建一笔报销单：员工[{a.get('employee_name')}] 类别[{a.get('category')}] "
         f"金额[¥{a.get('amount')}]，事由[{a.get('description')}]，状态置为待核验"

@@ -54,6 +54,10 @@ class ToolContext:
     agent_key: str = ""
     thread_id: str = ""
     channel_id: str = ""
+    # 追踪键（G1.1）：编排层构造 ctx 时可显式带上；空值时治理面自动
+    # 回落到 observability.trace 的 contextvars（HTTP 中间件已绑定）
+    trace_id: str = ""
+    business_key: str = ""
     extra: dict = field(default_factory=dict)
 
 
@@ -116,6 +120,12 @@ class ToolSpecV2:
     effects_fn: Optional[ToolEffectsFn] = None
     agent_domain: str = ""                # 归属域（finance/hr/sales/...）
     tags: list[str] = field(default_factory=list)
+    # G1.4 幂等声明（红线 2）：补偿函数以单据状态机为准实现幂等——
+    # 已回滚/已冲正则 no-op 并返回既有结果；写工具未声明拒绝注册
+    idempotent: bool = False
+    # G1.3 业务根键提取：result 中携带单据号的字段名（显式声明优先，
+    # 空则按常见字段名启发式扫描）
+    business_key_field: Optional[str] = None
 
     # ------------------------------------------------------------------
     def validate_args(self, args: dict) -> dict:
@@ -175,6 +185,13 @@ class ToolRegistryV2:
             raise ValueError(f"写工具缺少补偿函数: {spec.name}（可回滚才可执行）")
         if spec.risk_level.is_write and spec.effects_fn is None:
             raise ValueError(f"写工具缺少效果描述函数: {spec.name}")
+        if spec.risk_level.is_write and not spec.idempotent:
+            # G1.4（红线 2）：补偿重放经账本状态机门禁后仍可能到达补偿函数
+            # （重试/人工重放），不幂等的补偿会二次修改数据
+            raise ValueError(
+                f"写工具补偿未声明幂等: {spec.name}"
+                "（补偿须以单据状态机为准幂等，已回滚则 no-op）"
+            )
         self._tools[spec.name] = spec
         logger.info(
             "tool_registry_v2.registered",
@@ -211,6 +228,8 @@ def erp_tool(
     compensation: Optional[ToolCompensation] = None,
     effects_fn: Optional[ToolEffectsFn] = None,
     agent_domain: str = "",
+    idempotent: bool = False,
+    business_key_field: Optional[str] = None,
     registry: Optional[ToolRegistryV2] = None,
 ) -> Callable[[ToolHandler], ToolHandler]:
     """
@@ -253,6 +272,8 @@ def erp_tool(
                 compensation=compensation,
                 effects_fn=effects_fn,
                 agent_domain=agent_domain,
+                idempotent=idempotent,
+                business_key_field=business_key_field,
             )
         )
         return fn

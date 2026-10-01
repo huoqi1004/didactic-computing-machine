@@ -79,10 +79,21 @@ class AgentGovernor:
     ) -> ToolResult:
         """治理面主入口：校验 → 预演 → 分级 → 执行 → 审计。"""
         from app.core.security.audit import audit_chain
+        from app.core.observability.trace import (
+            ensure_trace_id,
+            extract_business_key,
+            get_business_key,
+            set_business_key,
+        )
 
         spec = self.registry.get(tool_name)
         if spec is None:
             return ToolResult(ok=False, error=f"未知工具: {tool_name}")
+
+        # 追踪键（G1.1）：ctx 显式携带优先，否则复用/新建上下文链路键；
+        # business_key（业务根键）随执行结果更新（工具产生单据后登记）
+        trace_id = ctx.trace_id or ensure_trace_id()
+        bk_holder = {"key": ctx.business_key or get_business_key()}
 
         async def _audit(action_suffix: str, result: str, details: dict, level: str) -> None:
             try:
@@ -93,6 +104,8 @@ class AgentGovernor:
                     result=result,
                     details=details,
                     risk_level=level,
+                    trace_id=trace_id,
+                    business_key=bk_holder["key"],
                 )
             except Exception as e:  # noqa: BLE001
                 logger.warning("governor.audit_failed", tool=tool_name, error=str(e))
@@ -131,6 +144,8 @@ class AgentGovernor:
                     resource=spec.resource, action=spec.action,
                     compensation=spec.compensation, effects_fn=spec.effects_fn,
                     agent_domain=spec.agent_domain, tags=spec.tags,
+                    idempotent=spec.idempotent,
+                    business_key_field=spec.business_key_field,
                 )
         except Exception as e:  # noqa: BLE001
             logger.warning("governor.customization_read_failed",
@@ -178,21 +193,30 @@ class AgentGovernor:
             data = await spec.handler(ctx, **validated)
             latency_ms = round((time.monotonic() - started) * 1000, 2)
             self.registry.bump_stat(tool_name, "total_ms", latency_ms)
+            # 业务根键登记（G1.3）：工具产生/操作单据后，从结果提取单据号
+            # 登记进追踪上下文与审计列——凭单据号即可反查全链路（闭环 P0-1）
+            business_key = extract_business_key(data, spec.business_key_field or "")
+            if business_key and business_key != bk_holder["key"]:
+                bk_holder["key"] = business_key
+                set_business_key(business_key)
             await _audit(
                 "executed", "success",
                 {"args": _sanitize_args(validated), "latency_ms": latency_ms,
                  "risk": spec.risk_level.value,
+                 "business_key": business_key,
                  "approved_by_human": spec.risk_level == ToolRisk.WRITE_HIGH},
                 spec.risk_level.audit_risk,
             )
             logger.info(
                 "governor.executed", tool=tool_name, user=ctx.user_id,
                 agent=ctx.agent_key, latency_ms=latency_ms, risk=spec.risk_level.value,
+                trace_id=trace_id, business_key=business_key,
             )
             return ToolResult(
                 ok=True, data=data,
                 preview=preview,
-                meta={"latency_ms": latency_ms, "risk": spec.risk_level.value},
+                meta={"latency_ms": latency_ms, "risk": spec.risk_level.value,
+                      "trace_id": trace_id, "business_key": business_key},
             )
         except Exception as e:  # noqa: BLE001
             latency_ms = round((time.monotonic() - started) * 1000, 2)

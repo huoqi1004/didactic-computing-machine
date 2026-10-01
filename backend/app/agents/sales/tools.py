@@ -105,6 +105,7 @@ async def _create_order_compensation(ctx: ToolContext, args: dict, result) -> No
     risk_level=ToolRisk.WRITE_LOW, resource="sales", action="create",
     agent_domain="sales",
     compensation=_create_order_compensation,
+    idempotent=True,  # G1.4 红线2：补偿幂等（已核阅）
     effects_fn=lambda a: (
         f"将为客户[{a.get('customer_id')}]创建销售订单，"
         f"总金额 ¥{a.get('total_amount')}，行项 {len(a.get('items') or [])} 条"
@@ -143,6 +144,7 @@ async def _confirm_order_compensation(ctx: ToolContext, args: dict, result) -> N
     risk_level=ToolRisk.WRITE_LOW, resource="sales", action="update",
     agent_domain="sales",
     compensation=_confirm_order_compensation,
+    idempotent=True,  # G1.4 红线2：补偿幂等（已核阅）
     effects_fn=lambda a: f"将确认订单[{a.get('order_id')}]，状态从待确认变为已确认",
 )
 async def sales_confirm_order(ctx: ToolContext, order_id: str):

@@ -107,6 +107,7 @@ async def _add_employee_compensation(ctx: ToolContext, args: dict, result) -> No
     risk_level=ToolRisk.WRITE_LOW, resource="hr", action="create",
     agent_domain="hr",
     compensation=_add_employee_compensation,
+    idempotent=True,  # G1.4 红线2：补偿幂等（已核阅）
     effects_fn=lambda a: (
         f"将新增员工[{a.get('name')}]：部门[{a.get('department')}] 职位[{a.get('position')}]"
     ),
@@ -150,6 +151,7 @@ async def _update_employee_compensation(ctx: ToolContext, args: dict, result) ->
     risk_level=ToolRisk.WRITE_LOW, resource="hr", action="update",
     agent_domain="hr",
     compensation=_update_employee_compensation,
+    idempotent=True,  # G1.4 红线2：补偿幂等（已核阅）
     effects_fn=lambda a: (
         f"将更新员工[{a.get('employee_id')}]档案："
         + "、".join(f"{k}={v}" for k, v in a.items() if k != "employee_id" and v is not None)

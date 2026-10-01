@@ -445,6 +445,7 @@ async def start_workflow(name: str, input_data: dict, ctx,
     同一单据/同一线程在灰度切换后仍沿用首次命中的版本（F3.5）。
     """
     from app.core.agent import workflow_versions as wfv
+    from app.core.observability.trace import ensure_trace_id, set_business_key
 
     thread_id = thread_id or f"wf:{name}:{uuid4().hex[:10]}"
     defn, version = await _load_definition_async(name, document_key, thread_id)
@@ -455,6 +456,11 @@ async def start_workflow(name: str, input_data: dict, ctx,
 
     token = _ctx_var.set(ctx)
     try:
+        # 追踪绑定（G1.3）：复用上游链路键（HTTP 中间件已绑），无则新建；
+        # 业务根键取单据号，缺省退化为线程 ID（与粘性灰度同款语义——
+        # 同一线程/单据在审计与日志中恒可反查）
+        ensure_trace_id()
+        set_business_key(document_key or thread_id)
         result = await graph.ainvoke(
             {"input": input_data, "steps": [], "result": {}, "error": None},
             {"configurable": {"thread_id": thread_id}},
@@ -483,11 +489,16 @@ async def resume_workflow(name: str, thread_id: str, decision: dict,
                           ctx) -> dict:
     """人审决定后恢复工作流（沿用该线程钉住的版本，从 Checkpointer 断点续跑）。"""
     from langgraph.types import Command
+    from app.core.observability.trace import ensure_trace_id, set_business_key
 
     defn, version = await _load_definition_async(name, "", thread_id)
     graph = _graph_for(name, defn)
     token = _ctx_var.set(ctx)
     try:
+        # 恢复链路同样绑定追踪键：恢复属新链路实例（新 trace_id），
+        # 业务根键沿用线程 ID——与启动链路同组可互查
+        ensure_trace_id()
+        set_business_key(thread_id)
         result = await graph.ainvoke(
             Command(resume=decision),
             {"configurable": {"thread_id": thread_id}},

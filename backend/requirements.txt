@@ -22,7 +22,9 @@ passlib[bcrypt]==1.7.4
 PyJWT==2.10.1
 
 # 数据验证
-pydantic==2.10.4
+# 注意：pydantic 必须 >=2.12（fastmcp 4.0.5 → mcp 2.2.0 硬依赖 TypeAdapter by_name）；
+# 但须配合 fastapi==0.115.6（0.116+ 不兼容本仓路由展开断言），此组合已全量回归验证
+pydantic==2.13.4
 pydantic-settings==2.7.0
 
 # HTTP 客户端

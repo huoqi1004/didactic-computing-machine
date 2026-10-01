@@ -489,7 +489,7 @@ async def test_decide_route_publishes_skill_with_correct_approver(sk_env):
 async def test_skills_admin_routes_are_mounted(sk_env):
     from app.main import app
 
-    paths = {r.path for r in app.routes}
+    paths = {r.path for r in app.routes if hasattr(r, "path")}
     base = "/api/v1/agent-ops/skills"
     for p in (f"{base}/meta", f"{base}/versions", f"{base}/validate",
               f"{base}/export", f"{base}/import",

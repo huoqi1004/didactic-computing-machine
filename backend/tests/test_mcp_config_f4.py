@@ -519,7 +519,7 @@ async def test_mcp_server_routes_are_mounted(f4_env):
     """路由接线：/api/v1/agent-ops/mcp-servers 全套端点已在 app 上可见。"""
     from app.main import app
 
-    paths = {r.path for r in app.routes}
+    paths = {r.path for r in app.routes if hasattr(r, "path")}
     base = "/api/v1/agent-ops/mcp-servers"
     for p in (base, f"{base}/{{name}}", f"{base}/probe",
               f"{base}/{{name}}/probe", f"{base}/{{name}}/tools"):

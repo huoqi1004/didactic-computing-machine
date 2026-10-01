@@ -170,6 +170,6 @@ async def test_exposure_routes_are_mounted(f43_env):
     """路由接线。"""
     from app.main import app
 
-    paths = {r.path for r in app.routes}
+    paths = {r.path for r in app.routes if hasattr(r, "path")}
     assert "/api/v1/agent-ops/mcp-exposure" in paths
     assert "/api/v1/agent-ops/mcp-exposure/{domain}" in paths

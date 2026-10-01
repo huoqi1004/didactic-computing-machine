@@ -1,0 +1,8 @@
+{
+  "status": "rolled_back",
+  "workflow": "reimbursement_approval",
+  "version": "v1",
+  "previous": [
+    "canary:v2"
+  ]
+}

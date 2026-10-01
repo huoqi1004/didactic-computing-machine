@@ -1,0 +1,449 @@
+{
+  "tools": [
+    {
+      "name": "reimbursement_query_detail",
+      "description": "按ID查询单条报销单详情（含票据与项目信息）",
+      "args_schema": {
+        "properties": {
+          "reimbursement_id": {
+            "description": "报销单ID",
+            "minLength": 1,
+            "title": "Reimbursement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reimbursement_id"
+        ],
+        "title": "QueryDetailArgs",
+        "type": "object"
+      },
+      "risk_level": "readonly",
+      "permission": "reimbursement:read",
+      "domain": "reimbursement",
+      "has_compensation": false
+    },
+    {
+      "name": "reimbursement_query_list",
+      "description": "查询报销单列表，可按状态与员工过滤，返回单据号/金额/类别/状态",
+      "args_schema": {
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "按状态过滤：pending/verified/approved/rejected/paid",
+            "title": "Status"
+          },
+          "employee_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "按员工ID过滤",
+            "title": "Employee Id"
+          },
+          "limit": {
+            "default": 20,
+            "description": "返回条数上限",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "QueryListArgs",
+        "type": "object"
+      },
+      "risk_level": "readonly",
+      "permission": "reimbursement:read",
+      "domain": "reimbursement",
+      "has_compensation": false
+    },
+    {
+      "name": "reimbursement_query_stats",
+      "description": "查询报销统计（待审数量/金额、按类别与项目分布），无需参数",
+      "args_schema": {
+        "properties": {},
+        "title": "StatsArgs",
+        "type": "object"
+      },
+      "risk_level": "readonly",
+      "permission": "reimbursement:read",
+      "domain": "reimbursement",
+      "has_compensation": false
+    },
+    {
+      "name": "reimbursement_submit",
+      "description": "替员工提交一笔报销申请（生成报销单号，进入待核验流程）",
+      "args_schema": {
+        "properties": {
+          "employee_name": {
+            "description": "员工姓名",
+            "minLength": 1,
+            "title": "Employee Name",
+            "type": "string"
+          },
+          "employee_id": {
+            "default": "",
+            "description": "员工ID（选填）",
+            "title": "Employee Id",
+            "type": "string"
+          },
+          "department": {
+            "default": "",
+            "description": "部门（选填）",
+            "title": "Department",
+            "type": "string"
+          },
+          "category": {
+            "default": "other",
+            "description": "类别：travel/meal/office/transport/communication/training/entertainment/project/other",
+            "title": "Category",
+            "type": "string"
+          },
+          "amount": {
+            "description": "报销金额（元）",
+            "exclusiveMinimum": 0,
+            "title": "Amount",
+            "type": "number"
+          },
+          "description": {
+            "description": "报销事由",
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "has_receipt": {
+            "default": true,
+            "description": "是否已附发票",
+            "title": "Has Receipt",
+            "type": "boolean"
+          },
+          "receipt_amount": {
+            "default": 0,
+            "description": "票据金额",
+            "minimum": 0,
+            "title": "Receipt Amount",
+            "type": "number"
+          },
+          "project_id": {
+            "default": "",
+            "description": "项目ID（选填）",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_name": {
+            "default": "",
+            "description": "项目名称（选填）",
+            "title": "Project Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "employee_name",
+          "amount",
+          "description"
+        ],
+        "title": "SubmitArgs",
+        "type": "object"
+      },
+      "risk_level": "write_low",
+      "permission": "reimbursement:create",
+      "domain": "reimbursement",
+      "has_compensation": true
+    },
+    {
+      "name": "sales_confirm_order",
+      "description": "确认销售订单（pending → confirmed，触发后续履约流程）",
+      "args_schema": {
+        "properties": {
+          "order_id": {
+            "description": "订单编号",
+            "minLength": 1,
+            "title": "Order Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id"
+        ],
+        "title": "ConfirmOrderArgs",
+        "type": "object"
+      },
+      "risk_level": "write_low",
+      "permission": "sales:update",
+      "domain": "sales",
+      "has_compensation": true
+    },
+    {
+      "name": "sales_create_order",
+      "description": "创建销售订单（关联客户，生成订单号，状态待确认）",
+      "args_schema": {
+        "properties": {
+          "customer_id": {
+            "description": "客户编号（如 CUST-SEED-001）",
+            "minLength": 1,
+            "title": "Customer Id",
+            "type": "string"
+          },
+          "total_amount": {
+            "description": "订单总金额（元）",
+            "exclusiveMinimum": 0,
+            "title": "Total Amount",
+            "type": "number"
+          },
+          "items": {
+            "description": "订单行项：[{product_id, product_name, qty, unit_price}]",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "delivery_date": {
+            "default": "",
+            "description": "交付日期（YYYY-MM-DD，选填）",
+            "title": "Delivery Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "total_amount",
+          "items"
+        ],
+        "title": "CreateOrderArgs",
+        "type": "object"
+      },
+      "risk_level": "write_low",
+      "permission": "sales:create",
+      "domain": "sales",
+      "has_compensation": true
+    },
+    {
+      "name": "sales_query_order_detail",
+      "description": "按编号查询单条销售订单详情",
+      "args_schema": {
+        "properties": {
+          "order_id": {
+            "description": "订单编号（如 SO-xxxxxxxx）",
+            "minLength": 1,
+            "title": "Order Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id"
+        ],
+        "title": "QueryOrderArgs",
+        "type": "object"
+      },
+      "risk_level": "readonly",
+      "permission": "sales:read",
+      "domain": "sales",
+      "has_compensation": false
+    },
+    {
+      "name": "sales_query_orders",
+      "description": "查询销售订单列表，可按状态与客户过滤",
+      "args_schema": {
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "按状态过滤（pending/confirmed）",
+            "title": "Status"
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "按客户编号过滤",
+            "title": "Customer Id"
+          },
+          "limit": {
+            "default": 20,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "QueryOrdersArgs",
+        "type": "object"
+      },
+      "risk_level": "readonly",
+      "permission": "sales:read",
+      "domain": "sales",
+      "has_compensation": false
+    },
+    {
+      "name": "sales_query_target_progress",
+      "description": "查询销售员的目标完成率",
+      "args_schema": {
+        "properties": {
+          "salesperson_id": {
+            "description": "销售员编号",
+            "minLength": 1,
+            "title": "Salesperson Id",
+            "type": "string"
+          },
+          "period": {
+            "description": "周期（如 2026-Q3）",
+            "minLength": 4,
+            "title": "Period",
+            "type": "string"
+          }
+        },
+        "required": [
+          "salesperson_id",
+          "period"
+        ],
+        "title": "QueryTargetArgs",
+        "type": "object"
+      },
+      "risk_level": "readonly",
+      "permission": "sales:read",
+      "domain": "sales",
+      "has_compensation": false
+    },
+    {
+      "name": "treasury_cash_balance",
+      "description": "查询当前现金账户余额",
+      "args_schema": {
+        "properties": {},
+        "title": "EmptyArgs",
+        "type": "object"
+      },
+      "risk_level": "readonly",
+      "permission": "treasury:read",
+      "domain": "treasury",
+      "has_compensation": false
+    },
+    {
+      "name": "treasury_fund_transfer_request",
+      "description": "发起一笔资金调拨申请（高危操作，需人工审批后才会执行）",
+      "args_schema": {
+        "properties": {
+          "amount": {
+            "description": "调拨金额（元）",
+            "exclusiveMinimum": 0,
+            "title": "Amount",
+            "type": "number"
+          },
+          "from_account": {
+            "description": "来源账户",
+            "minLength": 1,
+            "title": "From Account",
+            "type": "string"
+          },
+          "to_account": {
+            "description": "目标账户",
+            "minLength": 1,
+            "title": "To Account",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "description": "调拨原因",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "from_account",
+          "to_account"
+        ],
+        "title": "TransferRequestArgs",
+        "type": "object"
+      },
+      "risk_level": "write_high",
+      "permission": "treasury:create",
+      "domain": "treasury",
+      "has_compensation": true
+    },
+    {
+      "name": "treasury_fund_transfers",
+      "description": "查询资金调拨记录列表",
+      "args_schema": {
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "按状态过滤（如 scheduled/approved/pending_approval）",
+            "title": "Status"
+          }
+        },
+        "title": "OptionalStatusArgs",
+        "type": "object"
+      },
+      "risk_level": "readonly",
+      "permission": "treasury:read",
+      "domain": "treasury",
+      "has_compensation": false
+    },
+    {
+      "name": "treasury_payment_schedule",
+      "description": "查询应付支付排程列表（采购订单对应的付款计划）",
+      "args_schema": {
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "按状态过滤（如 scheduled/approved/pending_approval）",
+            "title": "Status"
+          }
+        },
+        "title": "OptionalStatusArgs",
+        "type": "object"
+      },
+      "risk_level": "readonly",
+      "permission": "treasury:read",
+      "domain": "treasury",
+      "has_compensation": false
+    }
+  ],
+  "stats": {}
+}

@@ -39,6 +39,10 @@ from app.api.routes import (
     reimbursement_router,
     agent_ops_router,
     customizations_router,
+    workflow_definitions_router,
+    mcp_servers_router,
+    mcp_exposure_router,
+    skills_admin_router,
 )
 from app.api.routes.tenant import router as tenant_router
 from app.core.tenant import TenantMiddleware
@@ -807,6 +811,20 @@ async def lifespan(app: FastAPI):
         cleanup_interval_hours=settings.retention_cleanup_interval_hours,
     )
 
+    # 8.5 外部 MCP 工具桥接（D3 环境变量清单 + F4.1 管理端登记清单）
+    #     register_external_tools() 此前只在测试里被调用过，运行期从未接线，
+    #     因此真实进程中不存在任何 external_* 工具（F4.1 修复）。
+    #     外部 server 不可达不得阻塞启动，故整段降级为 warning。
+    try:
+        from app.core.agent import mcp_config
+        from app.core.agent.external_tools import register_external_tools
+
+        env_count = await register_external_tools()
+        db_sync = await mcp_config.sync_from_db()
+        logger.info("app.external_mcp_ready", env_registered=env_count, **db_sync)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("app.external_mcp_failed", error=str(e))
+
     logger.info("app.started",
                 agents=33,
                 version=settings.app_version)
@@ -929,6 +947,10 @@ app.include_router(messaging_router)
 app.include_router(reimbursement_router)
 app.include_router(agent_ops_router)
 app.include_router(customizations_router)
+app.include_router(workflow_definitions_router)
+app.include_router(mcp_servers_router)
+app.include_router(mcp_exposure_router)
+app.include_router(skills_admin_router)
 app.include_router(tenant_router)
 
 # Prometheus指标

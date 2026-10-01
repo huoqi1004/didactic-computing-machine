@@ -7,11 +7,16 @@ from uuid import uuid4
 from typing import Optional
 from enum import Enum
 
+import structlog
+
 from app.core.agent.base import BaseAgent, AgentDecision
+from app.core.agent.domain_params import reimb_require_receipt
 from app.db.repositories.base import has_db, schedule
 from app.db.repositories.reimbursement_repository import reimbursement_request_repository
 from app.core.config import settings
 from app.core.event.models import Event, EventType
+
+logger = structlog.get_logger()
 
 
 class ReimbursementCategory(str, Enum):
@@ -111,7 +116,7 @@ class ReimbursementAgent(BaseAgent):
         try:
             await self.process_event(event)
         except Exception as e:
-            self._logger.error(
+            logger.error(
                 "reimbursement.event_handler_failed",
                 event_type=event.event_type.value,
                 error=str(e),
@@ -181,7 +186,7 @@ class ReimbursementAgent(BaseAgent):
         if amount > config["limit"]:
             issues.append(f"金额{amount:.2f}元超过{config['name']}限额{config['limit']}元")
 
-        if config["require_receipt"] and not context.get("has_receipt"):
+        if reimb_require_receipt(config["require_receipt"]) and not context.get("has_receipt"):
             issues.append(f"{config['name']}需要附发票/收据")
 
         if context.get("project_id") and context.get("project_id") not in self._projects:

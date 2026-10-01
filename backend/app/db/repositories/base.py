@@ -98,6 +98,28 @@ def schedule(coro, category: str) -> None:
 _PENDING: set[asyncio.Task] = set()
 
 
+async def drain_pending_writes(timeout: float = 3.0, rounds: int = 3) -> int:
+    """
+    等待在途 fire-and-forget 写穿任务落库，返回已完成的批次数。
+
+    用于"同一记录先异步写、后同步写"的场景：异步任务无序后到会把同步写的
+    新状态覆盖回旧状态（例：报销提交落 pending → 工作流审批落 approved）。
+    """
+    settled = 0
+    for _ in range(rounds):
+        pending = list(_PENDING)
+        if not pending:
+            break
+        done, still = await asyncio.wait(pending, timeout=timeout)
+        settled += len(done)
+        if not still:
+            break
+    if _PENDING:
+        warn_throttled("repository.drain", "repository.drain_timeout",
+                       remaining=len(_PENDING))
+    return settled
+
+
 class RepositoryBase:
     """
     Repository 通用基类。

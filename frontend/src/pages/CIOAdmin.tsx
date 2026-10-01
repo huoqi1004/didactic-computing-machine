@@ -1,5 +1,10 @@
 import { useState } from 'react'
 import { AgentCustomizationCenter } from '../components/AgentCustomizationCenter'
+import { WorkflowDesigner } from '../components/WorkflowDesigner'
+import { McpGovernance } from '../components/McpGovernance'
+import { SkillStudio } from '../components/SkillStudio'
+import { CustomizationAudit } from '../components/CustomizationAudit'
+import { EvalTrendBoard } from '../components/EvalTrendBoard'
 import {
   Settings,
   Activity,
@@ -39,6 +44,9 @@ import {
   CloudUpload,
   FileCheck2,
   SlidersHorizontal,
+  Workflow,
+  Sparkles,
+  TrendingUp,
 } from 'lucide-react'
 import {
   PageHeader,
@@ -311,6 +319,11 @@ interface TabItem {
 const TABS: TabItem[] = [
   { key: 'monitor', label: '系统监控', icon: Activity },
   { key: 'customization', label: 'Agent 定制中心', icon: SlidersHorizontal },
+  { key: 'workflow', label: '工作流设计', icon: Workflow },
+  { key: 'mcp', label: 'MCP 治理', icon: Server },
+  { key: 'skills', label: '技能工坊', icon: Sparkles },
+  { key: 'audit', label: '定制审计', icon: ScrollText },
+  { key: 'evals', label: '评测趋势', icon: TrendingUp },
   { key: 'agent', label: 'Agent 生命周期', icon: Bot },
   { key: 'config', label: '配置管理', icon: Settings },
   { key: 'security', label: '安全控制', icon: ShieldCheck },
@@ -1227,6 +1240,16 @@ export default function CIOAdmin() {
         return <SystemMonitorTab />
       case 'customization':
         return <AgentCustomizationCenter />
+      case 'workflow':
+        return <WorkflowDesigner />
+      case 'mcp':
+        return <McpGovernance />
+      case 'skills':
+        return <SkillStudio />
+      case 'audit':
+        return <CustomizationAudit />
+      case 'evals':
+        return <EvalTrendBoard />
       case 'agent':
         return <AgentLifecycleTab />
       case 'config':

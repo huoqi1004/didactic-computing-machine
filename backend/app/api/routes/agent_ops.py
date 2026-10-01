@@ -9,11 +9,10 @@ Agent 编排运维路由（路线图 Phase A / A8）
 """
 from __future__ import annotations
 
-import os
-
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from typing import Optional
 
 from app.api.middleware.auth import get_current_user, require_permission
 from app.api.middleware.ws_manager import ws_connection_manager
@@ -122,9 +121,6 @@ async def list_skills(
     return {"skills": skill_registry.to_catalog(domain)}
 
 
-_eval_runs: dict = {}
-
-
 @router.post("/evals/run", summary="触发定制效果评测（按域）")
 async def run_evals(
     req: dict = None,
@@ -132,46 +128,52 @@ async def run_evals(
 ):
     """
     触发定制效果评测（F2.6）：按域子集跑评测集（脚本 LLM 模式，零 LLM 成本），
-    返回 run_id；结果经 GET /agent-ops/evals/status/{run_id} 轮询。
+    返回 run_id；结果经 GET /agent-ops/evals/status/{run_id} 轮询，
+    终态同时落 eval_runs（F5.2 趋势看板的历史真相源）。
     """
-    import asyncio as _asyncio
-    import uuid as _uuid
+    from app.core.agent.eval_runner import start
 
     domain = (req or {}).get("domain") or ""
-    run_id = f"eval-{_uuid.uuid4().hex[:10]}"
-
-    async def _run():
-        proc = await _asyncio.create_subprocess_exec(
-            "./.venv/Scripts/python.exe" if os.name == "nt" else "python",
-            "-m", "pytest", "tests/test_agent_evals.py",
-            "-k", domain or "eval_case", "--tb=no", "-q",
-            cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            stdout=_asyncio.subprocess.PIPE, stderr=_asyncio.subprocess.STDOUT,
-        )
-        out, _ = await proc.communicate()
-        text = out.decode("utf-8", errors="replace")
-        tail = text[-2000:]
-        passed = "passed" in tail
-        _eval_runs[run_id] = {
-            "run_id": run_id, "domain": domain, "finished": True,
-            "exit_code": proc.returncode,
-            "summary": ("PASS" if passed and proc.returncode == 0 else "FAIL"),
-            "tail": tail,
-        }
-
-    _asyncio.ensure_future(_run())
-    _eval_runs[run_id] = {"run_id": run_id, "domain": domain,
-                          "finished": False, "summary": "running"}
+    run_id = start(domain, triggered_by=current_user.get("user_id", "unknown"))
     return {"run_id": run_id, "domain": domain, "status": "running"}
 
 
 @router.get("/evals/status/{run_id}", summary="评测执行状态")
 async def eval_status(run_id: str,
                       current_user: dict = Depends(require_permission("customization", "read"))):
-    info = _eval_runs.get(run_id)
+    """
+    本轮轮询优先读内存（最新、含完整 tail）；内存没有（服务重启/多实例）回落历史行，
+    否则前端会出现"任务不存在"但其实早就跑完了。
+    """
+    from app.core.agent.eval_runner import record_of, status as eval_status_of
+
+    info = eval_status_of(run_id)
+    if info is None:
+        info = await record_of(run_id)
     if info is None:
         raise HTTPException(status_code=404, detail="评测任务不存在")
     return info
+
+
+@router.get("/evals/history", summary="评测历史（F5.2 趋势看板数据源）")
+async def eval_history(
+    domain: Optional[str] = Query(None, description="按 -k 筛选词过滤（业务域名或前缀）"),
+    source: Optional[str] = Query(None, description="manual / gate"),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: dict = Depends(require_permission("customization", "read")),
+):
+    """按域/按来源取近 N 次评测：用例数、通过/失败、时长、谁触发的、尾部摘要。"""
+    from app.core.agent.eval_runner import history
+
+    return {"runs": await history(domain=domain, source=source, limit=limit)}
+
+
+@router.get("/evals/cases", summary="评测集按域用例数（按域触发的下拉数据源）")
+async def eval_cases(current_user: dict = Depends(require_permission("customization", "read"))):
+    from app.core.agent.eval_runner import case_domains
+
+    domains = case_domains()
+    return {"domains": domains, "total": sum(d["cases"] for d in domains)}
 
 
 @router.get("/approvals", summary="人审任务列表")

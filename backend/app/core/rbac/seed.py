@@ -175,6 +175,24 @@ SEED_PERMISSIONS.extend([
     },
 ])
 
+# Agent 定制平台的扩展权限（附录 B 非标准动作 publish / export，Phase F3）
+SEED_PERMISSIONS.extend([
+    {
+        "permission_id": "customization:publish",
+        "resource": "customization",
+        "action": "publish",
+        "description": "Agent定制 - publish（工作流/Skill 发布、环境晋升、回滚）",
+        "sensitivity": "high_risk",
+    },
+    {
+        "permission_id": "customization:export",
+        "resource": "customization",
+        "action": "export",
+        "description": "Agent定制 - export（配置快照导出）",
+        "sensitivity": "sensitive",
+    },
+])
+
 
 # ===================================================================
 # 23 个角色定义
@@ -765,10 +783,17 @@ for _role_code in ROLE_PERMISSION_MATRIX:
     ROLE_PERMISSION_MATRIX[_role_code]["message"] = _MSG_ALL
 
 # ---- Phase F1：Agent 定制平台角色（附录 B）----
-ROLE_PERMISSION_MATRIX["customization_admin"] = {"customization": _ALL}
-ROLE_PERMISSION_MATRIX["customization_approver"] = {"customization": _RA}
-ROLE_PERMISSION_MATRIX["cio"]["customization"] = {"read", "update", "approve", "create"}
-ROLE_PERMISSION_MATRIX["chairman"]["customization"] = {"read", "approve", "create"}
+# publish/export 为定制平台专属动作（附录 B 的 5 权限点）
+_CUSTOM_ALL = _ALL | {"publish", "export"}
+_CUSTOM_RA = _RA | {"publish"}
+ROLE_PERMISSION_MATRIX["customization_admin"] = {"customization": _CUSTOM_ALL}
+ROLE_PERMISSION_MATRIX["customization_approver"] = {"customization": _CUSTOM_RA}
+# export 一并给 cio：定制包导出是 UAT-F4-2 的必经动线（管理员自助改造要能把
+# 技能定义带走），只读导出不改运行态，风险面低于已授予的 publish。
+ROLE_PERMISSION_MATRIX["cio"]["customization"] = {"read", "update", "approve",
+                                                 "create", "publish", "export"}
+ROLE_PERMISSION_MATRIX["chairman"]["customization"] = {"read", "approve", "create",
+                                                       "publish"}
 
 
 

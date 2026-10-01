@@ -51,6 +51,11 @@ async def wf_env(tmp_path, monkeypatch):
         )
         await orchestrator.register_agent(agent)
         created.append(agent)
+    # 清空工作流编译缓存：缓存图绑定创建时的 checkpointer（指向本测试的
+    # 临时 sqlite 库与事件循环）——跨测试复用会跨 loop 等待挂起
+    from app.core.agent import workflows as wf_mod
+
+    wf_mod.graphs_cache.clear()
     yield engine
     domains = {a.domain for a in created}
     for key in list(orchestrator._agents.keys()):

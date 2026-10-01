@@ -152,6 +152,14 @@ class Settings(BaseSettings):
     # [{"name": "fx", "url": "https://...", "tools": ["get_rate"]}]
     # 仅白名单内工具经治理面桥接为只读工具
     external_mcp_servers: str = "[]"
+    # 出站域名白名单（Phase F4.1 / §2.4 SSRF）：逗号分隔，含子域；
+    # 非空即为主控手段（管理端保存的外部 MCP URL 必须命中），空=不启用（仅内网校验）
+    mcp_outbound_allowed_domains: str = ""
+
+    # Skill 发布产物目录（Phase F4.4）：管理端发布/回滚把版本落为 YAML，
+    # 由 SkillRegistry 按目录 mtime 热加载。源码树 app/core/agent/skills/ 是
+    # **出厂默认**（只读），本目录是**已发布版本**（可写），同名以本目录为准。
+    skills_overlay_dir: str = "./data/skills_overlay"
 
     # MCP Server（路线图 Phase D）
     # 生产必须配置 ERP_MCP_AUTH_TOKEN；未配置为开发模式（无鉴权放行）

@@ -1,0 +1,8 @@
+{
+  "status": "pending_approval",
+  "reason": "放宽类变更需人工审批后生效",
+  "thread_id": "cust:workflow:reimbursement_approval:user_admin",
+  "name": "reimbursement_approval",
+  "version": "v3",
+  "traffic": 0
+}

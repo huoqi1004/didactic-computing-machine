@@ -140,7 +140,7 @@ async def resume_after_decision(
         # row.tool 形如 "tool:sales_create_order" / "gate:reimbursement_..."
         ctype, _, ctarget = (row.tool or "").partition(":")
         cust_result = await customization_service.apply_pending(
-            ctype, ctarget, approved, comment, decided_by,
+            ctype, ctarget, approved, decided_by=decided_by, comment=comment,
         )
         status = "executed" if cust_result.get("status") == "executed" else (
             "rejected" if not approved else "failed")
@@ -267,17 +267,22 @@ async def _create_approval_record(payload: dict, ctx: ToolContext) -> None:
 
     if not has_db():
         return
-    # 审批人路由矩阵（F2.5）：按单据类型（工具/工作流名）与金额解析审批角色；
-    # 未命中 → None（落入存量三级审批链，向后兼容）
+    # 审批人路由：gate 节点 per-node 角色（F3.4）优先 → 路由矩阵（F2.5）→
+    # 均未给出则 None（落入存量三级审批链，向后兼容）
     approve_roles = None
     try:
-        doc_type = str(payload.get("tool", "")).split(":")[-1]
-        amount = (payload.get("args") or {}).get("amount")
-        from app.core.agent.customization import customization_service
+        node_roles = payload.get("approve_roles")
+        if isinstance(node_roles, (list, tuple)) and node_roles:
+            approve_roles = [str(r) for r in node_roles]
+        else:
+            doc_type = str(payload.get("document_type")
+                           or str(payload.get("tool", "")).split(":")[-1])
+            amount = (payload.get("args") or {}).get("amount")
+            from app.core.agent.customization import customization_service
 
-        approve_roles = customization_service.resolve_approve_roles(
-            doc_type, float(amount) if amount is not None else None,
-        )
+            approve_roles = customization_service.resolve_approve_roles(
+                doc_type, float(amount) if amount is not None else None,
+            )
     except Exception as e:  # noqa: BLE001
         logger.warning("customization.route_resolve_failed", error=str(e))
 

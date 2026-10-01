@@ -38,8 +38,12 @@ from starlette.routing import Mount
 
 logger = structlog.get_logger()
 
-# MCP 桥接工具的归属域 → FastMCP 子服务器名
-_MCP_DOMAINS = ("reimbursement", "treasury", "payroll", "hr", "crm", "sales", "contract")
+# MCP 桥接工具的归属域 → FastMCP 子服务器名。
+# 这是**候选清单**（新增业务域涉及工具归属与鉴权映射，必须过代码评审），
+# 实际对外暴露哪些域由定制层决定：见 app/core/agent/mcp_export.py（F4.3）。
+from app.core.agent.mcp_export import DEFAULT_EXPORT_DOMAINS  # noqa: E402
+
+_MCP_DOMAINS = DEFAULT_EXPORT_DOMAINS
 
 
 def _build_generic_handler(domain: str, tool_name: str):
@@ -48,6 +52,8 @@ def _build_generic_handler(domain: str, tool_name: str):
     async def handler(tool_name: str, tool_args: dict) -> dict:
         from fastmcp.server.dependencies import get_http_request
 
+        from app.core.agent import mcp_export
+        from app.core.agent.customization import customization_service
         from app.core.agent.governor import agent_governor
         from app.core.agent.tools_v2 import ToolContext
 
@@ -60,6 +66,13 @@ def _build_generic_handler(domain: str, tool_name: str):
                 username = request.headers.get("X-ERP-User", username)
         except Exception:  # noqa: BLE001
             pass  # 非 HTTP 传输（stdio 测试）时用默认身份
+
+        # server 端过滤（F4.3）：不能只在构建期筛一次——ASGI 应用是启动时装配的，
+        # 管理端关掉某域/某工具须在不重启的前提下立刻拒绝，故每次调用前刷定制缓存。
+        await customization_service.ensure_fresh()
+        if not mcp_export.is_tool_exportable(tool_name, domain):
+            return {"status": "error",
+                    "error": f"工具 {tool_name} 未开放 MCP 出口（域 {domain} 已关闭或工具已停用）"}
 
         ctx = ToolContext(user_id=user_id, username=username,
                           agent_key=f"mcp:{domain}")
@@ -74,40 +87,6 @@ def _build_generic_handler(domain: str, tool_name: str):
         return {"status": "success", "data": result.data}
 
     return handler
-
-
-def _export_domain_tools(mcp: FastMCP, domain: str) -> int:
-    """把治理面注册的某域工具动态导出为 MCP 工具（显式签名，schema 正确）。"""
-    from app.core.agent.tools_v2 import tool_registry_v2
-
-    specs = tool_registry_v2.list_specs(domain=domain)
-    count = 0
-    for spec in specs:
-        fields = spec.args_model.model_fields
-        ns: dict[str, Any] = {
-            "_H": _build_generic_handler(domain, spec.name),
-            "_NAME": spec.name,
-            "_ANN": {k: f.annotation for k, f in fields.items()},
-            "_DEF": {k: f.default for k, f in fields.items() if not f.is_required()},
-        }
-        param_lines, call_parts = [], []
-        for fname, f in fields.items():
-            ann = f"_ANN[{fname!r}]"
-            if f.is_required():
-                param_lines.append(f"    {fname}: {ann},")
-            else:
-                param_lines.append(f"    {fname}: {ann} = _DEF[{fname!r}],")
-            call_parts.append(f"{fname!r}: {fname}")
-        src = (
-            f"@_MCP.tool(name={spec.name!r}, "
-            f"description={ (spec.description or '')[:400]!r})\n"
-            f"async def {spec.name}(\n" + "\n".join(param_lines) +
-            f"\n) -> dict:\n    return await _H(_NAME, {{{', '.join(call_parts)}}})"
-        )
-        exec(src, ns)
-        count += 1
-    logger.info("mcp.domain_exported", domain=domain, tools=count)
-    return count
 
 
 class TokenAuthMiddleware(BaseHTTPMiddleware):
@@ -128,45 +107,68 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
 def create_mcp_asgi_app() -> Starlette:
     """
-    构建总 ASGI 应用：5+2 个域子服务器挂载到 ``/{domain}/mcp``。
+    构建总 ASGI 应用：按生效定制把已暴露的域子服务器挂载到 ``/{domain}/mcp``。
 
     供 compose（uvicorn app.mcp.server:app）与测试（ASGITransport）使用。
-    """
-    from app.core.config import settings
 
+    构建期只做"少挂载"（收窄面的快路径）；真正的强制在请求期的
+    ``mcp_export.is_tool_exportable``（见 ``_build_generic_handler``），
+    因此管理端改开关后无需重启即可生效，且构建时定制缓存尚未加载也不会误放——
+    那时 ``_domain_exposed`` 回退内置默认清单，暴露面不放大。
+    """
     from contextlib import AsyncExitStack, asynccontextmanager
+
+    from app.core.agent import mcp_export
 
     routes = []
     sub_lifespans = []
+    mounted = []
     for domain in _MCP_DOMAINS:
+        if not mcp_export.is_domain_exposed(domain):
+            logger.info("mcp.domain_skipped", domain=domain)
+            continue
         mcp = FastMCP(f"erp-{domain}")
         ns: dict[str, Any] = {"_MCP": mcp}
         _export_domain_tools_into(ns, mcp, domain)
         sub_app = mcp.http_app(path="/mcp")
         sub_lifespans.append(sub_app.router.lifespan_context)
         routes.append(Mount(f"/{domain}", app=sub_app))
+        mounted.append(domain)
 
     @asynccontextmanager
     async def lifespan(app: Starlette):
         # 每个 fastmcp 子应用的 lifespan 必须进入父应用生命周期，
         # 否则 StreamableHTTPSessionManager 未初始化（initialize 请求 500）
+        from app.core.agent.customization import customization_service
+
         async with AsyncExitStack() as stack:
+            # 启动即加载定制层（出口开关/工具启停都读它）；失败则保持默认清单
+            try:
+                await customization_service.ensure_fresh()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("mcp.customization_load_failed", error=str(e))
             for sub_lifespan in sub_lifespans:
                 await stack.enter_async_context(sub_lifespan(app))
             yield
 
     app = Starlette(routes=routes, lifespan=lifespan,
                     middleware=[Middleware(TokenAuthMiddleware)])
-    logger.info("mcp.server_built", domains=list(_MCP_DOMAINS))
+    logger.info("mcp.server_built", domains=mounted,
+                candidates=list(_MCP_DOMAINS))
     return app
 
 
 def _export_domain_tools_into(ns: dict, mcp: FastMCP, domain: str) -> None:
-    """在给定命名空间内为某域生成并注册全部工具（装饰在 def 处完成）。"""
+    """在给定命名空间内为某域生成并注册当前可导出的工具（装饰在 def 处完成）。"""
+    from app.core.agent import mcp_export
     from app.core.agent.tools_v2 import tool_registry_v2
 
     ns["_MCP"] = mcp
     for spec in tool_registry_v2.list_specs(domain=domain):
+        # 工具级开关（F4.3）：被 tool 类定制停用的工具不出现在出口清单里，
+        # 省得外部系统在 list_tools 里看到调不动的工具。
+        if not mcp_export.tool_enabled(spec.name):
+            continue
         fields = spec.args_model.model_fields
         ns["_ANN"] = ns.get("_ANN", {})
         ns["_DEF"] = ns.get("_DEF", {})

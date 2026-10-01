@@ -1,0 +1,180 @@
+{
+  "node_types": [
+    "task",
+    "condition",
+    "gate"
+  ],
+  "condition_ops": [
+    "equals",
+    "not_equals",
+    "in",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "exists"
+  ],
+  "handlers": [
+    "contract.approve",
+    "contract.create",
+    "contract.reject_mark",
+    "contract.review",
+    "p2p.pay",
+    "p2p.reject_mark",
+    "p2p.schedule",
+    "p2p.validate",
+    "reimb.precheck",
+    "reimb.reject_mark",
+    "reimb.submit",
+    "reimb.verify_approve"
+  ],
+  "threshold_keys": [
+    "agent_daily_token_budget",
+    "payment_human_gate_limit",
+    "reimbursement_auto_approve_limit"
+  ],
+  "workflows": [
+    {
+      "name": "reimbursement_approval",
+      "description": "报销审批流：提交→规则预审→分级人审(≥5000)→核验→审批",
+      "input_hint": "{employee_name, employee_id?, department?, category, amount, description, has_receipt?}"
+    },
+    {
+      "name": "procure_to_pay",
+      "description": "采购到支付：PO校验→支付排程(net30)→大额人审(≥10万)→付款",
+      "input_hint": "{po_id, total_amount, supplier_id?}"
+    },
+    {
+      "name": "contract_approval",
+      "description": "合同审批流：创建→规则审查→人审→批准生效",
+      "input_hint": "{title, type, counterparty, amount, department, start_date, end_date, terms?}"
+    }
+  ],
+  "builtin_dsl": {
+    "reimbursement_approval": {
+      "name": "reimbursement_approval",
+      "entry": "submit",
+      "nodes": [
+        {
+          "id": "submit",
+          "type": "task",
+          "handler": "reimb.submit",
+          "next": "precheck"
+        },
+        {
+          "id": "precheck",
+          "type": "task",
+          "handler": "reimb.precheck",
+          "next": "gate"
+        },
+        {
+          "id": "gate",
+          "type": "gate",
+          "threshold": {
+            "key": "reimbursement_auto_approve_limit",
+            "default": 5000
+          },
+          "amount_from": "result.amount",
+          "preview": "报销单 {reimbursement_no} 金额 ¥{amount}，员工 {employee_name}，预审已通过",
+          "next_approved": "verify",
+          "next_rejected": "reject"
+        },
+        {
+          "id": "verify",
+          "type": "task",
+          "handler": "reimb.verify_approve",
+          "next": "END"
+        },
+        {
+          "id": "reject",
+          "type": "task",
+          "handler": "reimb.reject_mark",
+          "next": "END"
+        }
+      ]
+    },
+    "procure_to_pay": {
+      "name": "procure_to_pay",
+      "entry": "validate",
+      "nodes": [
+        {
+          "id": "validate",
+          "type": "task",
+          "handler": "p2p.validate",
+          "next": "schedule"
+        },
+        {
+          "id": "schedule",
+          "type": "task",
+          "handler": "p2p.schedule",
+          "next": "gate"
+        },
+        {
+          "id": "gate",
+          "type": "gate",
+          "threshold": {
+            "key": "payment_human_gate_limit",
+            "default": 100000
+          },
+          "amount_from": "result.amount",
+          "preview": "大额付款确认：PO {po_id} 应付 ¥{amount}，排程日 {payment_date}；批准后标记为已付",
+          "next_approved": "pay",
+          "next_rejected": "reject"
+        },
+        {
+          "id": "pay",
+          "type": "task",
+          "handler": "p2p.pay",
+          "next": "END"
+        },
+        {
+          "id": "reject",
+          "type": "task",
+          "handler": "p2p.reject_mark",
+          "next": "END"
+        }
+      ]
+    },
+    "contract_approval": {
+      "name": "contract_approval",
+      "entry": "create",
+      "nodes": [
+        {
+          "id": "create",
+          "type": "task",
+          "handler": "contract.create",
+          "next": "review"
+        },
+        {
+          "id": "review",
+          "type": "task",
+          "handler": "contract.review",
+          "next": "gate"
+        },
+        {
+          "id": "gate",
+          "type": "gate",
+          "amount_from": "result.amount",
+          "preview": "合同[{title}] ¥{amount}，审查备注：{review_notes}。批准后合同生效",
+          "approve_roles": [
+            "fin_manager"
+          ],
+          "next_approved": "approve",
+          "next_rejected": "reject"
+        },
+        {
+          "id": "approve",
+          "type": "task",
+          "handler": "contract.approve",
+          "next": "END"
+        },
+        {
+          "id": "reject",
+          "type": "task",
+          "handler": "contract.reject_mark",
+          "next": "END"
+        }
+      ]
+    }
+  }
+}

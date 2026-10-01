@@ -1,0 +1,101 @@
+{
+  "versions": [
+    {
+      "id": 6,
+      "type": "tool",
+      "target": "reimbursement_submit",
+      "overrides": {},
+      "status": "rolled_back",
+      "changed_by": "user_admin",
+      "approved_by": null,
+      "created_at": "2026-09-30T07:38:16"
+    },
+    {
+      "id": 5,
+      "type": "gate",
+      "target": "approval_route_matrix",
+      "overrides": {
+        "rules": [
+          {
+            "document_type": "treasury_fund_transfer_request",
+            "amount_min": 100000,
+            "approve_roles": [
+              "cfo",
+              "chairman"
+            ],
+            "mode": "all"
+          },
+          {
+            "document_type": "reimbursement_submit",
+            "amount_min": 0,
+            "amount_max": 5000,
+            "approve_roles": [
+              "fin_manager"
+            ],
+            "mode": "any"
+          }
+        ],
+        "default": "legacy"
+      },
+      "status": "approved_executed",
+      "changed_by": "user_admin",
+      "approved_by": "user_admin",
+      "created_at": "2026-09-30T07:38:15"
+    },
+    {
+      "id": 4,
+      "type": "agent",
+      "target": "reimbursement",
+      "overrides": {
+        "prompt_override": "你是报销领域的严谨审核助手，只依据单据事实作答，金额存疑必须转人审。",
+        "temperature": 0.2,
+        "daily_token_budget": 60000,
+        "tool_whitelist": [
+          "reimbursement_submit"
+        ],
+        "params": {
+          "require_receipt": true
+        }
+      },
+      "status": "active",
+      "changed_by": "user_admin",
+      "approved_by": null,
+      "created_at": "2026-09-30T07:38:15"
+    },
+    {
+      "id": 3,
+      "type": "tool",
+      "target": "reimbursement_query_detail",
+      "overrides": {},
+      "status": "pending_approval",
+      "changed_by": "user_admin",
+      "approved_by": null,
+      "created_at": "2026-09-30T07:38:11"
+    },
+    {
+      "id": 2,
+      "type": "tool",
+      "target": "reimbursement_query_detail",
+      "overrides": {
+        "reason": "临时下线"
+      },
+      "status": "active",
+      "changed_by": "user_admin",
+      "approved_by": null,
+      "created_at": "2026-09-30T07:38:11"
+    },
+    {
+      "id": 1,
+      "type": "tool",
+      "target": "reimbursement_submit",
+      "overrides": {
+        "risk_override": "write_high",
+        "reason": "大额单据收紧"
+      },
+      "status": "active",
+      "changed_by": "user_admin",
+      "approved_by": null,
+      "created_at": "2026-09-30T07:38:09"
+    }
+  ]
+}

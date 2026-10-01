@@ -1732,6 +1732,38 @@ langgraph_checkpoints = Table(
 
 # ---- Agent 定制层（Phase F1：管理端可配置化）----
 
+workflow_definitions = Table(
+    "workflow_definitions",
+    Base.metadata,
+    Column("id", BigIntPK, primary_key=True, autoincrement=True),
+    Column("name", String(96), nullable=False),
+    Column("version", String(32), nullable=False),
+    # 状态：draft / pending_approval / canary（灰度）/ stable / superseded
+    # ——运行时取 stable 优先，canary 按单据哈希粘性命中
+    Column("status", String(16), nullable=False, default="draft"),
+    # 灰度流量百分比（0-100）：按单据 ID 哈希粘性命中（同单据全程同版本）
+    Column("traffic", Integer, nullable=False, default=0, server_default=text("0")),
+    Column("definition", JSON, nullable=False),
+    Column("comment", String(512), nullable=True),
+    Column("created_by", String(64), nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("published_at", DateTime, nullable=True),
+    UniqueConstraint("name", "version", name="uq_wf_def_version"),
+    Index("ix_wf_def_name_status", "name", "status"),
+)
+
+workflow_thread_pins = Table(
+    "workflow_thread_pins",
+    Base.metadata,
+    # 工作流线程 ID（wf:{name}:{thread}）——同一单据/同一线程全程同版本
+    Column("thread_id", String(192), primary_key=True),
+    Column("name", String(96), nullable=False),
+    Column("version", String(32), nullable=False),
+    Column("document_key", String(128), nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Index("ix_wf_pin_name", "name"),
+)
+
 agent_customizations = Table(
     "agent_customizations",
     Base.metadata,
@@ -1743,7 +1775,9 @@ agent_customizations = Table(
     # 覆盖内容（JSON，schema 按 type 定义；带 schema_version 供演进回滚兼容）
     Column("overrides", JSON, nullable=True),
     Column("schema_version", Integer, nullable=False, server_default=text("1")),
-    # status: active（生效中）/ pending_approval（放宽类待批）/ rejected / removed
+    # status: active（生效中）/ removed（曾生效、现已被撤销）。
+    # 待批的放宽变更不放这里（本表 type+target+environment 唯一，放进来会顶掉生效行），
+    # 而是作为 pending_approval 提案行落在 customization_versions。
     Column("status", String(24), nullable=False, default="active"),
     Column("environment", String(16), nullable=False, default="prod"),
     Column("updated_by", String(64), nullable=True),
@@ -1765,12 +1799,91 @@ customization_versions = Table(
     Column("overrides", JSON, nullable=True),
     Column("old_summary", JSON, nullable=True),
     Column("new_summary", JSON, nullable=True),
+    # active（收紧即时生效）/ rolled_back（撤销过一次变更）/
+    # pending_approval（放宽提案，待批中）/ approved_executed / rejected
     Column("status", String(24), nullable=False),
     Column("comment", String(512), nullable=True),
     Column("changed_by", String(64), nullable=True),
     Column("approved_by", String(64), nullable=True),
     Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
     Index("ix_cust_ver_target", "type", "target"),
+)
+
+# 外部 MCP Server 接入清单（Phase F4.1）：管理端可配，取代只读环境变量的
+# settings.external_mcp_servers。本表只存**连接清单**（怎么连）；
+# 暴露哪些外部工具、是否参与运行属于定制层——落在 agent_customizations
+# （type="mcp"，overrides.tools 为已批准生效的工具白名单），从而复用版本流/审批/回滚/审计。
+# URL 保存前必须过 §2.4 SSRF 校验（app/core/security/url_guard）。
+mcp_servers = Table(
+    "mcp_servers",
+    Base.metadata,
+    Column("id", BigIntPK, primary_key=True, autoincrement=True),
+    Column("name", String(64), nullable=False),
+    Column("url", String(512), nullable=False),
+    Column("description", String(255), nullable=True),
+    # 最近一次连接测试/工具发现结果：{"ok": bool, "tools": [...], "error": str, "at": iso}
+    Column("last_probe", JSON, nullable=True),
+    Column("created_by", String(64), nullable=True),
+    Column("updated_by", String(64), nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("name", name="uq_mcp_server_name"),
+)
+
+# Skill 定义版本（Phase F4.4/F4.5）：管理端编辑器的版本流。
+# 与 workflow_definitions 同一套治理语义——已发布版本内容不可变，发布必经人审
+# （定制层 type="skill"），回滚到历史版本即时生效。
+# 运行时真相源是 skills_overlay_dir 里的 YAML（发布/回滚时由本表物化写出）。
+skill_definitions = Table(
+    "skill_definitions",
+    Base.metadata,
+    Column("id", BigIntPK, primary_key=True, autoincrement=True),
+    Column("name", String(96), nullable=False),
+    Column("version", String(32), nullable=False),
+    # draft（可覆盖）/ stable（生效，不可变）/ superseded（历史，不可变）
+    Column("status", String(16), nullable=False, default="draft"),
+    # 技能定义（name/display_name/description/domain/tools/instructions/guardrails）
+    Column("definition", JSON, nullable=False),
+    Column("comment", String(512), nullable=True),
+    Column("created_by", String(64), nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("published_at", DateTime, nullable=True),
+    UniqueConstraint("name", "version", name="uq_skill_def_version"),
+    Index("ix_skill_def_name_status", "name", "status"),
+)
+
+# 评测运行历史（Phase F5.2）：按域一键触发的评测要能看"这批用例近几次跑成什么样"。
+# eval_runner 原先只把结果写在进程内存里（重启即丢、多实例互不可见），趋势看板没有数据源，
+# 所以这里落库：一次运行一行，手动触发与 DSL 发布门禁触发（source=gate）同源计数。
+eval_runs = Table(
+    "eval_runs",
+    Base.metadata,
+    Column("id", BigIntPK, primary_key=True, autoincrement=True),
+    # eval_runner 生成的 run_id（eval-xxxxxxxxxx），前端轮询 status 用的同一个键
+    Column("run_id", String(48), nullable=False),
+    # pytest -k 筛选词（空串 = 全量 50 用例）。手动触发传业务域名（与
+    # tests/evals/agent_evals.json 的 case.domain 一致）；发布门禁传
+    # workflow_versions.WF_EVAL_KEYWORD 的关键词（如 reimb，是用例 id 前缀而非域名），
+    # 所以看板把这一列当"筛选词"显示，不与域下拉做强一致。
+    Column("domain", String(48), nullable=False, server_default=text("''")),
+    # manual（管理端"触发评测"）/ gate（DSL 发布门禁）
+    Column("source", String(16), nullable=False, default="manual"),
+    # running / pass / fail / skipped（skipped = 无事件循环或评测集缺失，未真正跑）
+    Column("status", String(16), nullable=False, default="running"),
+    # pytest 尾部摘要解析结果（解析不到时留空，不猜数字）
+    Column("passed", Integer, nullable=True),
+    Column("failed", Integer, nullable=True),
+    Column("errors", Integer, nullable=True),
+    Column("skipped", Integer, nullable=True),
+    Column("deselected", Integer, nullable=True),
+    Column("duration_s", Float, nullable=True),
+    Column("exit_code", Integer, nullable=True),
+    Column("tail", Text, nullable=True),
+    Column("triggered_by", String(64), nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("finished_at", DateTime, nullable=True),
+    UniqueConstraint("run_id", name="uq_eval_run_id"),
+    Index("ix_eval_runs_domain", "domain", "created_at"),
 )
 
 knowledge_chunks = Table(

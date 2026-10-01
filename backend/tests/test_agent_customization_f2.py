@@ -4,7 +4,8 @@ Agent 级定制与业务链路参数化测试（路线图 Phase F / F2）
 1. agent 级定制生效：人设模板注入、工具白名单过滤、per-agent 预算；
 2. 审批人路由矩阵：规则命中→approve_roles 落库、未命中→默认链；
 3. 域参数化首批：报销 require_receipt 关闭后免票通过；
-4. 配置变更后图重建（缓存键含配置哈希）。
+4. 配置变更后图重建（缓存键含配置哈希）；
+5. F2.7：tri 参数在 Agent 预审与 DSL 预审口径一致；定制表单元数据端点契约。
 """
 import asyncio
 
@@ -249,3 +250,141 @@ async def test_reimbursement_require_receipt_param(f2_env, monkeypatch):
         _ctx("f2-param-1"))
     # require_receipt=False → 预审不再拒无票（小额外额自动通过）
     assert r["status"] == "done", r.get("reply")
+
+
+async def test_require_receipt_param_governs_both_paths(f2_env):
+    """
+    tri 参数口径一致（F2.7 整改）：Agent 自身预审与 DSL 预审都读定制覆盖。
+
+    整改前只有 workflows.reimb.precheck 读 overrides.params，
+    ReimbursementAgent._decide_submit 仍读静态 CATEGORY_CONFIG —— 同一开关两条路径结论相反。
+    """
+    from app.core.agent.customization import customization_service
+    from app.core.agent.orchestrator import orchestrator
+    from app.core.agent.workflows import start_workflow
+
+    agent = next(a for a in orchestrator._agents.values() if a.domain == "reimbursement")
+
+    async def _agent_rejects_missing_receipt() -> bool:
+        d = await agent._decide_submit({"category": "transport", "amount": 100,
+                                        "description": "市内交通", "has_receipt": False})
+        return "需要附发票" in d.reasoning
+
+    async def _workflow_rejects_missing_receipt(thread_id: str) -> bool:
+        r = await start_workflow(
+            "reimbursement_approval",
+            {"employee_name": "口径一致", "category": "transport",
+             "amount": 100, "description": "市内交通", "has_receipt": False},
+            _ctx(thread_id))
+        return r["status"] == "error" and "未附发票" in r["reply"]
+
+    # 未下发覆盖：transport 内置免票，两条路径都放行
+    assert not await _agent_rejects_missing_receipt()
+    assert not await _workflow_rejects_missing_receipt("f2-tri-off")
+
+    await customization_service.apply_change(
+        "agent", "reimbursement", {"params": {"require_receipt": True}},
+        enabled=True, changed_by="user_admin")
+
+    assert await _agent_rejects_missing_receipt(), "强制要票后 Agent 预审应拒无票"
+    assert await _workflow_rejects_missing_receipt("f2-tri-on"), "强制要票后 DSL 预审应拒无票"
+
+
+async def test_customization_meta_endpoint_contract(f2_env):
+    """F2.7 表单元数据：域/工具子集/参数清单/角色/单据类型，且与治理面注册表同源。"""
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    from app.api.routes import customizations as cust_routes
+    from app.core.agent.governor import agent_governor
+
+    class FakeAuth(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            request.state.current_user = {"user_id": "user_admin", "username": "admin"}
+            return await call_next(request)
+
+    app = FastAPI()
+    app.include_router(cust_routes.router)
+    app.add_middleware(FakeAuth)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        meta = (await client.get("/api/v1/agent-ops/customizations/meta")).json()
+
+    by_domain = {a["domain"]: a for a in meta["agents"]}
+    assert {"reimbursement", "treasury"} <= set(by_domain)
+    # 参数清单来自声明表：未登记的键不会出现在管理端表单（防"能改不生效"）
+    assert {p["key"] for p in by_domain["reimbursement"]["params"]} == {"require_receipt"}
+    assert by_domain["treasury"]["params"] == []
+    # 工具子集与治理面同源：卡片上可勾选的工具名一定真在册
+    assert set(by_domain["reimbursement"]["tools"]) == {
+        s.name for s in agent_governor.registry.list_specs(domain="reimbursement")}
+    # 审批矩阵可选项：角色取自 RBAC，单据类型含 write_high 工具后缀
+    assert any(r["code"] == "cfo" for r in meta["roles"])
+    assert "treasury_fund_transfer_request" in meta["document_types"]
+
+
+async def test_customization_versions_endpoint_carries_audit_fields(f2_env):
+    """
+    F5.1 定制审计视图的数据面：一条记录要能回答"谁、何时、改了什么、旧值→新值、
+    谁批的"，并按 type/target/status 过滤——缺 old/new 快照就只剩"有人改过"。
+    """
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    from app.api.routes import customizations as cust_routes
+    from app.core.agent.customization import customization_service
+
+    class FakeAuth(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            request.state.current_user = {"user_id": "user_cio", "username": "cio"}
+            return await call_next(request)
+
+    app = FastAPI()
+    app.include_router(cust_routes.router)
+    app.add_middleware(FakeAuth)
+
+    # 收紧：查询工具风险上调一档（readonly→write_high），即时生效、不产生审批
+    tighten = await customization_service.apply_change(
+        "tool", "reimbursement_query_list", {"risk_override": "write_high"},
+        enabled=True, changed_by="user_cio", comment="收紧一档，报销查询升风险")
+    # 放宽：提交工具风险下调一档（write_low→readonly），必须转人审（红线 2）
+    relax = await customization_service.apply_change(
+        "tool", "reimbursement_submit", {"risk_override": "readonly"},
+        enabled=True, changed_by="user_cio", comment="放宽：报销提交降风险")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        body = (await client.get("/api/v1/agent-ops/customizations/versions")).json()
+        only_tool = (await client.get(
+            "/api/v1/agent-ops/customizations/versions?type=tool&target=reimbursement_submit")).json()
+        only_pending = (await client.get(
+            "/api/v1/agent-ops/customizations/versions?status=pending_approval")).json()
+
+    rows = {r["target"]: r for r in body["versions"]}
+    assert tighten["status"] == "applied", tighten
+    assert relax["status"] == "pending_approval", relax
+
+    t = rows["reimbursement_query_list"]
+    assert t["status"] == "active"                      # 收紧即时生效
+    assert t["changed_by"] == "user_cio"
+    assert t["comment"] == "收紧一档，报销查询升风险"
+    assert t["created_at"] and t["environment"] == "prod"
+    assert t["new_summary"]["overrides"]["risk_override"] == "write_high"
+    # 首条记录没有旧行：快照给结构，前端才能把"新增键"和"改值"分清
+    assert t["old_summary"] is None or t["old_summary"].get("overrides") in (None, {})
+
+    r = rows["reimbursement_submit"]
+    assert r["status"] == "pending_approval"            # 放宽只落提案，不动运行态
+    assert r["new_summary"]["overrides"]["risk_override"] == "readonly"
+
+    assert [x["target"] for x in only_tool["versions"]] == ["reimbursement_submit"]
+    assert all(x["status"] == "pending_approval" for x in only_pending["versions"])
+
+    # 批准后审批人回填到版本行（审计视图的"谁批的"就来自这一列）
+    await customization_service.apply_pending("tool", "reimbursement_submit", True,
+                                              decided_by="user_admin")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        after = (await client.get(
+            "/api/v1/agent-ops/customizations/versions?target=reimbursement_submit")).json()
+    assert after["versions"][0]["approved_by"] == "user_admin"

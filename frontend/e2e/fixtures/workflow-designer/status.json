@@ -1,0 +1,56 @@
+{
+  "name": "reimbursement_approval",
+  "versions": [
+    {
+      "id": 2,
+      "name": "reimbursement_approval",
+      "version": "v2",
+      "status": "canary",
+      "traffic": 30,
+      "comment": "",
+      "created_by": "user_admin",
+      "created_at": "2026-09-30T06:25:16",
+      "published_at": "2026-09-30T06:25:16.748428",
+      "node_count": 7
+    },
+    {
+      "id": 1,
+      "name": "reimbursement_approval",
+      "version": "v1",
+      "status": "stable",
+      "traffic": 0,
+      "comment": "",
+      "created_by": "user_admin",
+      "created_at": "2026-09-30T06:25:13",
+      "published_at": "2026-09-30T06:25:13.793676",
+      "node_count": 7
+    }
+  ],
+  "stable": {
+    "id": 1,
+    "name": "reimbursement_approval",
+    "version": "v1",
+    "status": "stable",
+    "traffic": 0,
+    "comment": "",
+    "created_by": "user_admin",
+    "created_at": "2026-09-30T06:25:13",
+    "published_at": "2026-09-30T06:25:13.793676",
+    "node_count": 7
+  },
+  "canary": {
+    "id": 2,
+    "name": "reimbursement_approval",
+    "version": "v2",
+    "status": "canary",
+    "traffic": 30,
+    "comment": "",
+    "created_by": "user_admin",
+    "created_at": "2026-09-30T06:25:16",
+    "published_at": "2026-09-30T06:25:16.748428",
+    "node_count": 7
+  },
+  "publish_eval": {
+    "status": "none"
+  }
+}

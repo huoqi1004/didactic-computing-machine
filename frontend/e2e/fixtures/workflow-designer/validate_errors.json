@@ -1,0 +1,8 @@
+{
+  "valid": false,
+  "errors": [
+    "task 节点 a 引用未注册 handler: shell.exec",
+    "gate 节点 g 缺少 next_rejected（治理完整性）",
+    "gate 节点 g 阈值键不在白名单: not_seeded_key"
+  ]
+}

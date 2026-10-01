@@ -1,0 +1,33 @@
+{
+  "status": "pending",
+  "approvals": [
+    {
+      "thread_id": "cust:tool:reimbursement_query_detail:user_admin",
+      "channel_id": null,
+      "agent_key": "customization",
+      "domain": "customization",
+      "tool": "tool:reimbursement_query_detail",
+      "args": {
+        "old": {
+          "enabled": false,
+          "overrides": {
+            "reason": "临时下线"
+          }
+        },
+        "new": {
+          "overrides": {},
+          "enabled": true
+        }
+      },
+      "preview": "定制变更（放宽类）：tool:reimbursement_query_detail {}",
+      "risk": "high",
+      "status": "pending",
+      "requested_by": "user_admin",
+      "decided_by": null,
+      "decided_at": null,
+      "result_reply": null,
+      "created_at": "2026-09-30T07:38:11",
+      "approve_roles": null
+    }
+  ]
+}

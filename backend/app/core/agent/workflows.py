@@ -1,96 +1,35 @@
 """
-跨域业务工作流引擎（路线图 Phase B / B3）
-==========================================
+跨域业务工作流（路线图 Phase F / F3：DSL 驱动 + 版本管理 + 粘性灰度）
+======================================================================
 
-把三条跨域业务流程跑成 LangGraph 确定性状态图（规则节点 + interrupt
-人审门；LLM 仅在 AgentRuntime 场景图使用，工作流保持规则主干）：
+三条跨域业务流程以**声明式 DSL** 定义（app/core/agent/workflow_dsl.py），
+本模块承载：
 
-- ``reimbursement_approval``  报销审批流：提交 → 规则预审 → 分级人审门
-  （≥5000 元强制人审）→ 核验 → 审批 → 归档
-- ``procure_to_pay``          采购到支付：PO 校验 → 支付排程 → 大额人审门
-  （≥10 万）→ 付款标记
-- ``contract_approval``       合同审批流：字段校验 → 规则审查 → 人审门
-  （合同一律人审）→ 批准生效
+- **handler 注册表**：DSL task 节点引用的业务函数（白名单，非任意代码）；
+- **内置 DSL 模板**（BUILTIN_DSL）：三条流程的出厂定义；
+- **定义驱动运行**：start_workflow 优先加载 workflow_definitions 表中
+  stable/canary 版本，无则回退内置模板；
+- **版本管理**：发布（校验→published→设 stable/canary）/回滚/粘性灰度路由
+  （单据 ID 哈希绑定版本，同单据全程同版本）；
+- 人审门经 DSL gate 节点（阈值经定制层 _threshold、审批角色 per-node），
+  审批行/决定路由复用 Phase F1 机制。
 
-与 AgentRuntime 的关系：
-- 共享 MySQL Checkpointer（thread_id 用 ``wf:`` 前缀隔离，防状态串台）；
-- 人审中断产出与场景图相同的 interrupt 载荷 → 复用审批面板与
-  ``/agent-ops/approvals/{thread}/decide`` 决定路由（domain 前缀
-  ``workflow:`` 时由本模块 resume）；
-- 每个节点完成即 Checkpointer 落盘，可跨重启续跑；全程审计哈希链。
+State 契约与行为与 Phase B 硬编码版**等价**（存量 9 测试即等价证明）。
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from contextvars import ContextVar
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 from uuid import uuid4
 
 import structlog
-from typing_extensions import TypedDict
-
-from langgraph.graph import END as _GRAPH_END
-from app.core.agent.tools_v2 import ToolContext
 
 logger = structlog.get_logger()
-
-# 分级人审阈值（与审批中心的级别配置对齐）
-REIMB_AUTO_APPROVE_LIMIT = 5000.0
-PAYMENT_HUMAN_GATE_LIMIT = 100_000.0
-
-
-def _threshold(key: str, default: float) -> float:
-    """读取定制层阈值覆盖（管理端可调；无覆盖用内置默认）。"""
-    try:
-        from app.core.agent.customization import customization_service
-
-        override = customization_service.get_threshold(key)
-        return override if override is not None else default
-    except Exception:  # noqa: BLE001
-        return default
-
-
-class WorkflowState(TypedDict, total=False):
-    """工作流通用状态。"""
-
-    input: dict            # 触发参数
-    steps: list            # 已完成节点（审计轨迹）
-    result: dict           # 输出/单据信息
-    error: Optional[str]   # 驳回/失败原因（非空即终止）
-
-
-def _route_on_error(next_node: str):
-    """条件边工厂：state.error 非空时终止（END），否则进入下一节点。"""
-    def _route(state: WorkflowState) -> str:
-        return _GRAPH_END if state.get("error") else next_node
-    return _route
-
-
-async def _upsert_with_retry(repo, record: dict, key_field: str,
-                             attempts: int = 3, delay: float = 0.4) -> None:
-    """同步落库带重试：规避与 fire-and-forget 写穿任务的 sqlite 写锁竞争。"""
-    import asyncio as _asyncio
-
-    last_err = None
-    for _ in range(attempts):
-        try:
-            if await repo.upsert(record, key_field=key_field):
-                return
-            last_err = RuntimeError("upsert returned False")
-        except Exception as e:  # noqa: BLE001
-            last_err = e
-        await _asyncio.sleep(delay)
-    if last_err:
-        logger.warning("workflow.upsert_retry_exhausted",
-                       repo=repo.__category__, error=str(last_err))
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _ctx_for(thread_id: str, user_id: str, domain: str) -> ToolContext:
-    return ToolContext(user_id=user_id, username=user_id,
-                       agent_key=domain, thread_id=thread_id)
 
 
 async def _audit(action: str, resource: str, details: dict,
@@ -104,361 +43,349 @@ async def _audit(action: str, resource: str, details: dict,
         logger.warning("workflow.audit_failed", action=action, error=str(e))
 
 
-# ===========================================================================
-# 图 1：报销审批流
-# ===========================================================================
+def _get_agent_by_name(name: str):
+    from app.core.agent.orchestrator import orchestrator
 
-def _build_reimbursement_approval():
-    from langgraph.graph import END, START, StateGraph
-    from langgraph.types import interrupt
+    agent = orchestrator.get_agent_by_name(name)
+    if agent is None:
+        raise RuntimeError(f"{name} 未启动")
+    return agent
 
-    async def submit(state: WorkflowState) -> dict:
-        from app.core.agent.orchestrator import orchestrator
 
-        agent = orchestrator.get_agent_by_name("报销Agent")
-        data = dict(state["input"])
-        data.setdefault("has_receipt", True)
-        record = await agent.submit_reimbursement(data)
-        if "error" in record:
-            return {"error": record["error"], "steps": ["submit"]}
-        await _audit("workflow.reimb.submitted", f"reimbursement:{record['reimbursement_id']}",
-                     {"amount": record["amount"], "employee": record["employee_name"]})
-        return {"result": {"reimbursement_id": record["reimbursement_id"],
-                           "reimbursement_no": record["reimbursement_no"],
-                           "amount": record["amount"]},
-                "steps": ["submit"]}
+async def _settle_writes() -> None:
+    """等待在途异步写穿任务落库——同记录的同步写必须排在其后，
+    否则先调度的旧状态会覆盖后写入的新状态。"""
+    from app.db.repositories.base import drain_pending_writes
 
-    async def precheck(state: WorkflowState) -> dict:
-        inp = state["input"]
-        problems = []
-        if float(inp.get("amount", 0)) <= 0:
-            problems.append("金额必须大于0")
-        if not inp.get("description"):
-            problems.append("缺少报销事由")
-        # 域业务参数（F2.3/F2.4）：require_receipt 管理端可关（免票场景）
-        from app.core.agent.runtime import AgentRuntime
+    await drain_pending_writes()
 
-        require_receipt = AgentRuntime._agent_cfg("reimbursement").get(
-            "params", {}).get("require_receipt", True)
-        if require_receipt and not inp.get("has_receipt", False):
-            problems.append("未附发票")
-        if problems:
-            reimb_id = state["result"].get("reimbursement_id", "")
-            from app.core.agent.orchestrator import orchestrator
 
-            agent = orchestrator.get_agent_by_name("报销Agent")
-            if reimb_id and reimb_id in agent._requests:
-                agent._requests[reimb_id]["status"] = "rejected"
-                agent._requests[reimb_id]["reject_reason"] = "；".join(problems)
-                from app.db.repositories.reimbursement_repository import reimbursement_request_repository
-
-                await _upsert_with_retry(
-                    reimbursement_request_repository,
-                    agent._requests[reimb_id], "reimbursement_id"
-                )
-            await _audit("workflow.reimb.precheck_rejected", f"reimbursement:{reimb_id}",
-                         {"problems": problems}, risk="medium")
-            return {"error": "预审未通过：" + "；".join(problems), "steps": state["steps"] + ["precheck"]}
-        return {"steps": state["steps"] + ["precheck"]}
-
-    async def approval_gate(state: WorkflowState) -> dict:
-        amount = float(state["input"].get("amount", 0))
-        if amount < _threshold("reimbursement_auto_approve_limit", REIMB_AUTO_APPROVE_LIMIT):
-            # 小额：免人审，直接核验+自动审批（决策 D6：write_low 免审）
-            return {"steps": state["steps"] + ["approval_gate(auto)"]}
-
-        decision = interrupt({
-            "tool": "workflow:reimbursement_approval",
-            "risk": "write_high",
-            "args": {"reimbursement_id": state["result"].get("reimbursement_id"),
-                     "amount": amount},
-            "preview": (
-                f"报销单 {state['result'].get('reimbursement_no')} 金额 ¥{amount}，"
-                f"预审已通过；批准后将完成核验与审批（员工："
-                f"{state['input'].get('employee_name', '—')}）"
-            ),
-        })
-        if not isinstance(decision, dict) or not decision.get("approved"):
-            reimb_id = state["result"].get("reimbursement_id", "")
-            from app.core.agent.orchestrator import orchestrator
-
-            agent = orchestrator.get_agent_by_name("报销Agent")
-            if reimb_id and reimb_id in agent._requests:
-                agent._requests[reimb_id]["status"] = "rejected"
-                agent._requests[reimb_id]["reject_reason"] = "人工审批驳回"
-                from app.db.repositories.reimbursement_repository import reimbursement_request_repository
-
-                await _upsert_with_retry(
-                    reimbursement_request_repository,
-                    agent._requests[reimb_id], "reimbursement_id"
-                )
-            return {"error": "人工审批驳回该报销单",
-                    "steps": state["steps"] + ["approval_gate(rejected)"]}
-        return {"steps": state["steps"] + ["approval_gate(approved)"]}
-
-    async def verify_and_approve(state: WorkflowState) -> dict:
-        from app.core.agent.orchestrator import orchestrator
-
-        agent = orchestrator.get_agent_by_name("报销Agent")
-        reimb_id = state["result"].get("reimbursement_id", "")
-        v = await agent.verify_reimbursement(reimb_id)
-        if "error" in v:
-            return {"error": v["error"], "steps": state["steps"] + ["verify"]}
-        a = await agent.approve_reimbursement(reimb_id, approved=True, remark="工作流审批")
-        if "error" in a:
-            return {"error": a["error"], "steps": state["steps"] + ["approve"]}
-        if reimb_id in agent._requests:
-            from app.db.repositories.reimbursement_repository import reimbursement_request_repository
-
-            await _upsert_with_retry(
-                reimbursement_request_repository,
-                agent._requests[reimb_id], "reimbursement_id"
-            )
-        await _audit("workflow.reimb.approved", f"reimbursement:{reimb_id}",
-                     {"amount": state["result"].get("amount")}, risk="medium")
-        return {"steps": state["steps"] + ["verify", "approve"],
-                "result": {**state["result"], "status": "approved"}}
-
-    builder = StateGraph(WorkflowState)
-    builder.add_node("submit", submit)
-    builder.add_node("precheck", precheck)
-    builder.add_node("approval_gate", approval_gate)
-    builder.add_node("verify_and_approve", verify_and_approve)
-    builder.add_edge(START, "submit")
-    builder.add_edge("submit", "precheck")
-    builder.add_conditional_edges("precheck", _route_on_error("approval_gate"),
-                                  ["approval_gate", END])
-    builder.add_conditional_edges("approval_gate", _route_on_error("verify_and_approve"),
-                                  ["verify_and_approve", END])
-    builder.add_edge("verify_and_approve", END)
-    return builder
+# 调用者上下文
+_ctx_var: ContextVar[Optional[Any]] = ContextVar("wf_tool_ctx", default=None)
 
 
 # ===========================================================================
-# 图 2：采购到支付
+# handler 注册表（DSL task 节点白名单引用——安全边界）
 # ===========================================================================
 
-def _build_procure_to_pay():
-    from langgraph.graph import END, START, StateGraph
-    from langgraph.types import interrupt
-    from uuid import uuid4
-    from datetime import date, timedelta
+from app.core.agent.workflow_dsl import register_handler  # noqa: E402
 
-    async def validate_po(state: WorkflowState) -> dict:
-        inp = state["input"]
-        if not inp.get("po_id") or float(inp.get("total_amount", 0)) <= 0:
-            return {"error": "PO 校验失败：缺少 po_id 或金额非法", "steps": ["validate_po"]}
-        return {"steps": ["validate_po"]}
 
-    async def schedule_payment(state: WorkflowState) -> dict:
-        """规则生成支付排程（绕过 LLM 优化，工作流保持确定性）。"""
-        inp = state["input"]
-        payment = {
-            "payment_id": f"PAY-{str(uuid4())[:8]}",
-            "po_id": inp["po_id"],
-            "supplier_id": inp.get("supplier_id", ""),
-            "amount": float(inp["total_amount"]),
-            "payment_date": (date.today() + timedelta(days=30)).isoformat(),
-            "status": "scheduled",
-            "optimization_method": "workflow_rules",
-            "reasoning": f"采购到支付工作流生成（PO {inp['po_id']}，net30）",
-            "created_at": _now_iso(),
-        }
-        from app.db.repositories.treasury_contract_repository import payment_schedule_repository
+@register_handler("reimb.submit")
+async def _h_reimb_submit(state: dict, params: dict) -> dict:
+    agent = _get_agent_by_name("报销Agent")
+    data = dict(state.get("input") or {})
+    data.setdefault("has_receipt", True)
+    record = await agent.submit_reimbursement(data)
+    if "error" in record:
+        return {"error": record["error"]}
+    await _audit("workflow.reimb.submitted",
+                 f"reimbursement:{record['reimbursement_id']}",
+                 {"amount": record["amount"], "employee": record["employee_name"]})
+    return {"result": {"reimbursement_id": record["reimbursement_id"],
+                       "reimbursement_no": record["reimbursement_no"],
+                       "amount": record["amount"]}}
 
-        await payment_schedule_repository.upsert(payment, "payment_id")
-        await _audit("workflow.p2p.scheduled", f"payment:{payment['payment_id']}",
-                     {"po_id": inp["po_id"], "amount": payment["amount"]}, risk="medium")
-        return {"result": {"payment_id": payment["payment_id"],
-                           "amount": payment["amount"],
-                           "payment_date": payment["payment_date"]},
-                "steps": state["steps"] + ["schedule_payment"]}
 
-    async def payment_gate(state: WorkflowState) -> dict:
-        amount = float(state["result"].get("amount", 0))
-        if amount < _threshold("payment_human_gate_limit", PAYMENT_HUMAN_GATE_LIMIT):
-            return {"steps": state["steps"] + ["payment_gate(auto)"]}
+@register_handler("reimb.precheck")
+async def _h_reimb_precheck(state: dict, params: dict) -> dict:
+    from app.agents.reimbursement.agent import ReimbursementCategory
+    from app.core.agent.domain_params import reimb_require_receipt
+    from app.db.repositories.reimbursement_repository import (
+        reimbursement_request_repository,
+    )
 
-        decision = interrupt({
-            "tool": "workflow:procure_to_pay",
-            "risk": "write_high",
-            "args": {"payment_id": state["result"].get("payment_id"), "amount": amount},
-            "preview": (
-                f"大额付款确认：PO {state['input'].get('po_id')} 应付 ¥{amount}，"
-                f"排程日 {state['result'].get('payment_date')}；批准后标记为已付"
-            ),
-        })
-        if not isinstance(decision, dict) or not decision.get("approved"):
-            return {"error": "大额付款被人工驳回",
-                    "steps": state["steps"] + ["payment_gate(rejected)"]}
-        return {"steps": state["steps"] + ["payment_gate(approved)"]}
+    agent = _get_agent_by_name("报销Agent")
+    inp = state.get("input") or {}
+    reimb_id = (state.get("result") or {}).get("reimbursement_id", "")
+    problems = []
+    if float(inp.get("amount", 0) or 0) <= 0:
+        problems.append("金额必须大于0")
+    if not inp.get("description"):
+        problems.append("缺少报销事由")
+    # 与 Agent 预审同一判定：定制覆盖优先，未覆盖回退该类别内置默认
+    try:
+        cat_cfg = agent.CATEGORY_CONFIG[ReimbursementCategory(inp.get("category") or "other")]
+        builtin = bool(cat_cfg.get("require_receipt", True))
+    except (KeyError, ValueError):
+        builtin = True
+    if reimb_require_receipt(builtin) and not inp.get("has_receipt", False):
+        problems.append("未附发票")
+    if problems:
+        if reimb_id and reimb_id in agent._requests:
+            await _settle_writes()
+            agent._requests[reimb_id]["status"] = "rejected"
+            agent._requests[reimb_id]["reject_reason"] = "；".join(problems)
+            await reimbursement_request_repository.upsert(
+                agent._requests[reimb_id], key_field="reimbursement_id")
+        await _audit("workflow.reimb.precheck_rejected",
+                     f"reimbursement:{reimb_id}", {"problems": problems}, risk="medium")
+        return {"error": "预审未通过：" + "；".join(problems)}
+    return {}
 
-    async def pay(state: WorkflowState) -> dict:
-        payment_id = state["result"].get("payment_id", "")
-        from app.db.repositories.treasury_contract_repository import payment_schedule_repository
-        from app.db.repositories.base import has_db
 
-        if has_db():
-            from sqlalchemy import update
+@register_handler("reimb.verify_approve")
+async def _h_reimb_verify_approve(state: dict, params: dict) -> dict:
+    from app.db.repositories.reimbursement_repository import (
+        reimbursement_request_repository,
+    )
 
-            async with __import__("app.db.repositories.base", fromlist=["session_scope"]).session_scope() as session:
-                await session.execute(
-                    update(payment_schedule_repository.__model__)
-                    .where(payment_schedule_repository.__model__.payment_id == payment_id)
-                    .values(status="paid")
-                )
-        from app.core.agent.orchestrator import orchestrator
+    agent = _get_agent_by_name("报销Agent")
+    reimb_id = (state.get("result") or {}).get("reimbursement_id", "")
+    v = await agent.verify_reimbursement(reimb_id)
+    if "error" in v:
+        return {"error": v["error"]}
+    a = await agent.approve_reimbursement(reimb_id, approved=True, remark="工作流审批")
+    if "error" in a:
+        return {"error": a["error"]}
+    if reimb_id in agent._requests:
+        await _settle_writes()
+        await reimbursement_request_repository.upsert(
+            agent._requests[reimb_id], key_field="reimbursement_id")
+    await _audit("workflow.reimb.approved", f"reimbursement:{reimb_id}",
+                 {"amount": (state.get("result") or {}).get("amount")}, risk="medium")
+    return {"result": {**(state.get("result") or {}), "status": "approved"}}
 
-        agent = orchestrator.get_agent_by_name("资金Agent")
-        if agent and payment_id in agent._payment_schedule:
-            agent._payment_schedule[payment_id]["status"] = "paid"
-        await _audit("workflow.p2p.paid", f"payment:{payment_id}",
-                     {"amount": state["result"].get("amount")}, risk="high")
-        return {"steps": state["steps"] + ["pay"],
-                "result": {**state["result"], "status": "paid"}}
 
-    builder = StateGraph(WorkflowState)
-    builder.add_node("validate_po", validate_po)
-    builder.add_node("schedule_payment", schedule_payment)
-    builder.add_node("payment_gate", payment_gate)
-    builder.add_node("pay", pay)
-    builder.add_edge(START, "validate_po")
-    builder.add_conditional_edges("validate_po", _route_on_error("schedule_payment"),
-                                  ["schedule_payment", END])
-    builder.add_conditional_edges("schedule_payment", _route_on_error("payment_gate"),
-                                  ["payment_gate", END])
-    builder.add_conditional_edges("payment_gate", _route_on_error("pay"), ["pay", END])
-    builder.add_edge("pay", END)
-    return builder
+@register_handler("reimb.reject_mark")
+async def _h_reimb_reject_mark(state: dict, params: dict) -> dict:
+    from app.db.repositories.reimbursement_repository import (
+        reimbursement_request_repository,
+    )
+
+    agent = _get_agent_by_name("报销Agent")
+    reimb_id = (state.get("result") or {}).get("reimbursement_id", "")
+    if reimb_id and reimb_id in agent._requests:
+        await _settle_writes()
+        agent._requests[reimb_id]["status"] = "rejected"
+        agent._requests[reimb_id]["reject_reason"] = "人工审批驳回"
+        await reimbursement_request_repository.upsert(
+            agent._requests[reimb_id], key_field="reimbursement_id")
+    return {"error": params.get("reason", "人工审批驳回该报销单")}
+
+
+@register_handler("p2p.validate")
+async def _h_p2p_validate(state: dict, params: dict) -> dict:
+    inp = state.get("input") or {}
+    if not inp.get("po_id") or float(inp.get("total_amount", 0) or 0) <= 0:
+        return {"error": "PO 校验失败：缺少 po_id 或金额非法"}
+    return {}
+
+
+@register_handler("p2p.schedule")
+async def _h_p2p_schedule(state: dict, params: dict) -> dict:
+    from app.db.repositories.treasury_contract_repository import (
+        payment_schedule_repository,
+    )
+
+    inp = state.get("input") or {}
+    payment = {
+        "payment_id": f"PAY-{str(uuid4())[:8]}",
+        "po_id": inp.get("po_id", ""),
+        "supplier_id": inp.get("supplier_id", ""),
+        "amount": float(inp.get("total_amount", 0)),
+        "payment_date": (date.today() + timedelta(days=30)).isoformat(),
+        "status": "scheduled",
+        "optimization_method": "workflow_rules",
+        "reasoning": f"采购到支付工作流生成（PO {inp.get('po_id')}，net30）",
+        "created_at": _now_iso(),
+    }
+    await payment_schedule_repository.upsert(payment, "payment_id")
+    await _audit("workflow.p2p.scheduled", f"payment:{payment['payment_id']}",
+                 {"po_id": payment["po_id"], "amount": payment["amount"]}, risk="medium")
+    return {"result": {"payment_id": payment["payment_id"],
+                       "amount": payment["amount"],
+                       "payment_date": payment["payment_date"]}}
+
+
+@register_handler("p2p.pay")
+async def _h_p2p_pay(state: dict, params: dict) -> dict:
+    from sqlalchemy import update
+
+    from app.db.repositories.base import has_db, session_scope
+    from app.db.repositories.treasury_contract_repository import (
+        payment_schedule_repository,
+    )
+
+    payment_id = (state.get("result") or {}).get("payment_id", "")
+    await _settle_writes()
+    if has_db():
+        async with session_scope() as session:
+            await session.execute(
+                update(payment_schedule_repository.__model__)
+                .where(payment_schedule_repository.__model__.payment_id == payment_id)
+                .values(status="paid"))
+    agent = _get_agent_by_name("资金Agent")
+    if payment_id in agent._payment_schedule:
+        agent._payment_schedule[payment_id]["status"] = "paid"
+    await _audit("workflow.p2p.paid", f"payment:{payment_id}",
+                 {"amount": (state.get("result") or {}).get("amount")}, risk="high")
+    return {"result": {**(state.get("result") or {}), "status": "paid"}}
+
+
+@register_handler("p2p.reject_mark")
+async def _h_p2p_reject_mark(state: dict, params: dict) -> dict:
+    return {"error": params.get("reason", "大额付款被人工驳回")}
+
+
+@register_handler("contract.create")
+async def _h_contract_create(state: dict, params: dict) -> dict:
+    from app.db.repositories.treasury_contract_repository import contract_repository
+
+    agent = _get_agent_by_name("合同Agent")
+    inp = state.get("input") or {}
+    contract = await agent.create_contract(
+        title=inp["title"], type=inp["type"], counterparty=inp["counterparty"],
+        amount=float(inp["amount"]), department=inp["department"],
+        start_date=inp["start_date"], end_date=inp["end_date"],
+        terms=inp.get("terms", ""))
+    await _settle_writes()
+    await contract_repository.upsert(contract, "contract_id")
+    await _audit("workflow.contract.created", f"contract:{contract['contract_id']}",
+                 {"amount": contract["amount"], "counterparty": contract["counterparty"]})
+    return {"result": {"contract_id": contract["contract_id"],
+                       "amount": contract["amount"], "title": contract["title"]}}
+
+
+@register_handler("contract.review")
+async def _h_contract_review(state: dict, params: dict) -> dict:
+    inp = state.get("input") or {}
+    notes = []
+    amount = float(inp.get("amount", 0))
+    if amount > 1_000_000:
+        notes.append("金额超100万，建议法务复核")
+    if str(inp.get("start_date")) >= str(inp.get("end_date")):
+        return {"error": "起止日期非法"}
+    if not inp.get("terms"):
+        notes.append("缺少主要条款")
+    return {"result": {**(state.get("result") or {}),
+                       "review_notes": notes or ["无风险提示"]}}
+
+
+@register_handler("contract.approve")
+async def _h_contract_approve(state: dict, params: dict) -> dict:
+    from app.db.repositories.treasury_contract_repository import contract_repository
+
+    agent = _get_agent_by_name("合同Agent")
+    contract_id = (state.get("result") or {}).get("contract_id", "")
+    contract = await agent.approve_contract(
+        contract_id=contract_id, approved_by="workflow",
+        comment="；".join((state.get("result") or {}).get("review_notes", [])))
+    if "error" in contract:
+        return {"error": contract["error"]}
+    await _settle_writes()
+    await contract_repository.update_status(
+        contract_id, "approved",
+        extra={"approved_by": "workflow", "approved_at": contract.get("approved_at")})
+    await _audit("workflow.contract.approved", f"contract:{contract_id}",
+                 {"amount": (state.get("result") or {}).get("amount")}, risk="high")
+    return {"result": {**(state.get("result") or {}), "status": "approved"}}
+
+
+@register_handler("contract.reject_mark")
+async def _h_contract_reject_mark(state: dict, params: dict) -> dict:
+    from app.db.repositories.treasury_contract_repository import contract_repository
+
+    agent = _get_agent_by_name("合同Agent")
+    contract_id = (state.get("result") or {}).get("contract_id", "")
+    if contract_id and contract_id in agent._contracts:
+        agent._contracts[contract_id]["status"] = "rejected"
+    await _settle_writes()
+    await contract_repository.update_status(contract_id, "rejected")
+    return {"error": params.get("reason", "合同被人工驳回")}
 
 
 # ===========================================================================
-# 图 3：合同审批流
+# 内置 DSL 模板（出厂定义；运行时以 workflow_definitions 表 active 版本优先）
 # ===========================================================================
 
-def _build_contract_approval():
-    from langgraph.graph import END, START, StateGraph
-    from langgraph.types import interrupt
+BUILTIN_DSL: dict[str, dict] = {
+    "reimbursement_approval": {
+        "name": "reimbursement_approval",
+        "entry": "submit",
+        "nodes": [
+            {"id": "submit", "type": "task", "handler": "reimb.submit",
+             "next": "precheck"},
+            {"id": "precheck", "type": "task", "handler": "reimb.precheck",
+             "next": "gate"},
+            {"id": "gate", "type": "gate",
+             "threshold": {"key": "reimbursement_auto_approve_limit", "default": 5000},
+             "amount_from": "result.amount",
+             "preview": "报销单 {reimbursement_no} 金额 ¥{amount}，员工 {employee_name}，预审已通过",
+             "next_approved": "verify", "next_rejected": "reject"},
+            {"id": "verify", "type": "task", "handler": "reimb.verify_approve",
+             "next": "END"},
+            {"id": "reject", "type": "task", "handler": "reimb.reject_mark",
+             "next": "END"},
+        ],
+    },
+    "procure_to_pay": {
+        "name": "procure_to_pay",
+        "entry": "validate",
+        "nodes": [
+            {"id": "validate", "type": "task", "handler": "p2p.validate",
+             "next": "schedule"},
+            {"id": "schedule", "type": "task", "handler": "p2p.schedule",
+             "next": "gate"},
+            {"id": "gate", "type": "gate",
+             "threshold": {"key": "payment_human_gate_limit", "default": 100000},
+             "amount_from": "result.amount",
+             "preview": "大额付款确认：PO {po_id} 应付 ¥{amount}，排程日 {payment_date}；批准后标记为已付",
+             "next_approved": "pay", "next_rejected": "reject"},
+            {"id": "pay", "type": "task", "handler": "p2p.pay", "next": "END"},
+            {"id": "reject", "type": "task", "handler": "p2p.reject_mark",
+             "next": "END"},
+        ],
+    },
+    "contract_approval": {
+        "name": "contract_approval",
+        "entry": "create",
+        "nodes": [
+            {"id": "create", "type": "task", "handler": "contract.create",
+             "next": "review"},
+            {"id": "review", "type": "task", "handler": "contract.review",
+             "next": "gate"},
+            {"id": "gate", "type": "gate",
+             "amount_from": "result.amount",
+             "preview": "合同[{title}] ¥{amount}，审查备注：{review_notes}。批准后合同生效",
+             "approve_roles": ["fin_manager"],
+             "next_approved": "approve", "next_rejected": "reject"},
+            {"id": "approve", "type": "task", "handler": "contract.approve",
+             "next": "END"},
+            {"id": "reject", "type": "task", "handler": "contract.reject_mark",
+             "next": "END"},
+        ],
+    },
+}
 
-    async def validate(state: WorkflowState) -> dict:
-        from app.core.agent.orchestrator import orchestrator
-
-        agent = orchestrator.get_agent_by_name("合同Agent")
-        inp = state["input"]
-        contract = await agent.create_contract(
-            title=inp["title"], type=inp["type"], counterparty=inp["counterparty"],
-            amount=float(inp["amount"]), department=inp["department"],
-            start_date=inp["start_date"], end_date=inp["end_date"],
-            terms=inp.get("terms", ""),
-        )
-        from app.db.repositories.treasury_contract_repository import contract_repository
-
-        await contract_repository.upsert(contract, "contract_id")
-        await _audit("workflow.contract.created", f"contract:{contract['contract_id']}",
-                     {"amount": contract["amount"], "counterparty": contract["counterparty"]})
-        return {"result": {"contract_id": contract["contract_id"],
-                           "amount": contract["amount"],
-                           "title": contract["title"]},
-                "steps": ["validate"]}
-
-    async def review(state: WorkflowState) -> dict:
-        """规则条款审查：金额/期限合理性，产出审查备注。"""
-        inp = state["input"]
-        notes = []
-        amount = float(inp.get("amount", 0))
-        if amount > 1_000_000:
-            notes.append("金额超100万，建议法务复核")
-        if str(inp.get("start_date")) >= str(inp.get("end_date")):
-            return {"error": "起止日期非法", "steps": state["steps"] + ["review"]}
-        if not inp.get("terms"):
-            notes.append("缺少主要条款")
-        return {"result": {**state["result"], "review_notes": notes or ["无风险提示"]},
-                "steps": state["steps"] + ["review"]}
-
-    async def approval_gate(state: WorkflowState) -> dict:
-        decision = interrupt({
-            "tool": "workflow:contract_approval",
-            "risk": "write_high",
-            "args": {"contract_id": state["result"].get("contract_id"),
-                     "amount": state["result"].get("amount")},
-            "preview": (
-                f"合同[{state['result'].get('title')}] ¥{state['result'].get('amount')}，"
-                f"审查备注：{'；'.join(state['result'].get('review_notes', []))}。"
-                "批准后合同生效（draft → approved）"
-            ),
-        })
-        if not isinstance(decision, dict) or not decision.get("approved"):
-            contract_id = state["result"].get("contract_id", "")
-            from app.core.agent.orchestrator import orchestrator
-
-            agent = orchestrator.get_agent_by_name("合同Agent")
-            if contract_id in agent._contracts:
-                agent._contracts[contract_id]["status"] = "rejected"
-            from app.db.repositories.treasury_contract_repository import contract_repository
-
-            await contract_repository.update_status(contract_id, "rejected")
-            return {"error": "合同被人工驳回", "steps": state["steps"] + ["approval_gate(rejected)"]}
-        return {"steps": state["steps"] + ["approval_gate(approved)"]}
-
-    async def approve(state: WorkflowState) -> dict:
-        from app.core.agent.orchestrator import orchestrator
-
-        agent = orchestrator.get_agent_by_name("合同Agent")
-        contract_id = state["result"].get("contract_id", "")
-        contract = await agent.approve_contract(
-            contract_id=contract_id, approved_by="workflow",
-            comment="；".join(state["result"].get("review_notes", [])),
-        )
-        if "error" in contract:
-            return {"error": contract["error"], "steps": state["steps"] + ["approve"]}
-        from app.db.repositories.treasury_contract_repository import contract_repository
-
-        await contract_repository.update_status(
-            contract_id, "approved",
-            extra={"approved_by": "workflow", "approved_at": contract.get("approved_at")},
-        )
-        await _audit("workflow.contract.approved", f"contract:{contract_id}",
-                     {"amount": state["result"].get("amount")}, risk="high")
-        return {"steps": state["steps"] + ["approve"],
-                "result": {**state["result"], "status": "approved"}}
-
-    builder = StateGraph(WorkflowState)
-    builder.add_node("validate", validate)
-    builder.add_node("review", review)
-    builder.add_node("approval_gate", approval_gate)
-    builder.add_node("approve", approve)
-    builder.add_edge(START, "validate")
-    builder.add_conditional_edges("validate", _route_on_error("review"), ["review", END])
-    builder.add_conditional_edges("review", _route_on_error("approval_gate"),
-                                  ["approval_gate", END])
-    builder.add_conditional_edges("approval_gate", _route_on_error("approve"), ["approve", END])
-    builder.add_edge("approve", END)
-    return builder
-
-
-# ===========================================================================
-# 注册表 + 启动/恢复
-# ===========================================================================
-
-WORKFLOW_CATALOG: dict[str, dict[str, Any]] = {
+# 工作流目录描述（对外）
+WORKFLOW_CATALOG: dict[str, dict] = {
     "reimbursement_approval": {
         "description": "报销审批流：提交→规则预审→分级人审(≥5000)→核验→审批",
         "input_hint": "{employee_name, employee_id?, department?, category, amount, description, has_receipt?}",
-        "builder": _build_reimbursement_approval,
     },
     "procure_to_pay": {
         "description": "采购到支付：PO校验→支付排程(net30)→大额人审(≥10万)→付款",
         "input_hint": "{po_id, total_amount, supplier_id?}",
-        "builder": _build_procure_to_pay,
     },
     "contract_approval": {
         "description": "合同审批流：创建→规则审查→人审→批准生效",
         "input_hint": "{title, type, counterparty, amount, department, start_date, end_date, terms?}",
-        "builder": _build_contract_approval,
     },
 }
 
 graphs_cache: dict[str, Any] = {}
+
+
+def _threshold(key: str, default: float) -> float:
+    """读取定制层阈值覆盖（管理端可调；无覆盖用内置默认）。"""
+    try:
+        from app.core.agent.customization import customization_service
+
+        override = customization_service.get_threshold(key)
+        return override if override is not None else default
+    except Exception:  # noqa: BLE001
+        return default
 
 
 def _get_checkpointer():
@@ -467,22 +394,65 @@ def _get_checkpointer():
     return get_mysql_checkpointer()
 
 
-def _get_graph(name: str):
-    if name not in WORKFLOW_CATALOG:
-        raise KeyError(f"未知工作流: {name}")
-    if name not in graphs_cache:
-        graphs_cache[name] = WORKFLOW_CATALOG[name]["builder"]().compile(
-            checkpointer=_get_checkpointer()
-        )
-        logger.info("workflow.compiled", workflow=name)
-    return graphs_cache[name]
+async def _load_definition_async(name: str, document_key: str = "",
+                                 thread_id: str = "") -> tuple[dict, str]:
+    """
+    解析本次运行的定义与版本（F3.5 粘性）：
+    线程已钉住版本 > canary 哈希命中 > stable > 内置模板（出厂默认）。
+    """
+    from app.core.agent import workflow_versions as wfv
+
+    if thread_id:
+        pinned = await wfv.pinned_version(thread_id)
+        if pinned:
+            defn = await wfv.get_definition_by_version(name, pinned)
+            if defn:
+                return defn, pinned
+    defn, version = await wfv.resolve_sticky(name, document_key or thread_id)
+    if defn:
+        return defn, version
+    return BUILTIN_DSL.get(name) or {}, "builtin"
 
 
-async def start_workflow(name: str, input_data: dict, ctx: ToolContext,
-                         thread_id: str = "") -> dict:
-    """启动工作流。返回 {"status": done/awaiting_approval/error, reply, interrupt}。"""
-    graph = _get_graph(name)
+def _graph_for(name: str, defn: dict):
+    """按 (name, 定义哈希) 缓存编译图（定义变更→新图；thread 状态兼容）。"""
+    import hashlib
+    import json as _json
+
+    from app.core.agent.customization import THRESHOLD_DEFAULTS
+    from app.core.agent.workflow_dsl import compile_dsl, validate_dsl
+
+    def_hash = hashlib.md5(_json.dumps(defn, sort_keys=True,
+                                       ensure_ascii=False).encode()).hexdigest()[:8]
+    cache_key = f"{name}:{def_hash}"
+    if cache_key not in graphs_cache:
+        errors = validate_dsl(defn, set(THRESHOLD_DEFAULTS.keys()))
+        if errors:
+            raise ValueError(f"工作流定义非法: {'；'.join(errors)}")
+        graphs_cache[cache_key] = compile_dsl(
+            defn, name, _get_checkpointer(), _threshold)
+        logger.info("workflow.compiled", workflow=name, def_hash=def_hash)
+    return graphs_cache[cache_key]
+
+
+async def start_workflow(name: str, input_data: dict, ctx,
+                         thread_id: str = "",
+                         document_key: str = "") -> dict:
+    """
+    启动工作流（定义驱动 + 粘性版本）。
+
+    ``document_key``：业务单据标识（如 PO 号/报销单号）。缺省以线程 ID 作键——
+    同一单据/同一线程在灰度切换后仍沿用首次命中的版本（F3.5）。
+    """
+    from app.core.agent import workflow_versions as wfv
+
     thread_id = thread_id or f"wf:{name}:{uuid4().hex[:10]}"
+    defn, version = await _load_definition_async(name, document_key, thread_id)
+    if not defn:
+        raise KeyError(f"未知工作流: {name}")
+    await wfv.pin_thread(thread_id, name, version, document_key)
+    graph = _graph_for(name, defn)
+
     token = _ctx_var.set(ctx)
     try:
         result = await graph.ainvoke(
@@ -496,24 +466,26 @@ async def start_workflow(name: str, input_data: dict, ctx: ToolContext,
     if interrupts:
         payload = interrupts[0].value if hasattr(interrupts[0], "value") else interrupts[0]
         return {"status": "awaiting_approval", "thread_id": thread_id,
+                "workflow_version": version,
                 "reply": f"工作流 {name} 需人工审批：{payload.get('preview', '')}",
                 "interrupt": payload}
-
     if result.get("error"):
         return {"status": "error", "thread_id": thread_id,
+                "workflow_version": version,
                 "reply": f"工作流 {name} 终止：{result['error']}", "interrupt": None}
-
     return {"status": "done", "thread_id": thread_id,
+            "workflow_version": version,
             "reply": f"工作流 {name} 完成：{result.get('result', {})}",
             "result": result.get("result", {}), "interrupt": None}
 
 
 async def resume_workflow(name: str, thread_id: str, decision: dict,
-                          ctx: ToolContext) -> dict:
-    """人审决定后恢复工作流。"""
+                          ctx) -> dict:
+    """人审决定后恢复工作流（沿用该线程钉住的版本，从 Checkpointer 断点续跑）。"""
     from langgraph.types import Command
 
-    graph = _get_graph(name)
+    defn, version = await _load_definition_async(name, "", thread_id)
+    graph = _graph_for(name, defn)
     token = _ctx_var.set(ctx)
     try:
         result = await graph.ainvoke(
@@ -527,25 +499,22 @@ async def resume_workflow(name: str, thread_id: str, decision: dict,
     if interrupts:
         payload = interrupts[0].value if hasattr(interrupts[0], "value") else interrupts[0]
         return {"status": "awaiting_approval", "reply": "仍有待审批节点。",
-                "interrupt": payload}
+                "workflow_version": version, "interrupt": payload}
     if result.get("error"):
-        return {"status": "error", "reply": f"工作流终止：{result['error']}"}
-    return {"status": "done",
-            "reply": f"工作流 {name} 完成：{result.get('result', {})}",
-            "result": result.get("result", {})}
-
-
-# 调用者上下文（工作流节点内的治理面/审计归属）
-from contextvars import ContextVar  # noqa: E402
-
-_ctx_var: ContextVar[Optional[ToolContext]] = ContextVar("wf_tool_ctx", default=None)
+        return {"status": "error", "reply": f"工作流终止：{result['error']}",
+                "workflow_version": version}
+    return {"status": "done", "reply": f"工作流 {name} 完成：{result.get('result', {})}",
+            "result": result.get("result", {}), "workflow_version": version}
 
 
 async def _graph_pending(name: str, thread_id: str) -> bool:
     """工作流在指定线程上是否有挂起的人审中断（supervisor 重放探测）。"""
     try:
-        graph = _get_graph(name)
-        state = await graph.aget_state({"configurable": {"thread_id": thread_id}})
+        defn, _ = await _load_definition_async(name, "", thread_id)
+        if not defn:
+            return False
+        state = await _graph_for(name, defn).aget_state(
+            {"configurable": {"thread_id": thread_id}})
         return any(getattr(t, "interrupts", None) for t in state.tasks)
     except Exception:  # noqa: BLE001
         return False

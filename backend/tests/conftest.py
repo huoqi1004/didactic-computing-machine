@@ -131,6 +131,26 @@ def reset_global_singletons():
     dig_twin.clear()
     snap_mgr.clear()
 
+    # Agent 定制层 + 工作流编译图（进程内单例绑定数据库与 DSL 定义）：
+    # 上一批测试留下的工具停用/风险覆盖会让后续编排测试的行为变样
+    from app.core.agent.customization import customization_service as cust_svc
+
+    cust_svc._cache.clear()
+    cust_svc._idempotency.clear()
+    cust_svc._loaded_from_db = False
+    cust_svc._cache_version = -1
+    # 降级态也是进程内状态：上一条测试留下的降级会骗过后续断言
+    cust_svc._load_ok = False
+    cust_svc._degraded = False
+    cust_svc._degraded_mode = ""
+    cust_svc._degraded_reason = ""
+    cust_svc._degrade_events = 0
+    cust_svc._reload_failures = 0
+
+    from app.core.agent.workflows import graphs_cache as wf_graphs
+
+    wf_graphs.clear()
+
     yield
 
 

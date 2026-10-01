@@ -1757,23 +1757,244 @@ export const apiService = {
       return res as any
     }, { customizations: [] }),
 
-  getCustomizationVersions: (): Promise<any> =>
+  getCustomizationVersions: (
+    type?: string, target?: string, limit?: number, status?: string,
+  ): Promise<any> =>
     withFallback(async () => {
-      const res = await apiClient.get('/agent-ops/customizations/versions')
+      const res = await apiClient.get('/agent-ops/customizations/versions', {
+        params: {
+          ...(type ? { type } : {}),
+          ...(target ? { target } : {}),
+          ...(limit ? { limit } : {}),
+          ...(status ? { status } : {}),
+        },
+      })
       return res as any
     }, { versions: [] }),
 
+  getCustomizationMeta: (): Promise<any> =>
+    apiClient.get('/agent-ops/customizations/meta'),
+
+  // 评测趋势看板（Phase F5.2）。读走 withFallback：看板显示"暂无历史"比弹错误有用；
+  // 触发评测是写操作（customization:update），失败必须让管理员看到真错。
+  getEvalCases: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/agent-ops/evals/cases')
+      return res as any
+    }, { domains: [], total: 0 }),
+
+  getEvalHistory: (domain?: string, source?: string, limit?: number): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/agent-ops/evals/history', {
+        params: {
+          ...(domain ? { domain } : {}),
+          ...(source ? { source } : {}),
+          ...(limit ? { limit } : {}),
+        },
+      })
+      return res as any
+    }, { runs: [] }),
+
+  getEvalStatus: (runId: string): Promise<any> =>
+    apiClient.get(`/agent-ops/evals/status/${encodeURIComponent(runId)}`),
+
+  runEvals: (domain: string): Promise<any> =>
+    apiClient.post('/agent-ops/evals/run', { domain }),
+
+  // 写操作不走 withFallback：后端 400/403/409（非法 target、权限不足、幂等重复）
+  // 必须让管理员看到，静默降级会把"已生效/已转审批"变成无从判断
   putAgentCustomization: (
     type: string, target: string,
-    body: { overrides: Record<string, unknown>; enabled: boolean },
+    body: { overrides: Record<string, unknown>; enabled: boolean; comment?: string },
   ): Promise<any> =>
+    apiClient.put(
+      `/agent-ops/customizations/${encodeURIComponent(type)}/${encodeURIComponent(target)}`,
+      body,
+    ),
+
+  rollbackCustomization: (
+    type: string, target: string, versionId: number,
+  ): Promise<any> =>
+    apiClient.post(
+      `/agent-ops/customizations/${encodeURIComponent(type)}/${encodeURIComponent(target)}/rollback`,
+      { version_id: versionId },
+    ),
+
+  // 工作流定义设计器（Phase F3.6）
+  // 写操作与校验不走 withFallback：发布/回滚/校验失败必须让管理员看到真错，
+  // 静默降级会让"已提交审批"这类结论失真。
+  getWorkflowDesignerMeta: (): Promise<any> =>
+    apiClient.get('/agent-ops/workflow-definitions/meta'),
+
+  listWorkflowDefinitions: (name?: string): Promise<any> =>
+    apiClient.get('/agent-ops/workflow-definitions', { params: name ? { name } : {} }),
+
+  getWorkflowStatus: (name: string): Promise<any> =>
+    apiClient.get(`/agent-ops/workflow-definitions/${encodeURIComponent(name)}`),
+
+  getWorkflowDefinition: (name: string, version: string): Promise<any> =>
+    apiClient.get(
+      `/agent-ops/workflow-definitions/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
+    ),
+
+  // definition 用结构化最小类型而非 Record<string, unknown>：后端校验器是唯一权威，
+  // 前端只需保证 name/nodes 存在，其余字段原样透传
+  validateWorkflowDefinition: (
+    definition: { name: string; nodes: unknown[]; entry?: string },
+  ): Promise<any> =>
+    apiClient.post('/agent-ops/workflow-definitions/validate', { definition }),
+
+  saveWorkflowDraft: (
+    name: string, version: string,
+    definition: { name: string; nodes: unknown[]; entry?: string },
+    comment = '',
+  ): Promise<any> =>
+    apiClient.put(
+      `/agent-ops/workflow-definitions/${encodeURIComponent(name)}/${encodeURIComponent(version)}/draft`,
+      { definition, comment },
+    ),
+
+  requestWorkflowPublish: (
+    name: string, version: string, traffic = 0, comment = '',
+  ): Promise<any> =>
+    apiClient.post(
+      `/agent-ops/workflow-definitions/${encodeURIComponent(name)}/${encodeURIComponent(version)}/publish`,
+      { traffic, comment },
+    ),
+
+  rollbackWorkflow: (name: string, version: string): Promise<any> =>
+    apiClient.post(
+      `/agent-ops/workflow-definitions/${encodeURIComponent(name)}/rollback`,
+      { version },
+    ),
+
+  // ------------------------------------------------------------------
+  // 外部 MCP 接入（Phase F4.1/F4.2，入口方向）
+  // 写操作一律不走 withFallback：SSRF 拒绝（400）、幂等重复（409）、
+  // 权限不足（403）都必须让管理员看到，静默会把"已转审批"变成无从判断。
+  // ------------------------------------------------------------------
+  getMcpServers: (): Promise<any> =>
     withFallback(async () => {
-      const res = await apiClient.put(
-        `/agent-ops/customizations/${encodeURIComponent(type)}/${encodeURIComponent(target)}`,
-        body,
-      )
+      const res = await apiClient.get('/agent-ops/mcp-servers')
       return res as any
-    }, {} as any),
+    }, { servers: [] }),
+
+  createMcpServer: (
+    body: { name: string; url: string; description?: string },
+  ): Promise<any> => apiClient.post('/agent-ops/mcp-servers', body),
+
+  updateMcpServer: (
+    name: string, body: { url?: string; description?: string },
+  ): Promise<any> =>
+    apiClient.put(`/agent-ops/mcp-servers/${encodeURIComponent(name)}`, body),
+
+  deleteMcpServer: (name: string): Promise<any> =>
+    apiClient.delete(`/agent-ops/mcp-servers/${encodeURIComponent(name)}`),
+
+  // 探测会让后端向给定地址发出站请求，属 operator 动作（要求 customization:update）
+  probeMcpUrl: (url: string): Promise<any> =>
+    apiClient.post('/agent-ops/mcp-servers/probe', { url }),
+
+  probeMcpServer: (name: string): Promise<any> =>
+    apiClient.post(`/agent-ops/mcp-servers/${encodeURIComponent(name)}/probe`),
+
+  getMcpServerTools: (name: string): Promise<any> =>
+    apiClient.get(`/agent-ops/mcp-servers/${encodeURIComponent(name)}/tools`),
+
+  setMcpServerTools: (
+    name: string, tools: string[], comment = '', idempotencyKey = '',
+  ): Promise<any> =>
+    apiClient.put(
+      `/agent-ops/mcp-servers/${encodeURIComponent(name)}/tools`,
+      { tools, comment },
+      idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+    ),
+
+  // ------------------------------------------------------------------
+  // MCP 出口治理（Phase F4.3，出口方向：本系统把工具导出给外部调用）
+  // ------------------------------------------------------------------
+  getMcpExposure: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/agent-ops/mcp-exposure')
+      return res as any
+    }, { domains: [] }),
+
+  setMcpDomainExposure: (
+    domain: string, exposed: boolean, comment = '', idempotencyKey = '',
+  ): Promise<any> =>
+    apiClient.put(
+      `/agent-ops/mcp-exposure/${encodeURIComponent(domain)}`,
+      { exposed, comment },
+      idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+    ),
+
+  // ------------------------------------------------------------------
+  // Skill 编辑器与版本流（Phase F4.4/F4.5）
+  // ------------------------------------------------------------------
+  getSkillDesignerMeta: (): Promise<any> =>
+    apiClient.get('/agent-ops/skills/meta'),
+
+  listSkillVersions: (name?: string): Promise<any> =>
+    apiClient.get('/agent-ops/skills/versions', { params: name ? { name } : {} }),
+
+  getSkillStatus: (name: string): Promise<any> =>
+    apiClient.get(`/agent-ops/skills/${encodeURIComponent(name)}`),
+
+  getSkillDefinition: (name: string, version: string): Promise<any> =>
+    apiClient.get(
+      `/agent-ops/skills/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
+    ),
+
+  validateSkillDefinition: (definition: Record<string, unknown>): Promise<any> =>
+    apiClient.post('/agent-ops/skills/validate', { definition }),
+
+  saveSkillDraft: (
+    name: string, version: string, definition: Record<string, unknown>, comment = '',
+  ): Promise<any> =>
+    apiClient.put(
+      `/agent-ops/skills/${encodeURIComponent(name)}/${encodeURIComponent(version)}/draft`,
+      { definition, comment },
+    ),
+
+  requestSkillPublish: (
+    name: string, version: string, comment = '', idempotencyKey = '',
+  ): Promise<any> =>
+    apiClient.post(
+      `/agent-ops/skills/${encodeURIComponent(name)}/${encodeURIComponent(version)}/publish`,
+      { comment },
+      idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+    ),
+
+  setSkillEnabled: (
+    name: string, enabled: boolean, comment = '', idempotencyKey = '',
+  ): Promise<any> =>
+    apiClient.put(
+      `/agent-ops/skills/${encodeURIComponent(name)}/enabled`,
+      { enabled, comment },
+      idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+    ),
+
+  rollbackSkill: (name: string, version: string): Promise<any> =>
+    apiClient.post(
+      `/agent-ops/skills/${encodeURIComponent(name)}/rollback`,
+      { version },
+    ),
+
+  exportSkills: (name?: string, includeDraft = false, includeRuntime = true): Promise<any> =>
+    apiClient.get('/agent-ops/skills/export', {
+      params: {
+        ...(name ? { name } : {}),
+        ...(includeDraft ? { include_draft: true } : {}),
+        ...(includeRuntime ? {} : { include_runtime: false }),
+      },
+    }),
+
+  importSkills: (bundle: unknown, idempotencyKey = ''): Promise<any> =>
+    apiClient.post(
+      '/agent-ops/skills/import',
+      { bundle },
+      idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+    ),
 
   // Agent 工具人审任务（Phase B）
   getAgentApprovals: (status: string = 'pending'): Promise<any> =>

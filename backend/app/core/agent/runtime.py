@@ -127,10 +127,11 @@ class AgentRuntime:
             coroutine=_not_executed,
         )
 
-    def _build_graph(self, domain: str):
+    def _build_graph(self, domain: str, skill: Optional[dict] = None):
         from langgraph.graph import END, START, StateGraph
         from langchain_core.messages import ToolMessage
 
+        skill = skill or {}
         specs = tool_registry_v2.list_specs(domain=domain)
         # per-Agent 工具白名单（agent 级定制）：仅 LLM 可见子集变化；
         # 治理面仍逐调用校验（白名单是收窄，不放宽权限）
@@ -139,6 +140,10 @@ class AgentRuntime:
         if whitelist:
             allowed = set(whitelist)
             specs = [s for s in specs if s.name in allowed]
+        # Skill 工具白名单（F4.4）：同样是收窄——技能只能引用域内已注册工具
+        skill_tools = set(skill.get("tools") or [])
+        if skill_tools:
+            specs = [s for s in specs if s.name in skill_tools]
         if not specs:
             raise RuntimeError(f"域 {domain} 无已注册工具（或白名单过滤后为空）")
         llm = self._get_llm().bind_tools([self._wrap_tool(s) for s in specs])
@@ -148,14 +153,15 @@ class AgentRuntime:
 
         async def node_agent(state: ScenarioState) -> dict:
             history = _sanitize_history(state["messages"])
-            # Agent 级人设定制：prompt_override 非空时前置 System 消息
+            # Agent 级人设定制 + 技能指令：合成一条 System 消息前置
             persona = self._agent_cfg(domain).get("prompt_override")
-            if persona:
+            system = "\n\n".join(x for x in (persona, skill.get("instructions")) if x)
+            if system:
                 from langchain_core.messages import SystemMessage
 
                 has_system = any(getattr(m, "type", "") == "system" for m in history)
                 if not has_system:
-                    history = [SystemMessage(content=str(persona))] + history
+                    history = [SystemMessage(content=str(system))] + history
             response = await llm.ainvoke(history)
             return {"messages": [response]}
 
@@ -218,19 +224,40 @@ class AgentRuntime:
             )
         return result.for_llm()
 
-    def get_graph(self, domain: str):
+    def get_graph(self, domain: str, skill: str = ""):
         """获取（或编译并缓存）指定域的场景图（缓存键含配置哈希）。
 
         agent 级定制（人设/温度/工具白名单）变更 → 配置哈希变化 →
         下次调用重新编译新图（旧线程 checkpoint 的 channel 结构不变，兼容）。
+        ``skill``（F4.4，来自 ``ctx.extra["skill"]``）同样进缓存键：
+        技能发布/停用后哈希变化，下一轮自动用新图，无需重启。
         """
-        cfg_hash = self._cfg_hash(self._agent_cfg(domain))
-        cache_key = f"{domain}:{cfg_hash}"
+        cfg = dict(self._agent_cfg(domain))
+        skill_cfg = self._skill_cfg(skill)
+        if skill_cfg:
+            cfg["__skill__"] = skill_cfg
+        cache_key = f"{domain}:{self._cfg_hash(cfg)}:{skill or '-'}"
         if cache_key not in self._graphs:
-            self._graphs[cache_key] = self._build_graph(domain)
-            logger.info("runtime.graph_compiled", domain=domain, cfg=cfg_hash,
+            self._graphs[cache_key] = self._build_graph(domain, skill_cfg)
+            logger.info("runtime.graph_compiled", domain=domain, skill=skill,
+                        cfg=self._cfg_hash(cfg),
                         tools=len(tool_registry_v2.list_specs(domain=domain)))
         return self._graphs[cache_key]
+
+    def _skill_for(self, ctx: ToolContext, domain: str) -> str:
+        """``ctx.extra["skill"]`` → 本轮生效的技能名（不可用则为空 = 按纯域执行）。
+
+        停用/未登记/归属域不一致的技能一律不套用：技能白名单只会收窄工具集，
+        套错域会把工具过滤成空集而直接报错，那不是降级而是故障。
+        """
+        name = str((getattr(ctx, "extra", None) or {}).get("skill") or "")
+        if not name:
+            return ""
+        cfg = self._skill_cfg(name)
+        if not cfg or (cfg.get("domain") and cfg["domain"] != domain):
+            logger.info("runtime.skill_not_applied", skill=name, domain=domain)
+            return ""
+        return name
 
     # ------------------------------------------------------------------
     async def run(
@@ -253,7 +280,7 @@ class AgentRuntime:
             logger.warning("runtime.token_budget_exceeded", domain=domain)
             raise RuntimeError(f"域 {domain} 当日 LLM token 预算已耗尽，编排降级")
 
-        graph = self.get_graph(domain)
+        graph = self.get_graph(domain, self._skill_for(ctx, domain))
         token = _current_tool_ctx.set(ctx)
         try:
             messages = list(history or []) + [HumanMessage(content=user_message)]
@@ -294,7 +321,7 @@ class AgentRuntime:
         from langchain_core.messages import AIMessage
         from langgraph.types import Command
 
-        graph = self.get_graph(domain)
+        graph = self.get_graph(domain, self._skill_for(ctx, domain))
         token = _current_tool_ctx.set(ctx)
         try:
             result = await graph.ainvoke(
@@ -353,9 +380,29 @@ class AgentRuntime:
         try:
             from app.core.agent.customization import customization_service
 
-            entry = customization_service.get_override("agent", domain)
+            entry = customization_service.get_effective_override("agent", domain)
             return (entry or {}).get("overrides") or {}
         except Exception:  # noqa: BLE001
+            return {}
+
+    @staticmethod
+    def _skill_cfg(skill_name: str) -> dict:
+        """读取启用中的 Skill（F4.4 运行期消费点；停用/未知技能返回空 = 按纯域跑）。"""
+        if not skill_name:
+            return {}
+        try:
+            from app.core.agent.skills import skill_registry
+
+            skill = skill_registry.get(skill_name)   # get() 已过滤停用项
+            if skill is None:
+                logger.info("runtime.skill_inactive", skill=skill_name)
+                return {}
+            return {"name": skill.name, "domain": skill.domain,
+                    "tools": list(skill.tools), "instructions": skill.instructions,
+                    "guardrails": dict(skill.guardrails)}
+        except Exception as e:  # noqa: BLE001
+            logger.warning("runtime.skill_load_failed", skill=skill_name,
+                           error=str(e))
             return {}
 
     @staticmethod

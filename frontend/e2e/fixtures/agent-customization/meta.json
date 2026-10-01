@@ -1,0 +1,192 @@
+{
+  "agents": [
+    {
+      "domain": "reimbursement",
+      "label": "报销管理",
+      "tools": [
+        "reimbursement_query_detail",
+        "reimbursement_query_list",
+        "reimbursement_query_stats",
+        "reimbursement_submit"
+      ],
+      "params": [
+        {
+          "key": "require_receipt",
+          "label": "强制附发票/收据",
+          "type": "tri",
+          "description": "跟随默认=按报销类别内置规则；关=一律免票；开=一律要票"
+        }
+      ]
+    },
+    {
+      "domain": "sales",
+      "label": "销售管理",
+      "tools": [
+        "sales_confirm_order",
+        "sales_create_order",
+        "sales_query_order_detail",
+        "sales_query_orders",
+        "sales_query_target_progress"
+      ],
+      "params": []
+    },
+    {
+      "domain": "treasury",
+      "label": "资金管理",
+      "tools": [
+        "treasury_cash_balance",
+        "treasury_fund_transfer_request",
+        "treasury_fund_transfers",
+        "treasury_payment_schedule"
+      ],
+      "params": []
+    }
+  ],
+  "roles": [
+    {
+      "code": "chairman",
+      "name": "董事长",
+      "level": 1
+    },
+    {
+      "code": "customization_approver",
+      "name": "定制变更审批人",
+      "level": 1
+    },
+    {
+      "code": "ceo",
+      "name": "CEO",
+      "level": 2
+    },
+    {
+      "code": "customization_admin",
+      "name": "定制平台管理员",
+      "level": 2
+    },
+    {
+      "code": "cfo",
+      "name": "CFO",
+      "level": 3
+    },
+    {
+      "code": "cho",
+      "name": "CHO",
+      "level": 3
+    },
+    {
+      "code": "cio",
+      "name": "CIO",
+      "level": 3
+    },
+    {
+      "code": "cmo",
+      "name": "CMO",
+      "level": 3
+    },
+    {
+      "code": "coo",
+      "name": "COO",
+      "level": 3
+    },
+    {
+      "code": "cro",
+      "name": "CRO",
+      "level": 3
+    },
+    {
+      "code": "cto",
+      "name": "CTO",
+      "level": 3
+    },
+    {
+      "code": "admin_manager",
+      "name": "行政部经理",
+      "level": 4
+    },
+    {
+      "code": "biz_manager",
+      "name": "业务部经理",
+      "level": 4
+    },
+    {
+      "code": "cs_manager",
+      "name": "客服部经理",
+      "level": 4
+    },
+    {
+      "code": "fin_manager",
+      "name": "财务部经理",
+      "level": 4
+    },
+    {
+      "code": "hr_manager",
+      "name": "人事部经理",
+      "level": 4
+    },
+    {
+      "code": "legal_manager",
+      "name": "法务部经理",
+      "level": 4
+    },
+    {
+      "code": "mfg_manager",
+      "name": "生产部经理",
+      "level": 4
+    },
+    {
+      "code": "mkt_manager",
+      "name": "市场部经理",
+      "level": 4
+    },
+    {
+      "code": "pm_manager",
+      "name": "项目部经理",
+      "level": 4
+    },
+    {
+      "code": "proc_manager",
+      "name": "采购部经理",
+      "level": 4
+    },
+    {
+      "code": "prod_manager",
+      "name": "产品部经理",
+      "level": 4
+    },
+    {
+      "code": "quality_manager",
+      "name": "质量部经理",
+      "level": 4
+    },
+    {
+      "code": "sales_manager",
+      "name": "销售部经理",
+      "level": 4
+    },
+    {
+      "code": "tech_manager",
+      "name": "技术部经理",
+      "level": 4
+    },
+    {
+      "code": "dept_staff",
+      "name": "各部门员工",
+      "level": 5
+    }
+  ],
+  "document_types": [
+    "reimbursement_query_detail",
+    "reimbursement_query_list",
+    "reimbursement_query_stats",
+    "reimbursement_submit",
+    "sales_confirm_order",
+    "sales_create_order",
+    "sales_query_order_detail",
+    "sales_query_orders",
+    "sales_query_target_progress",
+    "treasury_cash_balance",
+    "treasury_fund_transfer_request",
+    "treasury_fund_transfers",
+    "treasury_payment_schedule"
+  ]
+}

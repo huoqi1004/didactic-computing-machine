@@ -1,0 +1,85 @@
+{
+  "name": "reimbursement_approval",
+  "version": "v1",
+  "definition": {
+    "name": "reimbursement_approval",
+    "entry": "submit",
+    "nodes": [
+      {
+        "id": "submit",
+        "type": "task",
+        "handler": "reimb.submit",
+        "next": "precheck"
+      },
+      {
+        "id": "precheck",
+        "type": "task",
+        "handler": "reimb.precheck",
+        "next": "route"
+      },
+      {
+        "id": "route",
+        "type": "condition",
+        "field": "input.category",
+        "branches": [
+          {
+            "equals": "entertainment",
+            "goto": "compliance_gate"
+          }
+        ],
+        "default": "gate"
+      },
+      {
+        "id": "compliance_gate",
+        "type": "gate",
+        "threshold": {
+          "key": "reimbursement_auto_approve_limit",
+          "default": 5000
+        },
+        "amount_from": "result.amount",
+        "document_type": "entertainment_expense",
+        "approve_roles": [
+          "legal_manager",
+          "cfo"
+        ],
+        "timeout_hours": 12,
+        "preview": "招待类报销需合规审批：{employee_name} ¥{amount}",
+        "next_approved": "verify",
+        "next_rejected": "reject"
+      },
+      {
+        "id": "gate",
+        "type": "gate",
+        "threshold": {
+          "key": "reimbursement_auto_approve_limit",
+          "default": 5000
+        },
+        "amount_from": "result.amount",
+        "document_type": "expense",
+        "approve_roles": [
+          "fin_manager"
+        ],
+        "preview": "报销单 {reimbursement_no} 金额 ¥{amount}",
+        "next_approved": "verify",
+        "next_rejected": "reject"
+      },
+      {
+        "id": "verify",
+        "type": "task",
+        "handler": "reimb.verify_approve",
+        "next": "END"
+      },
+      {
+        "id": "reject",
+        "type": "task",
+        "handler": "reimb.reject_mark",
+        "next": "END"
+      }
+    ]
+  },
+  "status": "stable",
+  "traffic": 0,
+  "comment": "",
+  "created_by": "user_admin",
+  "id": 1
+}

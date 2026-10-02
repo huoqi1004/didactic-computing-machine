@@ -959,6 +959,13 @@ async def audit_verify_loop() -> None:
                                 settings.audit_verify_incremental_hours):
                     await audit_chain.verify_chain(full=False)
 
+                # G4.2 账本对账（红线 1）：审计写操作 ↔ 账本，缺口补登记+告警
+                try:
+                    from app.core.agent.operation_ledger import ledger_reconcile
+                    await ledger_reconcile()
+                except Exception:  # noqa: BLE001
+                    pass
+
                 try:
                     from app.core.observability.alerts import alert_channel
                     await alert_channel.retry_dead_letters()

@@ -166,6 +166,37 @@ async def resume_after_decision(
                 "status": cust_result.get("status", "done"),
                 "channel_id": channel_id}
 
+    # 回滚审批决定（G4.3：批准→执行补偿并全量审计；驳回→审计留痕）
+    if domain == "rollback":
+        from app.core.agent.operation_ledger import execute_rollback
+
+        rollback_args = row.args_json if isinstance(row.args_json, dict) else {}
+        ledger_id = str(rollback_args.get("ledger_id", ""))
+        rb_result = await execute_rollback(
+            ledger_id, decided_by=decided_by, approved=approved, comment=comment,
+        )
+        status = {"compensated": "executed", "rejected": "rejected",
+                  "compensate_failed": "failed",
+                  "not_found": "failed"}.get(str(rb_result.get("status")), "failed")
+        async with session_scope() as session:
+            from app.db.models import agent_approval_requests
+            from sqlalchemy import update
+
+            await session.execute(
+                update(agent_approval_requests)
+                .where(agent_approval_requests.c.thread_id == thread_id)
+                .values(
+                    status=status,
+                    decided_by=decided_by,
+                    decided_at=datetime.now(timezone.utc),
+                    result_reply=str(rb_result.get("reply", ""))[:4000],
+                )
+            )
+        await _audit_decision(decided_by, thread_id, approved, comment, agent_key)
+        return {"reply": str(rb_result.get("reply", "")),
+                "status": rb_result.get("status", "failed"),
+                "channel_id": channel_id}
+
     # Supervisor 协同人审恢复（Phase C：先恢复子图、再综合）
     if domain == "supervisor":
         from app.core.agent.supervisor import resume_supervisor

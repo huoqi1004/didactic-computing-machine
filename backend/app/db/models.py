@@ -1966,12 +1966,17 @@ operation_ledger = Table(
     Column("forward_result", JSON, nullable=True),
     # 补偿函数指针（tools_v2 注册表名，登记时校验存在性）
     Column("compensation_ref", String(128), nullable=False, server_default=text("''")),
+    # 对账关联键（G4.2）：产生本行的审计条目（tool.*.executed）；对账任务
+    # 以此判定"审计有而账本无"的幽灵操作缺口
+    Column("audit_entry_id", String(64), nullable=True),
     # 状态机：executed → compensating → compensated / compensate_failed；
     # backfilled=true 表示该行由对账任务补登记（审计有而账本无的缺口）
     Column("status", String(24), nullable=False, server_default=text("'executed'")),
     Column("backfilled", Boolean, nullable=False, server_default=text("0")),
     # 回滚前置检查结果（下游引用清单，G4.3）
     Column("precheck_result", JSON, nullable=True),
+    # 补偿失败原因（G4.4：compensate_failed 时的人工介入依据）
+    Column("compensation_error", String(512), nullable=True),
     Column("rolled_by", String(128), nullable=True),
     Column("rolled_at", DateTime, nullable=True),
     Column("rollback_approval_id", String(64), nullable=True),

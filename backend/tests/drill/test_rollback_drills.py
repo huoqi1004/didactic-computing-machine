@@ -213,6 +213,13 @@ async def test_rollback_drill_table_driven(drill, drill_env):
         f"[{drill.tool}] 补偿后副作用仍存在——回滚失效（安全问题）：{cleanup}"
     )
 
+    # G4.5（红线 2，闭环 P0-3）：补偿重放必须 no-op——重放不得二次破坏
+    await spec.compensation(ctx, dict(drill.args), result.data)
+    cleanup_replay = await _scalar_one(drill_env, drill.cleanup_sql)
+    assert cleanup_replay == drill.cleanup_expect, (
+        f"[{drill.tool}] 补偿重放改变了状态——补偿不幂等（红线 2 违例）：{cleanup_replay}"
+    )
+
 
 async def test_rollback_drill_payroll_set_salary_structure(drill_env):
     """变更类演练：薪资结构变更 → 补偿精确恢复旧值。"""

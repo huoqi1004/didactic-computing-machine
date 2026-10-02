@@ -95,9 +95,9 @@ class AgentGovernor:
         trace_id = ctx.trace_id or ensure_trace_id()
         bk_holder = {"key": ctx.business_key or get_business_key()}
 
-        async def _audit(action_suffix: str, result: str, details: dict, level: str) -> None:
+        async def _audit(action_suffix: str, result: str, details: dict, level: str) -> str:
             try:
-                await audit_chain.log(
+                entry_id = await audit_chain.log(
                     actor_did=ctx.user_id or "unknown",
                     action=f"tool.{tool_name}.{action_suffix}",
                     resource=f"{spec.resource}:{ctx.agent_key or 'agent'}",
@@ -107,8 +107,10 @@ class AgentGovernor:
                     trace_id=trace_id,
                     business_key=bk_holder["key"],
                 )
+                return entry_id
             except Exception as e:  # noqa: BLE001
                 logger.warning("governor.audit_failed", tool=tool_name, error=str(e))
+                return ""
 
         # 1. RBAC 权限（Agent 借用用户权限语境）
         from app.core.rbac import rbac_engine
@@ -209,7 +211,7 @@ class AgentGovernor:
                     await note_off_hours_write(ctx.user_id, tool_name)
                 except Exception:  # noqa: BLE001
                     pass
-            await _audit(
+            audit_entry_id = await _audit(
                 "executed", "success",
                 {"args": _sanitize_args(validated), "latency_ms": latency_ms,
                  "risk": spec.risk_level.value,
@@ -217,6 +219,22 @@ class AgentGovernor:
                  "approved_by_human": spec.risk_level == ToolRisk.WRITE_HIGH},
                 spec.risk_level.audit_risk,
             )
+            # G4.2 账本登记（同步 await，红线 1）：写操作执行成功即落一行；
+            # 失败不阻断业务——对账任务将补登记（backfilled）并 P0 告警
+            if spec.risk_level.is_write:
+                try:
+                    from app.core.agent.operation_ledger import ledger_append
+
+                    await ledger_append(
+                        audit_entry_id=audit_entry_id, tool=tool_name,
+                        actor=ctx.user_id, forward_args=_sanitize_args(validated),
+                        forward_result=data, trace_id=trace_id,
+                        business_key=business_key or bk_holder["key"],
+                        domain=spec.agent_domain,
+                    )
+                except Exception as le:  # noqa: BLE001
+                    logger.error("governor.ledger_append_failed",
+                                 tool=tool_name, error=str(le))
             logger.info(
                 "governor.executed", tool=tool_name, user=ctx.user_id,
                 agent=ctx.agent_key, latency_ms=latency_ms, risk=spec.risk_level.value,

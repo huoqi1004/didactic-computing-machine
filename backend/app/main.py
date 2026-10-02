@@ -44,6 +44,7 @@ from app.api.routes import (
     mcp_exposure_router,
     skills_admin_router,
     operation_logs_router,
+    operation_rollback_router,
 )
 from app.api.routes.tenant import router as tenant_router
 from app.core.tenant import TenantMiddleware
@@ -985,6 +986,7 @@ app.include_router(customizations_router)
 app.include_router(workflow_definitions_router)
 app.include_router(mcp_servers_router)
 app.include_router(operation_logs_router)
+app.include_router(operation_rollback_router)
 app.include_router(mcp_exposure_router)
 app.include_router(skills_admin_router)
 app.include_router(tenant_router)

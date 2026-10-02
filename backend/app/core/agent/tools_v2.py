@@ -100,6 +100,11 @@ ToolHandler = Callable[..., Awaitable[Any]]
 ToolCompensation = Callable[["ToolContext", dict, Any], Awaitable[Any]]
 # 效果描述签名：def effects(args: dict) -> str（人类可读，进审批卡片与审计）
 ToolEffectsFn = Callable[[dict], str]
+# 回滚前置检查签名（G4.3，红线 6）：
+# async def precheck(ctx, args: dict, result: Any) -> dict
+# 返回 {"blocked": bool, "dependencies": [...], "message": str}——
+# blocked=True 时回滚默认拒绝（下游引用清单随审批单展示）
+ToolRollbackPrecheck = Callable[["ToolContext", dict, Any], Awaitable[dict]]
 
 # MCP 导出接口占位（Phase D 落地）：返回 (name, description, args_model, risk)
 ToolMcpExporter = Callable[["ToolSpecV2"], dict]
@@ -126,6 +131,9 @@ class ToolSpecV2:
     # G1.3 业务根键提取：result 中携带单据号的字段名（显式声明优先，
     # 空则按常见字段名启发式扫描）
     business_key_field: Optional[str] = None
+    # G4.3 回滚前置检查（红线 6）：有下游引用的单据默认拒绝回滚；
+    # 未登记 = 无下游依赖检查（回滚直接进审批）
+    rollback_precheck: Optional[ToolRollbackPrecheck] = None
 
     # ------------------------------------------------------------------
     def validate_args(self, args: dict) -> dict:
@@ -230,6 +238,7 @@ def erp_tool(
     agent_domain: str = "",
     idempotent: bool = False,
     business_key_field: Optional[str] = None,
+    rollback_precheck: Optional[ToolRollbackPrecheck] = None,
     registry: Optional[ToolRegistryV2] = None,
 ) -> Callable[[ToolHandler], ToolHandler]:
     """
@@ -274,6 +283,7 @@ def erp_tool(
                 agent_domain=agent_domain,
                 idempotent=idempotent,
                 business_key_field=business_key_field,
+                rollback_precheck=rollback_precheck,
             )
         )
         return fn

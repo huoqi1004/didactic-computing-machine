@@ -37,6 +37,26 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/knowledge", tags=["知识库"])
 
 
+async def _log_knowledge_op(current_user: dict, action: str, record_id: str,
+                            details: dict, result: str = "success") -> None:
+    """G2.1 统一操作日志：知识库变更面接入（审计链 + 操作日志双层）。"""
+    try:
+        from app.core.observability.operation_log import log_operation
+
+        await log_operation(
+            actor=current_user.get("user_id", "system"),
+            action=action,
+            resource=f"knowledge:{record_id}" if record_id else "knowledge",
+            result=result,
+            details=details,
+            risk_level="medium" if action.startswith("knowledge.review") else "low",
+            source="http",
+            to_audit_chain=True,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("knowledge.operation_log_failed", action=action, error=str(e))
+
+
 # =============================================================================
 # 请求模型
 # =============================================================================
@@ -148,6 +168,9 @@ async def ingest_text(
             uploaded_by=current_user.get("user_id", "system"),
             auto_publish=req.auto_publish,
         )
+        await _log_knowledge_op(current_user, "knowledge.ingest_text",
+                                getattr(record, "record_id", ""),
+                                {"filename": req.filename, "category": req.category})
         return {"message": "文档摄入成功", "record": record.to_dict()}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -178,6 +201,9 @@ async def ingest_file(
             uploaded_by=current_user.get("user_id", "system"),
             auto_publish=auto_publish,
         )
+        await _log_knowledge_op(current_user, "knowledge.ingest_file",
+                                getattr(record, "record_id", ""),
+                                {"filename": file.filename, "category": category})
         return {"message": "文件上传成功", "record": record.to_dict()}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -251,6 +277,7 @@ async def delete_document(
     success = await knowledge_manager.delete_document(record_id)
     if not success:
         raise HTTPException(status_code=404, detail="文档不存在")
+    await _log_knowledge_op(current_user, "knowledge.delete_document", record_id, {})
     return {"message": "文档已删除"}
 
 
@@ -294,6 +321,8 @@ async def approve_document(
             approved_by=current_user.get("user_id", "system"),
             comment=req.comment,
         )
+        await _log_knowledge_op(current_user, "knowledge.review.approve", record_id,
+                                {"comment": req.comment})
         return {"message": "文档已审批通过并发布", "record": record.to_dict()}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -312,6 +341,8 @@ async def reject_document(
             rejected_by=current_user.get("user_id", "system"),
             comment=req.comment,
         )
+        await _log_knowledge_op(current_user, "knowledge.review.reject", record_id,
+                                {"comment": req.comment})
         return {"message": "文档已拒绝", "record": record.to_dict()}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

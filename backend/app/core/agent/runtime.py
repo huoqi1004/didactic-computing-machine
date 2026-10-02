@@ -294,6 +294,7 @@ class AgentRuntime:
         tokens = self._sum_tokens(result.get("messages", []))
         self._record_tokens(domain, tokens)
         await self._audit_tokens(domain, ctx, tokens)
+        await self._log_llm_op(domain, ctx, user_message, result.get("messages", []), tokens)
 
         interrupts = result.get("__interrupt__") or []
         if interrupts:
@@ -334,6 +335,8 @@ class AgentRuntime:
         tokens = self._sum_tokens(result.get("messages", []))
         self._record_tokens(domain, tokens)
         await self._audit_tokens(domain, ctx, tokens)
+        await self._log_llm_op(domain, ctx, "", result.get("messages", []), tokens,
+                               resumed=True)
 
         interrupts = result.get("__interrupt__") or []
         if interrupts:
@@ -364,6 +367,27 @@ class AgentRuntime:
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("runtime.token_audit_failed", error=str(e))
+
+    @staticmethod
+    async def _log_llm_op(domain: str, ctx, user_message: str, messages: list,
+                          tokens: int, resumed: bool = False) -> None:
+        """LLM 交互日志（G2.4，D6 裁决）：默认摘要，全文按域开关（≤7 天过期）。"""
+        try:
+            from app.core.observability.operation_log import log_llm_interaction
+
+            reply = ""
+            for m in reversed(messages):
+                content = getattr(m, "content", None)
+                if content and type(m).__name__ == "AIMessage":
+                    reply = str(content)
+                    break
+            await log_llm_interaction(
+                domain=domain, ctx=ctx,
+                messages_in=len(messages), tokens=tokens, latency_ms=0.0,
+                reply_text=reply, user_message=user_message,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("runtime.llm_op_log_failed", error=str(e))
 
     async def sub_pending(self, domain: str, thread_id: str) -> bool:
         """该域场景图在指定线程上是否有挂起的人审中断（supervisor 重放探测）。"""

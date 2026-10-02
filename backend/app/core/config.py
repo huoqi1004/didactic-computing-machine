@@ -193,8 +193,17 @@ class Settings(BaseSettings):
     # audit_logs 保留期必须长于 events（审计合规要求）
     event_retention_days: int = 7
     snapshot_retention_days: int = 30
-    audit_retention_days: int = 90
+    # G2.3（D3 裁决）：审计 90 → 365 天；sagas 表不在清理目标（P1-2 固化豁免）
+    audit_retention_days: int = 365
     retention_cleanup_interval_hours: int = 6
+    # G2 操作日志留存分层：热表在线查询 30 天 → 归档表 180 天后清除
+    operation_log_hot_days: int = 30
+    operation_log_archive_days: int = 180
+    # G2.2 异步批量落库：批大小 / 刷盘间隔（秒）/ 缓冲上限（超限立即尝试
+    # 强刷；DB 不可用时留在内存重试——红线 3 禁止静默丢弃）
+    operation_log_batch_size: int = 100
+    operation_log_flush_interval_s: float = 2.0
+    operation_log_buffer_max: int = 10000
 
     # 种子用户密码治理（评估报告 D-04）
     # 为空时每个种子用户随机生成独立强密码，并在首次播种后一次性打印到服务端日志；

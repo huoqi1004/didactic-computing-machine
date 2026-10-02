@@ -480,6 +480,17 @@ async def lifespan(app: FastAPI):
     # 2.2 主数据库 RBAC 播种与缓存加载已合并到 2.0 步
     # （此前在 2.0 与 2.2 重复调用 init_db 两次，见评估报告问题总表 #20）
 
+    # 2.3 操作日志底座（G2.2）：启动异步刷盘任务 + 订阅审计事件流
+    # （治理面/工作流/Agent 全部审计条目自动流入 operation_logs）
+    try:
+        from app.core.observability.operation_log import operation_log_buffer
+
+        await operation_log_buffer.start()
+        logger.info("app.operation_log_ready", buffered=operation_log_buffer.pending())
+    except Exception as e:
+        logger.warning("app.operation_log_start_failed",
+                       error=str(e), degraded="memory_only")
+
     # 3. 初始化认知与知识层（知识图谱 + RAG 检索 + 规则引擎）
     # 在Agent启动前注入示例企业主数据、业务文档与预置规则
     # 初始化失败时降级到空知识库，不影响Agent启动
@@ -841,6 +852,14 @@ async def lifespan(app: FastAPI):
         await retention_task
     except asyncio.CancelledError:
         pass
+
+    # 0.5 停止操作日志刷盘并最终清空缓冲（G2.2：优雅退出不丢日志）
+    try:
+        from app.core.observability.operation_log import operation_log_buffer
+
+        await operation_log_buffer.stop()
+    except Exception as e:
+        logger.warning("app.operation_log_stop_failed", error=str(e))
 
     # 1. 停止编排器（先停止 Agent，不再接受新任务）
     try:

@@ -70,6 +70,8 @@ class AuditEntry:
             "result": self.result,
             "details": self.details,
             "risk_level": self.risk_level,
+            "trace_id": getattr(self, "trace_id", "") or None,
+            "business_key": getattr(self, "business_key", "") or None,
             "timestamp": self.timestamp.isoformat(),
             "prev_hash": self.prev_hash[:16] + "..." if self.prev_hash else None,
             "hash": self.hash[:16] + "..." if self.hash else None,

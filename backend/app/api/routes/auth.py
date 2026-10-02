@@ -214,6 +214,25 @@ async def logout(request: Request, body: LogoutRequest = None):
         # 即使会话不存在，也返回成功（幂等操作）
         logger.debug("auth.logout.session_not_found")
 
+    # G2.1 统一操作日志（审计+查询双层）
+    try:
+        from app.core.observability.operation_log import log_operation
+
+        payload_user = (jwt_manager.verify_token(token) or {}).get("user_id", "")
+        await log_operation(
+            actor=payload_user or "unknown",
+            action="user.logout",
+            resource="auth",
+            result="success",
+            details={"session_invalidated": bool(success)},
+            risk_level="low",
+            source="http",
+            request_id=request.headers.get("X-Request-Id", ""),
+            to_audit_chain=True,
+        )
+    except Exception as op_err:
+        logger.warning("auth.logout.operation_log_failed", error=str(op_err))
+
     logger.info("auth.logout.success")
     return {"message": "已登出", "success": True}
 

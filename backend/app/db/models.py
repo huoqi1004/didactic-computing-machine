@@ -1982,3 +1982,50 @@ operation_ledger = Table(
     Index("ix_op_ledger_status", "status"),
     Index("ix_op_ledger_tool", "tool"),
 )
+
+
+# ===========================================================================
+# 操作日志（roadmap-logging-sandbox G2 底座：热表 + 归档表）
+# 统一经 log_operation() 通道写入（异步批量落库）；审计哈希链之外的
+# 可查询层——G3.1 查询 API/UI 服务于此表。留存：热 30 天 → 归档 180 天。
+# ===========================================================================
+def _operation_log_columns(index_prefix: str = "ix_oplog"):
+    """操作日志列定义（热表与归档表同构，归档搬运直接 INSERT SELECT）。
+
+    注意：sqlite 索引名全局唯一，两表索引必须不同名（历史坑：chat_messages）。
+    """
+    return [
+        Column("id", BigIntPK, primary_key=True, autoincrement=True),
+        Column("ts", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+        # 操作者与来源（http / agent / mcp / workflow / system）
+        Column("actor", String(128), nullable=False, server_default=text("''")),
+        Column("source", String(32), nullable=False, server_default=text("'system'")),
+        Column("action", String(128), nullable=False),
+        Column("resource", String(256), nullable=False, server_default=text("''")),
+        Column("result", String(32), nullable=False, server_default=text("'success'")),
+        Column("risk_level", String(16), nullable=False, server_default=text("'low'")),
+        # 追踪键（G1.1 三层模型）
+        Column("trace_id", String(64), nullable=True),
+        Column("business_key", String(128), nullable=True),
+        Column("request_id", String(64), nullable=True),
+        # 详情快照（脱敏后；LLM 全文按域开关时含 prompt/response 并带过期标记）
+        Column("details", JSON, nullable=True),
+        Index(f"{index_prefix}_ts", "ts"),
+        Index(f"{index_prefix}_actor_ts", "actor", "ts"),
+        Index(f"{index_prefix}_action", "action"),
+        Index(f"{index_prefix}_trace", "trace_id"),
+        Index(f"{index_prefix}_business", "business_key"),
+    ]
+
+
+operation_logs = Table(
+    "operation_logs",
+    Base.metadata,
+    *_operation_log_columns(index_prefix="ix_oplog"),
+)
+
+operation_logs_archive = Table(
+    "operation_logs_archive",
+    Base.metadata,
+    *_operation_log_columns(index_prefix="ix_oplogarch"),
+)

@@ -493,6 +493,18 @@ async def lifespan(app: FastAPI):
         logger.warning("app.operation_log_start_failed",
                        error=str(e), degraded="memory_only")
 
+    # 2.4 工作流 Saga 恢复（G5.2）：续跑上次进程未完成的失败补偿（kill -9 语义）
+    try:
+        from app.core.agent.workflow_saga import saga_recover_pending
+
+        recover_out = await saga_recover_pending()
+        if recover_out.get("recovered"):
+            logger.warning("app.workflow_saga_recovered", **recover_out)
+        else:
+            logger.info("app.workflow_saga_clean")
+    except Exception as e:
+        logger.warning("app.workflow_saga_recover_failed", error=str(e))
+
     # 3. 初始化认知与知识层（知识图谱 + RAG 检索 + 规则引擎）
     # 在Agent启动前注入示例企业主数据、业务文档与预置规则
     # 初始化失败时降级到空知识库，不影响Agent启动

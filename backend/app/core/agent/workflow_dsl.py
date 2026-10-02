@@ -62,7 +62,7 @@ NODE_TYPES = ("task", "condition", "gate")
 END_SENTINEL = "__wf_finish__"  # 保留节点 id：error/完成的路由目标
 END_ALIAS = "END"               # DSL 中书写 ``END``，编译期归一化为 END 哨兵
 CONDITION_OPS = ("equals", "not_equals", "in", "gt", "gte", "lt", "lte", "exists")
-STATE_KEYS = ("input", "result", "error", "steps")
+STATE_KEYS = ("input", "result", "error", "steps", "thread_id")
 
 
 class WorkflowState(TypedDict, total=False):
@@ -70,6 +70,7 @@ class WorkflowState(TypedDict, total=False):
     steps: list
     result: dict
     error: Optional[str]
+    thread_id: str  # G5.1 Saga 步骤登记关联键
 
 
 HANDLERS: dict[str, Callable[..., Any]] = {}
@@ -325,6 +326,16 @@ def compile_dsl(defn: dict, name: str, checkpointer, threshold_reader: Callable)
         patch = {k: v for k, v in out.items() if k in STATE_KEYS}
         patch["steps"] = list(state.get("steps", [])) + [node["id"]]
         await _audit_node(node["id"], state, out)
+        if not out.get("error"):
+            # G5.1 Saga：创建类步骤成功即登记（失败终止时逆序补偿）
+            try:
+                from app.core.agent.workflow_saga import saga_record
+
+                await saga_record(str(state.get("thread_id") or ""),
+                                  str(node.get("id")), str(node.get("handler")),
+                                  out.get("result"))
+            except Exception:  # noqa: BLE001
+                pass
         if out.get("error"):
             return patch, END
         dyn = out.get("_next")

@@ -462,11 +462,30 @@ async def start_workflow(name: str, input_data: dict, ctx,
         ensure_trace_id()
         set_business_key(document_key or thread_id)
         result = await graph.ainvoke(
-            {"input": input_data, "steps": [], "result": {}, "error": None},
+            {"input": input_data, "steps": [], "result": {}, "error": None,
+             "thread_id": thread_id},
             {"configurable": {"thread_id": thread_id}},
         )
+    except Exception as run_err:
+        # G5.1：工作流异常终止 → Saga 逆序补偿后原样上抛
+        try:
+            from app.core.agent.workflow_saga import saga_compensate
+
+            await saga_compensate(thread_id, reason=f"工作流异常终止: {run_err}")
+        except Exception:  # noqa: BLE001
+            pass
+        raise
     finally:
         _ctx_var.reset(token)
+
+    if result.get("error"):
+        # G5.1：失败终止 → 自动逆序补偿（write_low）/人工介入标记（其余）
+        try:
+            from app.core.agent.workflow_saga import saga_compensate
+
+            await saga_compensate(thread_id, reason=str(result.get("error")))
+        except Exception:  # noqa: BLE001
+            pass
 
     interrupts = result.get("__interrupt__") or []
     if interrupts:

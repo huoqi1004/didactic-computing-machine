@@ -151,6 +151,8 @@ class AgentGovernor:
                     agent_domain=spec.agent_domain, tags=spec.tags,
                     idempotent=spec.idempotent,
                     business_key_field=spec.business_key_field,
+                    rollback_precheck=spec.rollback_precheck,
+                    impact_fn=spec.impact_fn,
                 )
         except Exception as e:  # noqa: BLE001
             logger.warning("governor.customization_read_failed",
@@ -175,9 +177,22 @@ class AgentGovernor:
         # 5. 分级审批路由（决策 D6）
         if spec.risk_level == ToolRisk.WRITE_HIGH and not approved:
             self.registry.bump_stat(tool_name, "calls")
+            # G5.3 影子执行（S2）：write_high 审批前生成影响面快照进审批单
+            impact: dict = {}
+            if spec.impact_fn is not None:
+                try:
+                    impact = await spec.impact_fn(validated) or {}
+                except Exception as ie:  # noqa: BLE001
+                    impact = {"error": f"影响面快照生成失败: {ie}"}
+            impact_text = ""
+            if impact and not impact.get("error"):
+                impact_text = "\n影响面：" + "; ".join(
+                    f"{k}={v}" for k, v in impact.items() if v is not None)
+            self.registry.bump_stat(tool_name, "calls")
             await _audit(
                 "approval_required", "pending",
-                {"args": _sanitize_args(validated), "preview": preview},
+                {"args": _sanitize_args(validated), "preview": preview,
+                 "impact": impact},
                 "medium",
             )
             return ToolResult(
@@ -186,7 +201,8 @@ class AgentGovernor:
                     "tool": tool_name,
                     "risk": spec.risk_level.value,
                     "args": _sanitize_args(validated),
-                    "preview": preview,
+                    "preview": (preview or "") + impact_text,
+                    "impact": impact,
                     "permission": f"{spec.resource}:{spec.action}",
                 },
             )

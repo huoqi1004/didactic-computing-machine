@@ -105,6 +105,9 @@ ToolEffectsFn = Callable[[dict], str]
 # 返回 {"blocked": bool, "dependencies": [...], "message": str}——
 # blocked=True 时回滚默认拒绝（下游引用清单随审批单展示）
 ToolRollbackPrecheck = Callable[["ToolContext", dict, Any], Awaitable[dict]]
+# 影子执行影响面签名（G5.3，S2 沙箱级）：
+# async def impact(args: dict) -> dict（受影响单据/金额/范围快照，进审批单）
+ToolImpactFn = Callable[[dict], Awaitable[dict]]
 
 # MCP 导出接口占位（Phase D 落地）：返回 (name, description, args_model, risk)
 ToolMcpExporter = Callable[["ToolSpecV2"], dict]
@@ -134,6 +137,9 @@ class ToolSpecV2:
     # G4.3 回滚前置检查（红线 6）：有下游引用的单据默认拒绝回滚；
     # 未登记 = 无下游依赖检查（回滚直接进审批）
     rollback_precheck: Optional[ToolRollbackPrecheck] = None
+    # G5.3 影子执行（S2）：write_high 审批前的影响面快照
+    # （受影响单据/金额/账户范围），随审批单展示供审批人判断
+    impact_fn: Optional[ToolImpactFn] = None
 
     # ------------------------------------------------------------------
     def validate_args(self, args: dict) -> dict:
@@ -239,6 +245,7 @@ def erp_tool(
     idempotent: bool = False,
     business_key_field: Optional[str] = None,
     rollback_precheck: Optional[ToolRollbackPrecheck] = None,
+    impact_fn: Optional[ToolImpactFn] = None,
     registry: Optional[ToolRegistryV2] = None,
 ) -> Callable[[ToolHandler], ToolHandler]:
     """
@@ -284,6 +291,7 @@ def erp_tool(
                 idempotent=idempotent,
                 business_key_field=business_key_field,
                 rollback_precheck=rollback_precheck,
+                impact_fn=impact_fn,
             )
         )
         return fn

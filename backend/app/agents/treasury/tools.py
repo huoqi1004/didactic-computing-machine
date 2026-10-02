@@ -82,6 +82,22 @@ class TransferRequestArgs(BaseModel):
     reason: str = Field("", description="调拨原因")
 
 
+async def _transfer_impact(args: dict) -> dict:
+    """影子执行（G5.3/S2）：资金调拨影响面快照——审批人在批准前看到的
+    不是一句效果预览，而是"动了谁的多少钱、之后还剩多少"。"""
+    agent = _get_agent()
+    amount = float(args.get("amount", 0))
+    balance = float(agent.get_cash_balance())
+    return {
+        "调拨金额": amount,
+        "来源账户": args.get("from_account", ""),
+        "目标账户": args.get("to_account", ""),
+        "当前可用余额": balance,
+        "调拨后余额": round(balance - amount, 2),
+        "余额是否转负": (balance - amount) < 0,
+    }
+
+
 async def _transfer_compensation(ctx: ToolContext, args: dict, result) -> None:
     """精确软撤销：按 transfer_id 将调拨置为 cancelled（内存 + DB 同步写）。
 
@@ -107,6 +123,7 @@ async def _transfer_compensation(ctx: ToolContext, args: dict, result) -> None:
     resource="treasury", action="create",
     agent_domain="treasury",
     compensation=_transfer_compensation,
+    impact_fn=_transfer_impact,  # G5.3 影子执行：影响面进审批单
     idempotent=True,  # G1.4 红线2：补偿幂等（已核阅）
     effects_fn=lambda a: (
         f"将发起资金调拨 ¥{a.get('amount')}：{a.get('from_account')} → "

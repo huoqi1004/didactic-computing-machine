@@ -204,6 +204,12 @@ class Settings(BaseSettings):
     operation_log_batch_size: int = 100
     operation_log_flush_interval_s: float = 2.0
     operation_log_buffer_max: int = 10000
+    # G3.4 告警外发（P1-4）：webhook 推送（飞书/钉钉/企微机器人等通用入口）；
+    # 为空则仅消息中心事件 + 日志。推送失败写 alert_dead_letters 死信表兜底重试。
+    alert_webhook_url: str = ""
+    # G3.3 审计链完整性校验调度：增量（小时粒度判定，≥24h 触发）+ 全量（≥7d）
+    audit_verify_incremental_hours: int = 24
+    audit_verify_full_days: int = 7
 
     # 种子用户密码治理（评估报告 D-04）
     # 为空时每个种子用户随机生成独立强密码，并在首次播种后一次性打印到服务端日志；

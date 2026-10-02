@@ -2029,3 +2029,40 @@ operation_logs_archive = Table(
     Base.metadata,
     *_operation_log_columns(index_prefix="ix_oplogarch"),
 )
+
+
+# ===========================================================================
+# 审计链校验状态（G3.3：单行状态表——增量/全量校验点位与最近报告摘要）
+# ===========================================================================
+audit_verify_state = Table(
+    "audit_verify_state",
+    Base.metadata,
+    Column("id", Integer, primary_key=True),  # 恒为 1（单行）
+    Column("last_incremental_at", DateTime, nullable=True),
+    Column("last_full_at", DateTime, nullable=True),
+    # 最近一次校验报告：{"status": "ok"|"broken", "checked": n, "broken_at": entry_id, "error": ...}
+    Column("last_report", JSON, nullable=True),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+)
+
+
+# ===========================================================================
+# 告警死信表（G3.4，P1-4：webhook 外发失败兜底——告警不可静默丢失）
+# ===========================================================================
+alert_dead_letters = Table(
+    "alert_dead_letters",
+    Base.metadata,
+    Column("id", BigIntPK, primary_key=True, autoincrement=True),
+    Column("alert_id", String(64), nullable=False),
+    Column("rule", String(64), nullable=False),
+    Column("severity", String(16), nullable=False, server_default=text("'warning'")),
+    Column("title", String(256), nullable=False),
+    Column("payload", JSON, nullable=True),
+    Column("webhook_url", String(512), nullable=False, server_default=text("''")),
+    Column("error", String(512), nullable=False, server_default=text("''")),
+    Column("retry_count", Integer, nullable=False, server_default=text("0")),
+    Column("resolved", Boolean, nullable=False, server_default=text("0")),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("last_retry_at", DateTime, nullable=True),
+    Index("ix_alert_dl_unresolved", "resolved", "created_at"),
+)

@@ -5,6 +5,7 @@ import { McpGovernance } from '../components/McpGovernance'
 import { SkillStudio } from '../components/SkillStudio'
 import { CustomizationAudit } from '../components/CustomizationAudit'
 import { EvalTrendBoard } from '../components/EvalTrendBoard'
+import { OperationLogBoard } from '../components/OperationLogBoard'
 import {
   Settings,
   Activity,
@@ -21,6 +22,7 @@ import {
   KeyRound,
   Fingerprint,
   ScrollText,
+  FileSearch,
   Pause,
   Play,
   RotateCcw,
@@ -323,6 +325,7 @@ const TABS: TabItem[] = [
   { key: 'mcp', label: 'MCP 治理', icon: Server },
   { key: 'skills', label: '技能工坊', icon: Sparkles },
   { key: 'audit', label: '定制审计', icon: ScrollText },
+  { key: 'oplogs', label: '操作日志', icon: FileSearch },
   { key: 'evals', label: '评测趋势', icon: TrendingUp },
   { key: 'agent', label: 'Agent 生命周期', icon: Bot },
   { key: 'config', label: '配置管理', icon: Settings },
@@ -1248,6 +1251,8 @@ export default function CIOAdmin() {
         return <SkillStudio />
       case 'audit':
         return <CustomizationAudit />
+      case 'oplogs':
+        return <OperationLogBoard />
       case 'evals':
         return <EvalTrendBoard />
       case 'agent':

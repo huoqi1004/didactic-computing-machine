@@ -193,12 +193,60 @@ SEED_PERMISSIONS.extend([
     },
 ])
 
+# 可观测与沙箱回滚平台的扩展权限（附录 B，roadmap-logging-sandbox G3/G4/G5）
+SEED_PERMISSIONS.extend([
+    {
+        "permission_id": "operationlog:read",
+        "resource": "operationlog",
+        "action": "read",
+        "description": "操作日志 - read（查询操作日志/回滚账本）",
+        "sensitivity": "sensitive",
+    },
+    {
+        "permission_id": "operationlog:export",
+        "resource": "operationlog",
+        "action": "export",
+        "description": "操作日志 - export（CSV 导出，含敏感面；导出行为自身审计）",
+        "sensitivity": "high_risk",
+    },
+    {
+        "permission_id": "operation_rollback:read",
+        "resource": "operation_rollback",
+        "action": "read",
+        "description": "操作回滚 - read（回滚账本查询）",
+        "sensitivity": "sensitive",
+    },
+    {
+        "permission_id": "operation_rollback:execute",
+        "resource": "operation_rollback",
+        "action": "execute",
+        "description": "操作回滚 - execute（发起回滚，仍需 write_high 审批人批准）",
+        "sensitivity": "high_risk",
+    },
+    {
+        "permission_id": "audit_verify:run",
+        "resource": "audit_verify",
+        "action": "run",
+        "description": "审计链 - run（手动触发完整性校验/查看报告）",
+        "sensitivity": "sensitive",
+    },
+])
+
 
 # ===================================================================
 # 23 个角色定义
 # ===================================================================
 
 SEED_ROLES: list[dict] = [
+    # ---- 可观测平台角色（附录 B：审计与操作分离）----
+    {
+        "role_id": "role_027",
+        "role_code": "log_auditor",
+        "role_name": "日志审计员",
+        "level": 2,
+        "parent_role_id": "role_001",
+        "description": "只读操作日志/回滚账本 + 审计链校验报告，无任何业务操作权（内控审计与操作分离）",
+    },
     # ---- Phase F1：Agent 定制平台角色（附录 B）----
     {
         "role_id": "role_025",
@@ -794,6 +842,18 @@ ROLE_PERMISSION_MATRIX["cio"]["customization"] = {"read", "update", "approve",
                                                  "create", "publish", "export"}
 ROLE_PERMISSION_MATRIX["chairman"]["customization"] = {"read", "approve", "create",
                                                        "publish"}
+
+# ---- 可观测与沙箱回滚平台角色（附录 B，G3/G4）----
+# cio：日志查询/导出 + 回滚账本读写 + 审计链校验（回滚执行仍需 write_high 人审）
+ROLE_PERMISSION_MATRIX["cio"]["operationlog"] = {"read", "export"}
+ROLE_PERMISSION_MATRIX["cio"]["operation_rollback"] = {"read", "execute"}
+ROLE_PERMISSION_MATRIX["cio"]["audit_verify"] = {"run"}
+# log_auditor（日志审计员）：只读日志与账本 + 校验报告，零业务操作权
+ROLE_PERMISSION_MATRIX["log_auditor"] = {
+    "operationlog": {"read"},
+    "operation_rollback": {"read"},
+    "audit_verify": {"run"},
+}
 
 
 

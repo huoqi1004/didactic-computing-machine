@@ -35,6 +35,7 @@ from app.api.routes.workflow_definitions import router as workflow_definitions_r
 from app.api.routes.mcp_servers import router as mcp_servers_router
 from app.api.routes.mcp_exposure import router as mcp_exposure_router
 from app.api.routes.skills_admin import router as skills_admin_router
+from app.api.routes.operation_logs import router as operation_logs_router
 
 # 兼容旧导入: from app.api.routes import router
 router = legacy_router

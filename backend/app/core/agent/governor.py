@@ -115,6 +115,9 @@ class AgentGovernor:
 
         if not rbac_engine.check_permission(ctx.user_id, spec.resource, spec.action):
             self.registry.bump_stat(tool_name, "denied")
+            # G3.4：高频越权滑动窗计数（超阈值告警）
+            from app.core.observability.alerts import note_permission_denied
+            note_permission_denied(ctx.user_id, spec.resource, spec.action)
             await _audit(
                 "denied", "denied",
                 {"user": ctx.user_id, "reason": f"缺少权限 {spec.resource}:{spec.action}"},
@@ -199,6 +202,13 @@ class AgentGovernor:
             if business_key and business_key != bk_holder["key"]:
                 bk_holder["key"] = business_key
                 set_business_key(business_key)
+            # G3.4：异常时段写操作告警（22:00~06:00，同用户+工具冷却 1h）
+            if spec.risk_level.is_write:
+                try:
+                    from app.core.observability.alerts import note_off_hours_write
+                    await note_off_hours_write(ctx.user_id, tool_name)
+                except Exception:  # noqa: BLE001
+                    pass
             await _audit(
                 "executed", "success",
                 {"args": _sanitize_args(validated), "latency_ms": latency_ms,

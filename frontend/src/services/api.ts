@@ -1775,6 +1775,37 @@ export const apiService = {
   getCustomizationMeta: (): Promise<any> =>
     apiClient.get('/agent-ops/customizations/meta'),
 
+  /* ----- 操作日志（roadmap-logging-sandbox G3.2）----- */
+  queryOperationLogs: (params: Record<string, unknown>): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/agent-ops/operation-logs', { params })
+      return res as any
+    }, { items: [], total: 0, page: 1, table: 'hot' }),
+
+  exportOperationLogs: (params: Record<string, unknown>): Promise<void> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/agent-ops/operation-logs/export',
+                                     { params, responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([res as any], { type: 'text/csv' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `operation_logs_${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    }, undefined as any),
+
+  getAuditVerifyState: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.get('/agent-ops/operation-logs/verify/state')
+      return res as any
+    }, { state: null, memory_integrity: true }),
+
+  runAuditVerify: (): Promise<any> =>
+    withFallback(async () => {
+      const res = await apiClient.post('/agent-ops/operation-logs/verify/run')
+      return res as any
+    }, { status: 'skipped', reason: 'backend_unavailable' }),
+
   // 评测趋势看板（Phase F5.2）。读走 withFallback：看板显示"暂无历史"比弹错误有用；
   // 触发评测是写操作（customization:update），失败必须让管理员看到真错。
   getEvalCases: (): Promise<any> =>

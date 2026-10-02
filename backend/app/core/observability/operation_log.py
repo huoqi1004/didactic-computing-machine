@@ -99,8 +99,12 @@ class OperationLogBuffer:
             from app.core import database as db_module
 
             engine = db_module.get_engine()
+            # sqlite 的 CAST AS JSON 会把 JSON 文本清成 0（NUMERIC 亲和性）
+            is_sqlite = engine.dialect.name == "sqlite"
+            insert_sql = _INSERT_SQL.replace(
+                "CAST(:details AS JSON)", ":details") if is_sqlite else _INSERT_SQL
             async with engine.begin() as conn:
-                await conn.execute(text(_INSERT_SQL), [ _normalize_row(r) for r in batch ])
+                await conn.execute(text(insert_sql), [ _normalize_row(r) for r in batch ])
             self.stats["flushed"] += len(batch)
             return len(batch)
         except Exception as e:  # noqa: BLE001
@@ -115,6 +119,12 @@ class OperationLogBuffer:
                 buffered=len(self._buf),
                 degraded="retry_in_memory",
             )
+            # G3.4 告警联动：刷盘失败显式告警（红线 3）
+            try:
+                from app.core.observability.alerts import note_oplog_flush_failure
+                await note_oplog_flush_failure(str(e), len(self._buf))
+            except Exception:  # noqa: BLE001
+                pass
             return 0
 
     # ------------------------------------------------------------------

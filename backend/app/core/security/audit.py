@@ -379,16 +379,21 @@ class AuditChain:
             if engine is None:
                 return
 
+            # MySQL 用 CAST AS JSON；sqlite 的 CAST 到未知类型会按 NUMERIC
+            # 亲和性把 JSON 文本清成 0（哈希链校验/详情读回全坏），直接存文本
+            is_sqlite = engine.dialect.name == "sqlite"
+            details_ph = ":details" if is_sqlite else "CAST(:details AS JSON)"
+
             async with engine.begin() as conn:
                 await conn.execute(
-                    text("""
+                    text(f"""
                         INSERT INTO audit_logs
                             (entry_id, actor_did, action, resource, result,
                              details, risk_level, prev_hash, entry_hash,
                              trace_id, business_key, timestamp)
                         VALUES
                             (:entry_id, :actor_did, :action, :resource, :result,
-                             CAST(:details AS JSON), :risk_level, :prev_hash, :entry_hash,
+                             {details_ph}, :risk_level, :prev_hash, :entry_hash,
                              :trace_id, :business_key, :timestamp)
                     """),
                     {
@@ -416,6 +421,12 @@ class AuditChain:
                            error=str(e),
                            entry_id=entry.entry_id,
                            degraded="memory_only")
+            # G3.4 告警联动：审计落库失败必须显式告警（红线 3）
+            try:
+                from app.core.observability.alerts import note_audit_db_failure
+                await note_audit_db_failure(entry.entry_id, str(e))
+            except Exception:  # noqa: BLE001
+                pass
 
     async def _publish_audit_event(self, entry: AuditEntry):
         """发布审计事件到事件总线"""
@@ -472,6 +483,157 @@ class AuditChain:
                 return False
             prev_hash = entry.hash
         return True
+
+    # ===================================================================
+    # DB 级完整性校验（G3.3：增量/全量 + 点位状态 + 断链告警）
+    # ===================================================================
+
+    @staticmethod
+    def _recompute_entry_hash(row: dict, running_prev: Optional[str]) -> str:
+        """按 AuditEntry.compute_hash 同一公式从库行重算哈希。
+
+        timestamp 还原：MySQL 读回 naive UTC datetime → 补 +00:00 与写入时的
+        aware isoformat 对齐（哈希内容含 timestamp.isoformat()，不还原会
+        全量误报断链）。
+        """
+        import hashlib
+        import orjson as _orjson
+
+        ts = row.get("timestamp")
+        if hasattr(ts, "tzinfo") and not isinstance(ts, str):
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            ts_text = ts.isoformat()
+        else:
+            ts_text = str(ts)
+            try:
+                from datetime import datetime as _dt
+
+                parsed = _dt.fromisoformat(ts_text)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                ts_text = parsed.isoformat()
+            except ValueError:
+                pass  # 非标准格式按原样参与计算（写入端同样如此的概率低）
+
+        details = row.get("details")
+        if isinstance(details, (str, bytes)):
+            details = _orjson.loads(details)
+        content = (f"{row['entry_id']}{row['actor_did']}{row['action']}{row['resource']}"
+                   f"{row['result']}{ts_text}{row['risk_level']}"
+                   + _orjson.dumps(details or {}, option=_orjson.OPT_SORT_KEYS).decode())
+        if running_prev:
+            content += running_prev
+        return hashlib.sha256(content.encode()).hexdigest()
+
+    async def _get_verify_state(self, engine) -> dict:
+        from sqlalchemy import text
+
+        try:
+            async with engine.connect() as conn:
+                row = (await conn.execute(text(
+                    "SELECT last_incremental_at, last_full_at, last_report "
+                    "FROM audit_verify_state WHERE id = 1"
+                ))).first()
+            if row is None:
+                return {}
+            return {"last_incremental_at": row[0], "last_full_at": row[1],
+                    "last_report": row[2]}
+        except Exception:  # noqa: BLE001
+            return {}
+
+    async def _save_verify_state(self, engine, mode: str, report: dict) -> None:
+        from sqlalchemy import text
+
+        now = datetime.now(timezone.utc)
+        is_sqlite = engine.dialect.name == "sqlite"
+        report_ph = ":report" if is_sqlite else "CAST(:report AS JSON)"
+        try:
+            async with engine.begin() as conn:
+                exists = (await conn.execute(text(
+                    "SELECT COUNT(*) FROM audit_verify_state WHERE id = 1"
+                ))).scalar()
+                col = "last_full_at" if mode == "full" else "last_incremental_at"
+                if exists:
+                    await conn.execute(text(
+                        f"UPDATE audit_verify_state SET {col} = :now, "
+                        f"last_report = {report_ph}, "
+                        "updated_at = CURRENT_TIMESTAMP WHERE id = 1"
+                    ), {"now": now, "report": orjson.dumps(report).decode()})
+                else:
+                    await conn.execute(text(
+                        "INSERT INTO audit_verify_state (id, last_incremental_at, "
+                        f"last_full_at, last_report) VALUES (1, :inc, :full, {report_ph})"
+                    ), {"inc": now if mode == "incremental" else None,
+                       "full": now if mode == "full" else None,
+                       "report": orjson.dumps(report).decode()})
+        except Exception as e:  # noqa: BLE001
+            logger.warning("audit.verify_state_save_failed", error=str(e))
+
+    async def verify_chain(self, full: bool = False) -> dict:
+        """
+        DB 级哈希链完整性校验（G3.3）。
+
+        - ``full=False`` 增量：自上次增量点位起校验（锚定窗口前一行，
+          链接与内容逐行重算）；
+        - ``full=True`` 全量：从链首逐行校验（每周错峰 / 手动即时触发）。
+
+        Returns:
+            {"mode", "checked", "status": "ok"|"broken"|"skipped",
+             "broken_at"?, "expected"?, "actual"?, "error"?}
+        """
+        from app.core import database as db_module
+        from sqlalchemy import text
+
+        engine = db_module.get_engine()
+        if engine is None:
+            return {"mode": "full" if full else "incremental", "checked": 0,
+                    "status": "skipped", "reason": "db_unavailable"}
+
+        report: dict = {"mode": "full" if full else "incremental",
+                        "checked": 0, "status": "ok"}
+        try:
+            state = await self._get_verify_state(engine)
+            cutoff = None if full else state.get("last_incremental_at")
+            async with engine.connect() as conn:
+                running_prev: Optional[str] = None
+                params: dict = {}
+                where = ""
+                if cutoff and not full:
+                    anchor = (await conn.execute(text(
+                        "SELECT entry_hash FROM audit_logs "
+                        "WHERE timestamp < :c ORDER BY timestamp DESC, entry_id LIMIT 1"
+                    ), {"c": cutoff})).first()
+                    running_prev = anchor[0] if anchor else None
+                    where = "WHERE timestamp >= :c"
+                    params = {"c": cutoff}
+                rows = (await conn.execute(text(
+                    "SELECT entry_id, actor_did, action, resource, result, details, "
+                    f"risk_level, prev_hash, entry_hash, timestamp FROM audit_logs {where} "
+                    "ORDER BY timestamp, entry_id"
+                ), params)).mappings().all()
+
+                for r in rows:
+                    expected = self._recompute_entry_hash(dict(r), running_prev)
+                    report["checked"] += 1
+                    if expected != r["entry_hash"] or (r["prev_hash"] or "") != (running_prev or ""):
+                        report.update(status="broken", broken_at=r["entry_id"],
+                                      expected=expected, actual=r["entry_hash"] or "")
+                        break
+                    running_prev = r["entry_hash"]
+        except Exception as e:  # noqa: BLE001
+            report.update(status="skipped", error=str(e))
+
+        # 断链即时告警（G3.4）+ 状态落表
+        if report["status"] == "broken":
+            logger.error("audit.chain_verify_broken", **report)
+            try:
+                from app.core.observability.alerts import note_chain_broken
+                await note_chain_broken(report)
+            except Exception:  # noqa: BLE001
+                pass
+        await self._save_verify_state(engine, report["mode"], report)
+        return report
 
     # ===================================================================
     # 审计日志查询（读操作）
@@ -754,3 +916,56 @@ class AuditChain:
 
 # 全局审计链单例
 audit_chain = AuditChain()
+
+
+async def audit_verify_loop() -> None:
+    """
+    审计链完整性校验调度（G3.3）：小时自检，到期触发。
+
+    - 增量：距上次增量 ≥ ``audit_verify_incremental_hours``（默认 24h）；
+    - 全量：距上次全量 ≥ ``audit_verify_full_days``（默认 7 天）；
+    - 顺带补推告警死信（G3.4，webhook 恢复后自动送达）。
+
+    模块级函数——必须位于 AuditChain 类定义之外（曾误插类中导致
+    query/query_from_db/get_stats 沦为嵌套函数、类方法整体丢失）。
+    """
+    import asyncio
+
+    from app.core.config import settings
+
+    await asyncio.sleep(60)  # 启动缓冲：等 DB/审计链就绪
+    while True:
+        try:
+            from app.core import database as db_module
+
+            engine = db_module.get_engine()
+            if engine is not None:
+                state = await audit_chain._get_verify_state(engine)
+                now = datetime.now(timezone.utc)
+
+                async def _due(key: str, hours: int) -> bool:
+                    last = state.get(key)
+                    if not last:
+                        return True
+                    if isinstance(last, str):
+                        last = datetime.fromisoformat(last)
+                    if last.tzinfo is None:
+                        last = last.replace(tzinfo=timezone.utc)
+                    return (now - last).total_seconds() >= hours * 3600
+
+                if await _due("last_full_at", settings.audit_verify_full_days * 24):
+                    await audit_chain.verify_chain(full=True)
+                elif await _due("last_incremental_at",
+                                settings.audit_verify_incremental_hours):
+                    await audit_chain.verify_chain(full=False)
+
+                try:
+                    from app.core.observability.alerts import alert_channel
+                    await alert_channel.retry_dead_letters()
+                except Exception:  # noqa: BLE001
+                    pass
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.warning("audit.verify_loop_error", error=str(e))
+        await asyncio.sleep(3600)

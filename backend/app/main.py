@@ -43,6 +43,7 @@ from app.api.routes import (
     mcp_servers_router,
     mcp_exposure_router,
     skills_admin_router,
+    operation_logs_router,
 )
 from app.api.routes.tenant import router as tenant_router
 from app.core.tenant import TenantMiddleware
@@ -822,6 +823,14 @@ async def lifespan(app: FastAPI):
         cleanup_interval_hours=settings.retention_cleanup_interval_hours,
     )
 
+    # 8.2 审计链完整性校验调度（G3.3：增量每日 + 全量每周 + 死信补推）
+    from app.core.security.audit import audit_verify_loop
+
+    audit_verify_task = asyncio.create_task(audit_verify_loop())
+    logger.info("app.audit_verify_loop_started",
+                incremental_hours=settings.audit_verify_incremental_hours,
+                full_days=settings.audit_verify_full_days)
+
     # 8.5 外部 MCP 工具桥接（D3 环境变量清单 + F4.1 管理端登记清单）
     #     register_external_tools() 此前只在测试里被调用过，运行期从未接线，
     #     因此真实进程中不存在任何 external_* 工具（F4.1 修复）。
@@ -850,6 +859,13 @@ async def lifespan(app: FastAPI):
     retention_task.cancel()
     try:
         await retention_task
+    except asyncio.CancelledError:
+        pass
+
+    # 0.3 停止审计链校验调度（G3.3）
+    try:
+        audit_verify_task.cancel()
+        await audit_verify_task
     except asyncio.CancelledError:
         pass
 
@@ -968,6 +984,7 @@ app.include_router(agent_ops_router)
 app.include_router(customizations_router)
 app.include_router(workflow_definitions_router)
 app.include_router(mcp_servers_router)
+app.include_router(operation_logs_router)
 app.include_router(mcp_exposure_router)
 app.include_router(skills_admin_router)
 app.include_router(tenant_router)

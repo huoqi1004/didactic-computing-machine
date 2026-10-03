@@ -31,6 +31,7 @@ logger = structlog.get_logger()
 
 SAGA_TYPE = "workflow_saga"
 ST_EXECUTING = "executing"
+ST_COMPLETED = "completed"      # 工作流正常完成——无补偿义务，退出恢复扫描
 ST_COMPENSATED = "compensated"
 ST_NEEDS_MANUAL = "needs_manual"
 
@@ -161,6 +162,22 @@ async def saga_record(thread_id: str, node: str, handler: str, result: Any) -> N
     except Exception as e:  # noqa: BLE001
         # 登记失败不阻断工作流——失败终止时 needs_manual 兜底
         logger.warning("saga.record_failed", thread_id=thread_id, error=str(e))
+
+
+async def saga_complete(thread_id: str) -> None:
+    """工作流正常完成 → saga 收口为 completed（UAT-G5-1 现场验收发现：
+    成功流程遗留 executing 会被启动恢复误补偿已成功的业务操作）。"""
+    from app.core import database as db_module
+
+    engine = db_module.get_engine()
+    if engine is None:
+        return
+    try:
+        _, steps = await _saga_load(engine, _saga_id(thread_id))
+        if steps:
+            await _persist_saga(engine, _saga_id(thread_id), ST_COMPLETED, steps)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("saga.complete_failed", thread_id=thread_id, error=str(e))
 
 
 async def saga_compensate(thread_id: str, reason: str = "") -> dict:

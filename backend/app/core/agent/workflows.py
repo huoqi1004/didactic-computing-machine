@@ -486,6 +486,15 @@ async def start_workflow(name: str, input_data: dict, ctx,
             await saga_compensate(thread_id, reason=str(result.get("error")))
         except Exception:  # noqa: BLE001
             pass
+    else:
+        # G5.2 修正（UAT-G5-1 现场验收发现）：正常完成必须收口 saga——
+        # 否则启动恢复会把已成功的业务操作误补偿
+        try:
+            from app.core.agent.workflow_saga import saga_complete
+
+            await saga_complete(thread_id)
+        except Exception:  # noqa: BLE001
+            pass
 
     interrupts = result.get("__interrupt__") or []
     if interrupts:
@@ -522,8 +531,24 @@ async def resume_workflow(name: str, thread_id: str, decision: dict,
             Command(resume=decision),
             {"configurable": {"thread_id": thread_id}},
         )
+    except Exception as run_err:
+        try:
+            from app.core.agent.workflow_saga import saga_compensate
+
+            await saga_compensate(thread_id, reason=f"恢复执行异常终止: {run_err}")
+        except Exception:  # noqa: BLE001
+            pass
+        raise
     finally:
         _ctx_var.reset(token)
+
+    if result.get("error"):
+        try:
+            from app.core.agent.workflow_saga import saga_compensate
+
+            await saga_compensate(thread_id, reason=str(result.get("error")))
+        except Exception:  # noqa: BLE001
+            pass
 
     interrupts = result.get("__interrupt__") or []
     if interrupts:
@@ -533,6 +558,12 @@ async def resume_workflow(name: str, thread_id: str, decision: dict,
     if result.get("error"):
         return {"status": "error", "reply": f"工作流终止：{result['error']}",
                 "workflow_version": version}
+    try:
+        from app.core.agent.workflow_saga import saga_complete
+
+        await saga_complete(thread_id)
+    except Exception:  # noqa: BLE001
+        pass
     return {"status": "done", "reply": f"工作流 {name} 完成：{result.get('result', {})}",
             "result": result.get("result", {}), "workflow_version": version}
 

@@ -83,6 +83,71 @@ class ChangePasswordRequest(BaseModel):
 # 路由
 # ===================================================================
 
+# ===================================================================
+# P1-2 登录防爆破（递进锁定，效率-安全平衡：不用验证码强墙）
+# 同一 username+IP 组合 10 分钟窗口内失败 ≥5 次 → 递进锁定
+# （2^n 秒，封顶 60s）；成功登录清零。纯内存实现（单实例足够，
+# 多实例场景由会话层 Redis 化覆盖，攻击面按 IP 分散时阈值天然稀释）。
+# ===================================================================
+from collections import defaultdict as _dd
+
+_LOGIN_FAIL_WINDOW_S = 600.0
+_LOGIN_FAIL_THRESHOLD = 5
+_login_failures: dict = _dd(list)
+_login_lock_until: dict = {}
+
+
+def _login_lock_remaining(key: str) -> int:
+    """锁定剩余秒数（未锁定返回 0）；惰性清理过期窗口。"""
+    import time as _t
+
+    now = _t.monotonic()
+    bucket = _login_failures.get(key)
+    if bucket:
+        while bucket and bucket[0] < now - _LOGIN_FAIL_WINDOW_S:
+            bucket.popleft()
+    until = _login_lock_until.get(key, 0)
+    if until and now < until:
+        return int(until - now) + 1
+    if until:
+        _login_lock_until.pop(key, None)
+        _login_failures.pop(key, None)
+    return 0
+
+
+def _record_login_failure(key: str) -> int:
+    """记录一次失败；达到阈值触发递进锁定。返回本次锁定的秒数（0=未触发）。"""
+    import time as _t
+
+    now = _t.monotonic()
+    bucket = _login_failures[key]
+    bucket.append(now)
+    while bucket and bucket[0] < now - _LOGIN_FAIL_WINDOW_S:
+        bucket.popleft()
+    if len(bucket) >= _LOGIN_FAIL_THRESHOLD:
+        lock_s = min(2 ** (len(bucket) - _LOGIN_FAIL_THRESHOLD + 1), 60)
+        _login_lock_until[key] = now + lock_s
+        return lock_s
+    return 0
+
+
+async def _audit_login_lockout(username: str, lock_s: int) -> None:
+    try:
+        from app.core.security.audit import audit_chain
+
+        await audit_chain.log(
+            actor_did=f"anonymous:{username}",
+            action="auth.login_lockout",
+            resource="auth",
+            result="denied",
+            details={"username": username, "lock_seconds": lock_s,
+                     "window_s": _LOGIN_FAIL_WINDOW_S},
+            risk_level="medium",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def _audit_login_failure(user_id: Optional[str], username: str, reason: str) -> None:
     """记录登录失败审计（D-05：登录类操作 100% 审计，失败不抛异常）。"""
     try:
@@ -99,24 +164,42 @@ async def _audit_login_failure(user_id: Optional[str], username: str, reason: st
 
 
 @router.post("/login", response_model=LoginResponse, summary="用户登录")
-async def login(req: LoginRequest):
+async def login(req: LoginRequest, request: Request = None):
     """
     用户登录，验证用户名密码后签发 JWT 令牌。
 
     返回 access_token（短期，30分钟）和 refresh_token（长期，7天）。
     响应中 ``user.must_change_password`` 为 true 时，前端应引导用户先修改密码。
     """
+    # 0. P1-2 防爆破：递进锁定检查（username+IP 维度）
+    from fastapi import Request as _Request
+
+    client_ip = (request.client.host if (request and request.client) else "unknown") if request else "unknown"
+    _login_key = f"{req.username}|{client_ip}"
+    remaining = _login_lock_remaining(_login_key)
+    if remaining > 0:
+        logger.warning("auth.login.locked_out", username=req.username, remaining_s=remaining)
+        raise HTTPException(status_code=429,
+                            detail=f"失败次数过多，请 {remaining} 秒后重试",
+                            headers={"Retry-After": str(remaining)})
+
     # 1. 查找用户
     user = rbac_engine.get_user_by_username(req.username)
     if user is None:
         logger.warning("auth.login.user_not_found", username=req.username)
         await _audit_login_failure(None, req.username, "user_not_found")
+        lock_s = _record_login_failure(_login_key)
+        if lock_s:
+            await _audit_login_lockout(req.username, lock_s)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     # 2. 获取完整用户记录（含 password_hash）
     full_user = rbac_engine._users.get(user["user_id"])
     if full_user is None:
         await _audit_login_failure(user.get("user_id"), req.username, "user_not_found")
+        lock_s = _record_login_failure(_login_key)
+        if lock_s:
+            await _audit_login_lockout(req.username, lock_s)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     # 3. 检查用户状态
@@ -129,7 +212,17 @@ async def login(req: LoginRequest):
     if not PasswordHasher.verify_password(req.password, full_user["password_hash"]):
         logger.warning("auth.login.password_mismatch", username=req.username)
         await _audit_login_failure(user.get("user_id"), req.username, "password_mismatch")
+        lock_s = _record_login_failure(_login_key)
+        if lock_s:
+            await _audit_login_lockout(req.username, lock_s)
+            raise HTTPException(status_code=429,
+                                detail=f"失败次数过多，请 {lock_s} 秒后重试",
+                                headers={"Retry-After": str(lock_s)})
         raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    # 4.5 P1-2：成功登录清零失败计数（正常用户不受锁定残留影响）
+    _login_failures.pop(_login_key, None)
+    _login_lock_until.pop(_login_key, None)
 
     # 5. 获取角色编码和权限列表
     roles = rbac_engine.get_user_roles(user["user_id"])

@@ -17,6 +17,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import make_asgi_app
 
 from app.core.config import settings
+from app.core.security.startup_checks import sanitize_cors_origins, validate_jwt_secret
+
+# P1-3（fail-closed）：生产未配置/弱熵 JWT 密钥直接拒绝启动；
+# debug 模式自动生成临时密钥。必须在路由导入（jwt_manager 初始化）之前完成。
+settings.jwt_secret = validate_jwt_secret(settings.jwt_secret, settings.debug)
+
 from app.core.logging_config import configure_logging, RequestContextMiddleware
 from app.core.event.bus import event_bus
 from app.core.event.store import event_store
@@ -960,9 +966,12 @@ async def global_exception_handler(request: Request, exc: Exception):
 # CORS中间件 - 从环境变量读取允许的源，避免通配符+credentials安全问题
 import os as _os
 _cors_origins = _os.environ.get("ERP_CORS_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:5177,http://localhost:5178,http://localhost:3000").split(",")
+# P1-4：生产环境剥离 localhost/127.0.0.1 开发源（显式告警留痕）
+_cors_origins = sanitize_cors_origins(
+    [o.strip() for o in _cors_origins if o.strip()], settings.debug)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in _cors_origins if o.strip()],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

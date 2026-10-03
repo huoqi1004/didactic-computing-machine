@@ -276,6 +276,33 @@ class AgentRuntime:
         """
         from langchain_core.messages import AIMessage, HumanMessage
 
+        # P0-1 接线：用户消息输入护栏（提示注入/越狱/恶意代码检测）。
+        # BLOCK/ESCALATE 一律拒绝执行并审计——判据是"不让注入触发工具"，
+        # 而非判断文本内容好坏（评审 P0-1 整改）。
+        from app.core.security.audit import audit_chain
+        from app.core.security.guardrails import GuardrailAction, guardrails
+
+        in_action, in_threats = guardrails.check_input(
+            user_message, agent_did=ctx.agent_key or f"runtime:{domain}")
+        if in_action in (GuardrailAction.BLOCK, GuardrailAction.ESCALATE):
+            await audit_chain.log(
+                actor_did=ctx.user_id or "unknown",
+                action="guardrail.input_blocked",
+                resource=f"agent:{domain}",
+                result="denied",
+                details={"threats": [t.get("type") for t in in_threats],
+                         "thread_id": ctx.thread_id},
+                risk_level="high",
+            )
+            logger.warning("runtime.input_blocked", domain=domain,
+                           user=ctx.user_id, threats=[t.get("type") for t in in_threats])
+            return {
+                "status": "blocked",
+                "reply": ("该请求包含疑似提示注入/越权内容，已被安全护栏拦截并记录。"
+                          "如有疑问请联系管理员。"),
+                "interrupt": None,
+            }
+
         if not self._check_budget(domain):
             logger.warning("runtime.token_budget_exceeded", domain=domain)
             raise RuntimeError(f"域 {domain} 当日 LLM token 预算已耗尽，编排降级")
@@ -314,6 +341,27 @@ class AgentRuntime:
             if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
                 reply = msg.content if isinstance(msg.content, str) else str(msg.content)
                 break
+        # P0-1 接线：Agent 回复输出护栏（敏感数据泄露/指令泄露检测）
+        if reply:
+            out_action, sanitized, out_threats = guardrails.check_output(
+                reply, agent_did=ctx.agent_key or f"runtime:{domain}")
+            if out_action == GuardrailAction.BLOCK:
+                await audit_chain.log(
+                    actor_did=ctx.user_id or "unknown",
+                    action="guardrail.output_blocked",
+                    resource=f"agent:{domain}",
+                    result="denied",
+                    details={"threats": [t.get("type") for t in out_threats],
+                             "thread_id": ctx.thread_id},
+                    risk_level="medium",
+                )
+                logger.warning("runtime.output_blocked", domain=domain,
+                               threats=[t.get("type") for t in out_threats])
+                return {"status": "done",
+                        "reply": "回复内容未通过输出安全检查，已被拦截。",
+                        "interrupt": None}
+            if out_action == GuardrailAction.SANITIZE:
+                reply = sanitized
         return {"status": "done", "reply": reply or "（无回复）", "interrupt": None}
 
     async def resume(self, domain: str, thread_id: str, decision: dict,

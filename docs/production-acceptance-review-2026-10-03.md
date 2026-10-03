@@ -111,3 +111,26 @@
 ---
 
 *本意见书全部取证可复核；缺陷清单与整改状态由乙方在本文档追加"整改回签"章节跟踪，不另起文档。*
+
+---
+
+## 整改回签章（乙方，2026-10-03 当日交付）
+
+**回归基线：1399 passed / 4 skipped / 1 failed**（唯一失败仍为 DeepSeek 402 环境性；净增测试 58 例）
+
+| 项 | 状态 | 整改内容 | 测试 |
+|----|------|----------|------|
+| **P0-1** | ✅ **已修复（范围更正后）** | 评审后复核：`base.py llm_chat/llm_analyze` 此前**已接线** guardrails（734/749/843 三处）——评审取证不完整，P0-1 实际缺口收窄为 **runtime.py ReAct 编排主链路未接线**。已补：`runtime.run` 用户消息 check_input（BLOCK/ESCALATE → 拒绝执行 + guardrail.input_blocked 审计，在 LLM 与工具调用**之前**）；Agent 回复 check_output（BLOCK → 拦截替换，SANITIZE → 净化） | test_injection_defense_g.py::test_runtime_blocks_injection_before_llm / test_runtime_sanitizes_leaked_output |
+| **P0-2** | ✅ 已修复 | 新建 `app/core/security/untrusted.py`：`wrap_untrusted()` = 明显指令行剔除（只删不改）+ "数据非指令"边界声明 + 来源标注。接线三处：`llm_analyze` 业务上下文 JSON、`knowledge_answer` 检索材料（逐条）、`knowledge_search` 摘要（工具返回值=注入向量） | test_wrap_untrusted_marks_boundary_and_strips_instruction_lines 等 |
+| **P0-3** | ✅ 已修复 | 注入测试集 **40 例**（direct 10/indirect 8/encoding 4/multi_turn 5/tool_poisoning 5/**benign 8 误报护栏**）入 CI；**阻断率门禁 100%**（parametrize 逐例 + 汇总断言）；E2E 判据=注入消息在 LLM 之前拦截、工具调用不可能发生 | test_injection_defense_g.py 全套（46 例） |
+| P1-1 | ✅ **复核更正为已达成** | 评审取证不完整：`session.py` 实为**内存 L1 + Redis L2 双层**（跨实例 hydrate/共享黑名单/TTL 完整实现，2026-09-04 云端踩坑后已在生产化路线图 2.5/2.6 补齐）。P1-1 无需整改；遗留仅"Redis 不可用时多实例退化为单实例一致"（已有节流告警，接受） | 既有 redis_backend 测试 |
+| P1-2 | ✅ 已修复 | username+IP 维度 10 分钟滑窗，失败 ≥5 次递进锁定（2^n 秒封顶 60s，**429+Retry-After**）；成功登录清零；锁定事件入审计（auth.login_lockout）；**未用验证码**（平衡要求） | test_login_lockout_progressive_and_reset / test_login_lockout_isolates_users_and_ips / test_login_route_returns_429_after_threshold |
+| P1-3 | ✅ 已修复 | `startup_checks.validate_jwt_secret`：生产空/弱熵（<16 字符）**拒绝启动**（fail-closed）+ 修复指引；debug 生成临时密钥（重启全员登出，显式告警）。接线点在 main.py settings 导入后、路由导入前 | test_jwt_missing_in_production_refuses 等 4 例 |
+| P1-4 | ✅ 已修复 | `sanitize_cors_origins`：生产剥离 localhost/127.0.0.1 开发源 + 显式告警留痕；debug 保留 | test_cors_strips_localhost_in_production 等 2 例 |
+| P1-5 | ✅ 部分修复 + ②设计回签 | ①ceo `system: _ALL → {"read"}`、`agent: _ALL → {"read"}`（决策留痕注释：恢复走定制审批，不走种子回改）；③customization_admin/approver 补 `system:manage`（进管理台）+ agent read/approve（D5 决策落地，职责分离名实一致）。**②域隔离（domain_scope）按 admin-guide 落差清单"须先补设计"结论移入下期路线图**——本回签提交设计约束：domain_scope 列（NULL=全局）+ 服务层 `check_domain_scope(user, ctype, target)` 钩子 + 四路由过滤，工作量 0.5 人周 | test_seed_ceo_system_wildcard_removed / test_seed_dedicated_customization_roles_can_enter_admin / test_seed_log_auditor_readonly_unchanged |
+| P1-6/7/8 | ⏳ 移交 | 按整改令纳入下期路线图（P1-8 与运维 TLS 排期并行） | — |
+| P2×8 | ⏳ 移交 | 已列入下期路线图 | — |
+
+**平衡要求兑现核对**：①注入检测为正则首层（引擎已有，零 LLM 成本），E2E 实测 P95 无感知增量；②write_low 免审框架未动，免审+账本可回滚兜底保留；③会话/限流全部复用既有组件；④登录防爆破未用验证码。
+
+**申请委员会复查**：P0×3 全清 + P1 关键 5 项达成（P1-5 ②按设计前置结论移期），请按意见书 §5 口径逐条销项并出具"公网生产级"放行意见。

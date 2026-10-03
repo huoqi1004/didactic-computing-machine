@@ -825,8 +825,13 @@ class BaseAgent(ABC):
         )
 
         # 构建用户消息：上下文 + 任务
+        # P0-2 接线：上下文可能携带外部可控内容（发票解析字段、检索片段、
+        # 用户输入字段），统一做"数据非指令"边界封装（间接注入缓解）
         try:
+            from app.core.security.untrusted import wrap_untrusted
+
             context_json = json.dumps(context, ensure_ascii=False, default=str)
+            context_json = wrap_untrusted(context_json, source="business_context")
         except Exception:
             context_json = str(context)
         user_content = (

@@ -492,10 +492,14 @@ ROLE_PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
     },
 
     # ---- ceo (L2): 全部读写审批 + 系统/Agent/用户/预算全权 ----
+    # P1-5 整改（production-acceptance-review-2026-10-03，决策留痕）：
+    # ceo 的 system 从 _ALL 收紧为只读——管理台（system:manage 守卫）操作权
+    # 收归 cio，杜绝"兜底通配放大越权面"；ceo 保留全局业务可见性。
+    # 如需恢复按域/按人授权，走定制中心放宽审批（红线 2），不走种子回改。
     "ceo": {
         **{r: {"read", "create", "update", "approve"} for r in RESOURCES},
-        "system": _ALL,
-        "agent": _ALL,
+        "system": {"read"},
+        "agent": {"read"},
         "user": _ALL,
         "role": _ALL,
         "budget": _ALL,
@@ -854,6 +858,14 @@ ROLE_PERMISSION_MATRIX["log_auditor"] = {
     "operation_rollback": {"read"},
     "audit_verify": {"run"},
 }
+
+# P1-5 整改：定制平台两个专用角色补 system:manage（进管理台的路由守卫）
+# 与 agent 读写/审批——此前"有 customization 权限却进不了管理台"，
+# 职责分离名存实亡（admin-guide 附录 B 落差清单第 3/4 行闭环）
+ROLE_PERMISSION_MATRIX["customization_admin"]["system"] = {"manage"}
+ROLE_PERMISSION_MATRIX["customization_admin"]["agent"] = {"read"}
+ROLE_PERMISSION_MATRIX["customization_approver"]["system"] = {"manage"}
+ROLE_PERMISSION_MATRIX["customization_approver"]["agent"] = {"read", "approve"}
 
 
 

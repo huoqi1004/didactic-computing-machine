@@ -47,15 +47,16 @@ async def knowledge_search(ctx: ToolContext, query: str, top_k: int = 5):
         query=query, top_k=top_k,
         caller_permission_level="internal",
     )
-    items = [
-        {
-            "snippet": r.get("content", "")[:600],
-            "source": (r.get("metadata", {}) or {}).get("filename", "")
-                      or (r.get("metadata", {}) or {}).get("title", ""),
-            "relevance": r.get("score", 0.0),
-        }
-        for r in results
-    ]
+    from app.core.security.untrusted import wrap_untrusted
+
+    items = []
+    for r in results:
+        meta = r.get("metadata", {}) or {}
+        source = meta.get("filename", "") or meta.get("title", "") or "未知来源"
+        # P0-2：检索片段是不可信外部内容（文档投毒向量），封装进上下文
+        snippet = wrap_untrusted(r.get("content", "")[:600], source=f"知识库:{source}")
+        items.append({"snippet": snippet, "source": source,
+                      "relevance": r.get("score", 0.0)})
     return {"query": query, "total": len(items), "results": items}
 
 

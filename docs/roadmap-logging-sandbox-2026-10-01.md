@@ -310,3 +310,24 @@ operation_ledger（操作回滚账本，一次写操作一行）
 - **复用不重建**：审计哈希链、EventStore、Saga 雏形、Checkpointer、治理面、tools_v2 补偿协议全部复用；本期交付的是"关联键、账本、查询面、常态化校验、Saga 接线"五块连接件。
 - **不改变既有 API 行为**：audit_logs 加列为向后兼容（NULL 合法）；治理面执行通道语义不变，只追加账本登记。
 - **F5.5 双手册增补**：日志查询、回滚操作、篡改检测三章并入现有 admin-guide/runbook，不另起文档体系。
+
+---
+
+## 12. 交付状态归档（2026-10-03，M-G6 收尾）
+
+**全部六阶段交付完毕。** 本地验证基线：全量回归 **1341 passed / 4 skipped / 1 failed**
+（唯一失败为库存补货 e2e 的 DeepSeek 402 余额耗尽，环境性非代码问题）。
+
+| 阶段 | 提交 | 核心交付 | 测试 |
+|------|------|----------|------|
+| G1 追踪上下文+幂等协议 | 84ba5f5 | observability/trace.py（32hex W3C 兼容+跨任务注入）、audit_logs 补 trace/business 列、operation_ledger 建表、治理面/工作流接线、补偿幂等声明（11 写工具） | test_trace_g1.py 11 例 |
+| G2 操作日志底座 | 820a6e4 | log_operation 统一通道+审计事件订阅、异步批量落库（失败不丢）、留存分层 365/30/180、LLM 摘要+全文开关（双人确认≤7 天） | test_operation_log_g2.py 10 例 |
+| G3 查询可视化+告警 | 2ad285d | 双键查询 API/CSV 导出（自审计）、OperationLogBoard UI、DB 级链校验（增量/全量/手动）、告警三路（webhook+死信）、log_auditor 角色 | test_operation_logs_g3.py 7 例 |
+| G4 回滚账本 | f09cd5c | 账本同步登记+对账（幽灵补登记+P0 告警）、CAS 状态机、回滚 API（precheck 拒绝/审批/执行器）、drill 重放断言 | test_rollback_g4.py 8 例 + drill 12 例 |
+| G5 Saga+影子执行+评估 | a7e8a3f | workflow_saga（逆序补偿+崩溃恢复+needs_manual）、impact_fn 影子执行（资金调拨实例）、沙箱书面评估、演练剧本四则 | test_workflow_saga_g5.py 5 例 |
+| G6 收尾 | 本提交 | 性能复验（P95 8.77ms / SLO 5000ms；磁盘估算 52.8MB/月 / 门禁 2048MB）、管理员手册、UAT 支持包 | tests/perf/g6_overhead.py |
+
+**评审闭环**：v1.0（38761d1）→ 委员会有条件通过（P0×4+P1×6）→ v1.1（2e59582，
+闭环对照表 §0）→ 快速复审通过 → 开工令 → M-G1~M-G6 逐里程碑交付。
+**待办移交**：UAT 六场景现场验收（docs/uat-logging-sandbox-2026-10-03.md）由甲方约期；
+DeepSeek 充值后复验库存补货 e2e；沙箱季度复审（评估文档 §5）。

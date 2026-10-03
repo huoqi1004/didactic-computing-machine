@@ -111,7 +111,7 @@ async def test_flush_failure_keeps_buffer_then_recovers(sqlite_env, monkeypatch)
         pass
     monkeypatch.setattr(operation_log_buffer, "flush_once", real_flush)
 
-    # 直 experiência：直接调底层真实 flush——但此时缓冲仍应保有 2 行（未被丢弃）
+    # 直接调底层真实 flush——此时缓冲仍应保有 2 行（未被丢弃）
     assert operation_log_buffer.pending() == 2
 
     flushed = await operation_log_buffer.flush_once()

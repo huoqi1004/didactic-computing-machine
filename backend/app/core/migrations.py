@@ -239,6 +239,18 @@ async def ensure_audit_trace_columns(engine: Optional[Any] = None) -> bool:
 
     try:
         async with engine.begin() as conn:
+            # 全新库：audit_logs 尚不存在 → 由 _CREATE_AUDIT_LOGS_TABLE 直接带列，跳过
+            exists = (
+                await conn.execute(text(
+                    "SELECT COUNT(*) FROM information_schema.tables "
+                    "WHERE table_schema = DATABASE() AND table_name = 'audit_logs'"
+                ) if _is_mysql() else text(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='audit_logs'"
+                ))
+            ).scalar()
+            if not exists:
+                logger.debug("migrations.trace_columns_skipped_no_table")
+                return True
             added: list[str] = []
             for col, ctype in (("trace_id", "VARCHAR(64)"), ("business_key", "VARCHAR(128)")):
                 if not await _audit_column_exists(conn, col):
@@ -291,6 +303,12 @@ async def run_migrations(engine: Optional[Any] = None) -> bool:
     from sqlalchemy import text
 
     try:
+        # G1.2 前置补列（UAT 启动实测发现顺序缺陷）：存量 audit_logs 若无
+        # trace 列，DDL 循环里新增的 ix_audit_logs_trace/business 会以
+        # errno 1072 硬失败，导致整个迁移 aborted、补列步骤永远跑不到——
+        # 必须先补列再建索引。全新库此调用内部自动跳过（表未建）。
+        await ensure_audit_trace_columns(engine)
+
         async with engine.begin() as conn:
             for ddl in _ALL_DDL:
                 statements = [s.strip() for s in ddl.split(";") if s.strip()]

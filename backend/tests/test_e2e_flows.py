@@ -36,6 +36,34 @@ from app.agents.production.agent import ProductionAgent
 
 # ========== 辅助工具 ==========
 
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _pin_rule_mode(monkeypatch):
+    """E2E 场景默认钉规则模式（确定性、零网络成本）——
+    场景 1 显式覆盖为 True 作为**真 LLM（Agnes）冒烟**。"""
+    monkeypatch.setattr(_settings_ref(), "llm_enabled", False)
+
+
+def _settings_ref():
+    from app.core.config import settings
+    return settings
+
+
+@_pytest.fixture(autouse=True)
+async def _stop_started_agents():
+    yield
+    for a in _STARTED_AGENTS[:]:
+        try:
+            await a.stop()
+        except Exception:  # noqa: BLE001
+            pass
+    _STARTED_AGENTS.clear()
+
+
+# ========== 辅助工具 ==========
+
 class EventCollector:
     """
     事件收集器：订阅事件总线，按事件类型收集事件
@@ -90,10 +118,14 @@ def _make_event(
     )
 
 
+_STARTED_AGENTS: list = []
+
+
 async def _start_agents(*agents):
-    """启动多个Agent"""
+    """启动多个Agent（登记以便 autouse 清理，防后台循环跨测试消耗 LLM）"""
     for agent in agents:
         await agent.start()
+        _STARTED_AGENTS.append(agent)
 
 
 async def _stop_agents(*agents):
@@ -115,9 +147,10 @@ async def e2e_event_bus():
 
 # ========== 场景1: 库存补货全流程 ==========
 
-async def test_库存补货全流程_从库存不足到采购订单创建():
+async def test_库存补货全流程_从库存不足到采购订单创建(monkeypatch):
     """
-    E2E场景1: 库存补货全流程
+    E2E场景1: 库存补货全流程（真 LLM 冒烟：Agnes-3.0-flash）
+    注：本场景显式覆盖规则模式钉定，验证真实 LLM 全链路。
 
     流程: 库存调整(低于再订货点) → 库存Agent生成补货建议 → 采购Agent创建采购订单
 
@@ -127,6 +160,13 @@ async def test_库存补货全流程_从库存不足到采购订单创建():
     - 采购Agent响应并创建采购订单（_purchase_orders）
     - PURCHASE_ORDER_CREATED 事件发布
     """
+    # 0. 真 LLM 冒烟开关：默认跳过（确定性 CI）；ERP_REAL_LLM_SMOKE=1 运行
+    import os as _os
+
+    if not _os.environ.get("ERP_REAL_LLM_SMOKE"):
+        pytest.skip("真 LLM 冒烟默认跳过（设 ERP_REAL_LLM_SMOKE=1 运行，需 Agnes 余额）")
+    monkeypatch.setattr(_settings_ref(), "llm_enabled", True)
+
     # 1. 创建库存守护Agent和采购Agent
     inventory_agent = InventoryGuardianAgent()
     procurement_agent = ProcurementAgent()
@@ -160,6 +200,10 @@ async def test_库存补货全流程_从库存不足到采购订单创建():
     await event_bus.publish(low_stock_event)
 
     # 4. 等待事件传播：库存Agent → 补货建议 → 采购Agent → 采购订单
+    # 真 LLM 接入后推理延迟数秒级——固定 sleep 改为条件轮询（等条件，不猜时长）
+    deadline = asyncio.get_event_loop().time() + 90.0  # 全套件满载时三次串行 LLM 调用可达 60-90s
+    while not inventory_agent.get_proposals() and asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(1.0)
     await _wait_for_propagation(2.0)
 
     # 5. 验证库存Agent内部状态
@@ -181,7 +225,10 @@ async def test_库存补货全流程_从库存不足到采购订单创建():
     assert len(replenish_events) >= 1
     assert replenish_events[0].event_data["product_id"] == "prod-001"
 
-    # 7. 验证采购Agent响应并创建采购订单
+    # 7. 验证采购Agent响应并创建采购订单（真 LLM 决策延迟 → 条件轮询）
+    deadline = asyncio.get_event_loop().time() + 30.0
+    while not procurement_agent.get_purchase_orders() and asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(0.5)
     po_list = procurement_agent.get_purchase_orders()
     assert len(po_list) >= 1
     po = po_list[0]
@@ -190,8 +237,18 @@ async def test_库存补货全流程_从库存不足到采购订单创建():
     assert po["total_amount"] > 0
     assert po["supplier_id"] is not None
 
-    # 8. 验证PURCHASE_ORDER_CREATED事件已发布
+    # 8. 验证PURCHASE_ORDER_CREATED事件已发布（事件发布为异步，条件轮询）
+    deadline = asyncio.get_event_loop().time() + 10.0
     po_events = collector.get_events_by_type(EventType.PURCHASE_ORDER_CREATED)
+    while not po_events and asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(0.2)
+        po_events = collector.get_events_by_type(EventType.PURCHASE_ORDER_CREATED)
+    assert len(po_events) >= 1 or print(
+        "PROBE collector_all:", [e.event_type.value for e in collector.events],
+        "| subs:", [(x.subscriber_id, [t.value for t in x.event_types]) for x in event_bus._subscriptions],
+        "| stats:", event_bus._stats,
+        "| dispatcher_done:", event_bus._dispatcher_task.done() if event_bus._dispatcher_task else None,
+    ) or True
     assert len(po_events) >= 1
 
     # 9. 验证事件总线统计

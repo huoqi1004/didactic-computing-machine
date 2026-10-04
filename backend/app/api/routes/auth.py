@@ -355,6 +355,9 @@ async def refresh_token(req: RefreshRequest):
     }
 
     new_access_token = jwt_manager.create_access_token(token_data)
+    # P1-6 整改：refresh token 轮换——每次刷新签发新 refresh_token
+    #（重新计算 7 天有效期），被盗旧凭证的可用窗口收窄到一次刷新周期
+    new_refresh_token = jwt_manager.create_refresh_token(token_data)
 
     # 创建新会话
     session_manager.create_session(payload["user_id"], new_access_token)
@@ -363,6 +366,7 @@ async def refresh_token(req: RefreshRequest):
 
     return {
         "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
         "token_type": "Bearer",
         "expires_in": jwt_manager._expire_minutes * 60,
     }

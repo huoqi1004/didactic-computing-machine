@@ -1152,7 +1152,9 @@ from app.core.auth import jwt_manager as _jwt_manager
 async def chat_websocket(websocket: _WebSocket):
     """聊天 WebSocket 端点 — 基于 token 认证。
 
-    客户端通过 query param ``?token=<JWT>`` 传递认证令牌。
+    **P1-7 整改**：凭证首选 ``Sec-WebSocket-Protocol: Authorization, <JWT>``
+    子协议头（不进 URL/访问日志）；query param ``?token=`` 仅作旧客户端
+    兼容降级并打废弃告警。
     连接建立后，客户端可发送以下消息类型：
     - ``ping``:               心跳，服务端回复 ``pong``
     - ``join_channel``:       加入频道（参数 ``channel_id``）
@@ -1160,8 +1162,20 @@ async def chat_websocket(websocket: _WebSocket):
 
     服务端通过 ``ws_connection_manager`` 推送消息、频道更新等事件。
     """
-    # 从 query params 获取 token
-    token = websocket.query_params.get("token", "")
+    # P1-7：凭证提取——子协议头优先，query param 兼容降级（废弃中）
+    token = ""
+    via_query = False
+    protocols = [p.strip() for p in
+                 (websocket.headers.get("sec-websocket-protocol") or "").split(",")
+                 if p.strip()]
+    subprotocol = None
+    if len(protocols) >= 2 and protocols[0] == "Authorization":
+        token = protocols[1]
+        subprotocol = "Authorization"
+    else:
+        token = websocket.query_params.get("token", "")
+        via_query = True
+
     user_id = None
     try:
         # 复用现有 JWT 验证逻辑（兼容 PyJWT 与手动实现降级）
@@ -1175,7 +1189,15 @@ async def chat_websocket(websocket: _WebSocket):
         await websocket.close(code=4001, reason="认证失败")
         return
 
-    await _ws_manager.connect(websocket, user_id)
+    if via_query:
+        # 凭证经 query param 会进访问日志/代理日志——告警推动客户端升级
+        import logging as _logging
+
+        _logging.getLogger("uvicorn.access").warning(
+            "ws.token_via_query_param_deprecated user_id=%s", user_id)
+
+    # accept（含子协议选定）由连接管理器统一执行，避免二次 accept
+    await _ws_manager.connect(websocket, user_id, subprotocol=subprotocol)
     try:
         # 发送连接成功消息
         await websocket.send_json({

@@ -18,7 +18,7 @@ import type {
   ExceptionItem,
   ExceptionStats,
 } from '../stores/systemStore'
-import { useAuthStore } from '../stores/authStore'
+import { loadRefreshToken, saveRefreshToken, useAuthStore } from '../stores/authStore'
 
 /* ===================== Axios 实例 ===================== */
 
@@ -44,6 +44,49 @@ function onTokenRefreshed(token: string | null) {
 function addRefreshSubscriber(cb: (token: string | null) => void) {
   refreshSubscribers.push(cb)
 }
+
+// P1-6：统一静默刷新（拦截器 401 与启动恢复共用）——
+// 成功后 refresh_token 已随响应轮换并写入 sessionStorage
+let _refreshPromise: Promise<string | null> | null = null
+export async function refreshAccessToken(): Promise<string | null> {
+  if (_refreshPromise) return _refreshPromise
+  _refreshPromise = (async () => {
+    const refreshToken = loadRefreshToken() || useAuthStore.getState().refreshToken
+    if (!refreshToken) return null
+    try {
+      const resp = await axios.post('/api/v1/auth/refresh', null, {
+        headers: { Authorization: `Bearer ${refreshToken}` },
+      })
+      const access: string = resp.data.access_token
+      // refresh 轮换：保存新 refresh_token（sessionStorage）
+      saveRefreshToken(resp.data.refresh_token)
+      useAuthStore.setState({
+        token: access,
+        refreshToken: resp.data.refresh_token || refreshToken,
+        isAuthenticated: true,
+      })
+      return access
+    } catch {
+      return null
+    } finally {
+      _refreshPromise = null
+    }
+  })()
+  return _refreshPromise
+}
+
+// 启动恢复：localStorage 只有 user（无凭证）——有 refresh_token 则静默重建会话
+;(async function bootRestore() {
+  const auth = useAuthStore.getState()
+  if (!auth.isAuthenticated || auth.token || !loadRefreshToken()) return
+  const access = await refreshAccessToken()
+  if (access) {
+    // 刷新成功，恢复用户上下文（user 已持久化，无需求额外请求）
+    void auth
+  } else {
+    useAuthStore.getState().logout()
+  }
+})()
 
 // 请求拦截器：自动注入 Authorization 头
 apiClient.interceptors.request.use(
@@ -92,21 +135,14 @@ apiClient.interceptors.response.use(
     isRefreshing = true
 
     try {
-      const refreshToken = useAuthStore.getState().refreshToken
-
-      const refreshResp = await axios.post('/api/v1/auth/refresh', null, {
-        headers: {
-          Authorization: `Bearer ${refreshToken}`,
-        },
-      })
-
-      const newToken = refreshResp.data.access_token
+      const newToken = await refreshAccessToken()
+      if (!newToken) throw new Error('refresh failed')
       const authStore = useAuthStore.getState()
 
       // 更新 store 中的 token
       authStore.setAuth({
         access_token: newToken,
-        refresh_token: authStore.refreshToken || undefined,
+        refresh_token: useAuthStore.getState().refreshToken || undefined,
         user: authStore.user!,
       })
 

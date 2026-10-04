@@ -37,6 +37,7 @@ logger = structlog.get_logger()
 
 # 模块级单例：仅在显式初始化后赋值
 _engine: Optional[Any] = None          # AsyncEngine
+_engine_loop_id: Optional[int] = None  # 引擎创建时的事件循环 id（跨循环亲和性防护）
 _session_factory: Optional[Any] = None  # async_sessionmaker[AsyncSession]
 
 
@@ -97,9 +98,30 @@ async def init_db():
     返回已创建（或已存在）的 ``AsyncEngine`` 实例。
     若创建失败（驱动缺失、连接不通），返回 ``None`` 并记录警告。
     """
-    global _engine, _session_factory
+    global _engine, _session_factory, _engine_loop_id
     if _engine is not None:
-        return _engine
+        # 跨循环亲和性防护：池化连接绑定创建时的循环；pytest-asyncio
+        # 每测试新循环下 await 旧池连接会永久挂死（全量回归实证）→
+        # 检测到循环切换即弃用旧引擎，由本次调用重建
+        import asyncio as _asyncio
+
+        try:
+            current_loop_id = id(_asyncio.get_running_loop())
+        except RuntimeError:
+            current_loop_id = None
+        if (current_loop_id is not None and _engine_loop_id is not None
+                and current_loop_id != _engine_loop_id):
+            logger.warning("database.engine_loop_mismatch_rebuild",
+                           old_loop=_engine_loop_id, new_loop=current_loop_id)
+            try:
+                await _engine.dispose()
+            except Exception:  # noqa: BLE001
+                pass
+            _engine = None
+            _engine_loop_id = None
+            _session_factory = None
+        else:
+            return _engine
 
     try:
         from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -109,6 +131,12 @@ async def init_db():
             expire_on_commit=False,
             autoflush=False,
         )
+        try:
+            import asyncio as _asyncio
+
+            _engine_loop_id = id(_asyncio.get_running_loop())
+        except RuntimeError:
+            _engine_loop_id = None
         logger.info("database.initialized", backend="mysql")
         return _engine
     except ModuleNotFoundError as e:
@@ -124,8 +152,8 @@ async def init_db():
 
 
 async def close_db() -> None:
-    """关闭并释放 MySQL 引擎（应用退出时调用）"""
-    global _engine, _session_factory
+    """关闭并释放 MySQL 引擎（应用退出时调用；loop 亲和标识一并复位）。"""
+    global _engine, _session_factory, _engine_loop_id
     if _engine is not None:
         try:
             await _engine.dispose()
@@ -133,6 +161,7 @@ async def close_db() -> None:
         except Exception as e:
             logger.warning("database.close_failed", error=str(e), backend="mysql")
     _engine = None
+    _engine_loop_id = None
     _session_factory = None
 
 

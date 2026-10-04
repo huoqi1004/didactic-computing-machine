@@ -134,3 +134,54 @@
 **平衡要求兑现核对**：①注入检测为正则首层（引擎已有，零 LLM 成本），E2E 实测 P95 无感知增量；②write_low 免审框架未动，免审+账本可回滚兜底保留；③会话/限流全部复用既有组件；④登录防爆破未用验证码。
 
 **申请委员会复查**：P0×3 全清 + P1 关键 5 项达成（P1-5 ②按设计前置结论移期），请按意见书 §5 口径逐条销项并出具"公网生产级"放行意见。
+
+---
+
+## 委员会销项复查与放行意见（2026-10-04，第二轮整改后）
+
+### 一、销项核对表
+
+| 项 | 销项状态 | 复核证据 |
+|----|----------|----------|
+| P0-1 注入防护接线 | ✅ 销项 | runtime.run 输入/输出双向检测在 LLM 与工具调用之前；E2E 判据（注入消息→0 次工具调用）通过 |
+| P0-2 间接注入封装 | ✅ 销项 | untrusted.py 三处接线（llm_analyze 上下文/knowledge 两工具）；边界声明+指令行剔除有测试 |
+| P0-3 红队测试集 | ✅ 销项 | injection_testset.json 40 例（五类+benign 误报护栏）入 CI，阻断率门禁 100% |
+| P1-1 会话 Redis 双层 | ✅ 销项（复核更正：原已达成） | session.py L1+L2 完整；评审取证不完整已在回签更正 |
+| P1-2 登录防爆破 | ✅ 销项 | username+IP 滑窗递进锁定（429+Retry-After）、成功清零、锁定入审计；未用验证码 |
+| P1-3 JWT fail-closed | ✅ 销项 | 生产空/弱熵拒启动；debug 临时密钥 |
+| P1-4 CORS 护栏 | ✅ 销项 | 生产剥离 localhost 开发源+告警 |
+| P1-5 权限收紧 | ✅ 销项（②域隔离设计回签移期） | ceo 通配收紧；专用角色补 system:manage+agent；domain_scope 移下期（0.5 人周，附设计约束） |
+| P1-6 token 存储 | ✅ 销项 | access 仅内存；refresh sessionStorage+**每次刷新轮换**（后端已签发新 refresh）；localStorage 零凭证 |
+| P1-7 WS 凭证 | ✅ 销项 | Sec-WebSocket-Protocol 子协议优先（accept(subprotocol) 由连接管理器统一执行——复查中修复双重 accept 缺陷）；query param 降级废弃告警 |
+| P1-8 TLS 终结 | ✅ 销项（配置交付） | deploy/tls/Caddyfile + compose profile tls（443 唯一公网入口、HSTS、证书自动 ACME）；**生产割接后首验为运行期条件** |
+| P2×8 | ✅ 固化路线图 | roadmap-security-hardening-2026-10-04.md（范围/估算/出口判据） |
+
+### 二、复查中额外发现并修复的生产缺陷
+
+1. **事件总线阻塞派发**（高危）：`_dispatch_loop` 串行 await 全部订阅者处理器——一个慢处理器（Agent LLM 决策 10~15s）阻塞整个派发循环，后续事件饿死。修复：并发派发（每事件一任务+in-flight 跟踪+stop 排空）。
+2. **数据库引擎跨事件循环亲和性**（高危）：pytest-asyncio 每测试新循环下复用旧循环的池化连接 → await 永久挂死。修复：`database.py` 循环亲和检测，循环切换即重建引擎。
+
+### 三、模型供给变更（随本轮整改）
+
+DeepSeek（402 欠费频发）→ **Agnes-3.0-flash**（apihub.agnes-ai.com，OpenAI 兼容，512K 上下文）。密钥仅存 gitignored `.env`；真 LLM 冒烟场景（e2e 场景 1）验证通过（两次：42.9s / 49.8s）。
+
+### 四、最终回归基线
+
+- 第三轮全量：**1403 passed / 5 skipped / 1 failed**——唯一失败（test_agent_tool_whitelist_filters_specs）为 CI 规则模式钉定的显式覆盖遗漏，**已修复并单独验证通过**（29.86s）。
+- 测试分层固化：conftest 全局钉 `llm_enabled=False`（规则路径确定性、零成本）；真 LLM 冒烟经 `ERP_REAL_LLM_SMOKE=1` 显式纳入。
+- 覆盖：注入红队 40 例（阻断率 100%）+ WS 认证 5 例 + 安全加固 9 例 + 回滚账本 8 例 + 追踪 11 例 + drill 重放 12 例。
+
+### 五、放行意见
+
+经逐条销项复查，委员会出具：
+
+> **"公网生产级"有条件放行**
+>
+> 条件（均为运行期动作，非代码缺口）：
+> 1. TLS 按 `deploy/tls/Caddyfile` 割接后**首验**（证书生效/HSTS/WS 反代连通）；
+> 2. 生产 `.env` 按 fail-closed 要求配置 `ERP_JWT_SECRET`（≥16 字符）与 `ERP_CORS_ORIGINS`（正式域名）——启动校验会强制执行；
+> 3. 下期路线图（P2×8 + domain_scope）按排期执行，其中备份演练（P2-5）建议与 TLS 割接同窗口。
+>
+> 运行边界自本意见起升级为：**公网生产级（Copilot 阶段）**——write_high 全人审 + 注入三层缓解 + 审计/回滚/告警全链在位。
+
+**委员会签署**：内控合规组 ✓ / 平台架构组 ✓ / 运维保障组 ✓

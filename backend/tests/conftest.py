@@ -45,6 +45,20 @@ from app.core.knowledge.rules import (
 )
 
 
+# ========== CI 默认规则模式（真 LLM 冒烟显式开关）==========
+# 生产化整改（2026-10-04）：.env 的 ERP_LLM_ENABLED 会泄入测试并使规则路径
+# 单测非确定化（Agnes 真接入后 12 例失败/9h 实证）。按项目"评测分层"原则：
+# CI 默认 llm_enabled=False（规则路径、确定性、零成本）；真 LLM 冒烟由
+# test_e2e_flows 场景 1 经环境变量 ERP_REAL_LLM_SMOKE=1 显式纳入。
+
+
+@pytest.fixture(autouse=True)
+def _ci_default_rule_mode(monkeypatch):
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "llm_enabled", False)
+
+
 # ========== 全局单例重置 ==========
 
 @pytest.fixture(autouse=True)

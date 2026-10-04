@@ -312,3 +312,17 @@ async def test_on_tick():
     # 验证状态已更新为异常
     shipments = agent.get_shipments()
     assert shipments[0]["status"] == "exception"
+
+
+# ---------------------------------------------------------------------------
+# 生产化整改（2026-10-04）：本文件用例验证**规则路径**的确定性输出，
+# 显式钉 LLM 关闭——LLM 路径由 test_e2e_flows 场景 1（真 Agnes）覆盖。
+# ---------------------------------------------------------------------------
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _pin_rule_mode(monkeypatch):
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "llm_enabled", False)

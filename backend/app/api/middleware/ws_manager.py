@@ -32,9 +32,16 @@ class WSConnectionManager:
         self._channel_users: Dict[str, Set[str]] = {}
         self._lock = asyncio.Lock()
 
-    async def connect(self, websocket: WebSocket, user_id: str) -> None:
-        """接受连接并注册到用户连接池"""
-        await websocket.accept()
+    async def connect(self, websocket: WebSocket, user_id: str,
+                      subprotocol: str | None = None) -> None:
+        """接受连接并注册到用户连接池
+
+        P1-7：subprotocol 在首次 accept 时选定（调用方不得另行 accept）。
+        """
+        if subprotocol:
+            await websocket.accept(subprotocol=subprotocol)
+        else:
+            await websocket.accept()
         async with self._lock:
             if user_id not in self._user_connections:
                 self._user_connections[user_id] = set()

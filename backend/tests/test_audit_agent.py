@@ -282,3 +282,18 @@ async def test_frequency_anomaly():
     alerts = agent.get_alerts()
     freq_alerts = [a for a in alerts if a["alert_type"] == "frequency_anomaly"]
     assert len(freq_alerts) >= 1
+
+
+# ---------------------------------------------------------------------------
+# 生产化整改（2026-10-04）：本文件用例验证**规则路径**的确定性输出，
+# 显式钉 LLM 关闭——LLM 路径由 test_e2e_flows 场景 1（真 Agnes）与
+# 注入/安全套件覆盖。（真 LLM 接入曾使本组用例全部走网络调用而失败）
+# ---------------------------------------------------------------------------
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _pin_rule_mode(monkeypatch):
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "llm_enabled", False)

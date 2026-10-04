@@ -44,6 +44,7 @@ class EventBus:
             return
         self._running = True
         self._dispatcher_task = asyncio.create_task(self._dispatch_loop())
+        self._inflight: set = getattr(self, "_inflight", set())
         logger.info("event_bus.started")
 
     async def stop(self):
@@ -109,17 +110,36 @@ class EventBus:
                       aggregate_id=event.aggregate_id)
 
     async def _dispatch_loop(self):
-        """事件分发循环"""
+        """事件分发循环
+
+        P2 级生产缺陷整改（Agnes 真 LLM 接入后暴露）：此前
+        ``await self._dispatch_event(event)`` 串行等待全部订阅者处理器完成，
+        一个慢处理器（如 Agent 的 LLM 决策 10~15s）会阻塞整个派发循环，
+        后续事件全部排队饿死。改为**并发派发**：每个事件一个任务，
+        立即继续取下一个事件；in-flight 任务集合在 stop() 时统一等待。
+        """
         while self._running:
             try:
                 event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
-                await self._dispatch_event(event)
+                task = asyncio.create_task(self._safe_dispatch(event))
+                self._inflight.add(task)
+                task.add_done_callback(self._inflight.discard)
             except asyncio.TimeoutError:
                 continue
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error("event_bus.dispatch_error", error=str(e))
+
+    async def _safe_dispatch(self, event: Event) -> None:
+        """单事件派发（异常不逃逸出后台任务）。"""
+        try:
+            await self._dispatch_event(event)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error("event_bus.dispatch_error", error=str(e),
+                         event_type=getattr(event.event_type, "value", str(event.event_type)))
 
     async def _dispatch_event(self, event: Event):
         """将事件分发给所有匹配的订阅者"""

@@ -124,6 +124,9 @@ async def test_agent_prompt_override_injected(f2_env, monkeypatch):
 
 
 async def test_agent_tool_whitelist_filters_specs(f2_env, monkeypatch):
+    from app.core.config import settings as _s
+
+    monkeypatch.setattr(_s, "llm_enabled", True)  # CI 全局钉 False 的显式覆盖（仅构图不触网）
     """工具白名单：agent 级定制后场景图仅绑定子集（其他工具 LLM 不可见）。"""
     from app.core.agent import runtime as runtime_mod
     from app.core.agent.customization import customization_service

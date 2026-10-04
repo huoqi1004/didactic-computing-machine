@@ -59,7 +59,9 @@ interface ChatState {
 
 /* ===================== WebSocket 管理 ===================== */
 
-const WS_BASE_URL = 'ws://localhost:8000/api/v1/ws/chat'
+// P1-7/P1-8：相对地址（开发走 vite proxy，生产走同源反代/TLS 终结）+
+// 凭证经 Sec-WebSocket-Protocol 子协议头（不进 URL/访问日志）
+const WS_BASE_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/ws/chat`
 const HEARTBEAT_INTERVAL = 30000
 const MAX_RECONNECT_ATTEMPTS = 6
 
@@ -117,7 +119,8 @@ function connectWebSocket(token: string): void {
   clearHeartbeat()
 
   try {
-    wsInstance = new WebSocket(`${WS_BASE_URL}?token=${token}`)
+    // P1-7：凭证经子协议头传递（后端按 protocols[0]==='Authorization' 解析）
+    wsInstance = new WebSocket(WS_BASE_URL, ['Authorization', token ?? ''])
   } catch {
     useChatStore.getState().disconnect()
     return

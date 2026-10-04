@@ -146,6 +146,33 @@ services:
           cpus: '0.5'
 
   # ----------------------------------------------------------
+  # TLS 终结（P1-8 整改交付物，profile: tls）
+  # Caddy 自动 ACME 证书，443 公网唯一入口；backend/frontend 端口收回内网。
+  # 启动：ERP_DOMAIN=erp.example.com ACME_EMAIL=ops@example.com   #       docker-compose --profile tls up -d caddy
+  # 配置：deploy/tls/Caddyfile
+  # ----------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    container_name: erp-caddy
+    profiles: ["tls"]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      ERP_DOMAIN: ${ERP_DOMAIN:-erp.example.com}
+      ACME_EMAIL: ${ACME_EMAIL:-ops@example.com}
+    volumes:
+      - ./deploy/tls/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - erp-ui-net
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
   # MySQL - 关系型数据库 (仅 data-knowledge 域)
   # [生产环境] K8s中此服务位于 data-knowledge 命名空间 (StatefulSet)
   # [生产环境] Istio sidecar 自动注入, 启用 STRICT mTLS
@@ -344,6 +371,8 @@ networks:
 #   - redis-data:    5Gi PVC  (见 infra/k8s/redis-deployment.yaml)
 # ============================================================
 volumes:
+  caddy_data:
+  caddy_config:
   mysql-data:
     name: erp-mysql-data
   redis-data:

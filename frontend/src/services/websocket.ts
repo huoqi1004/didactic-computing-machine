@@ -4,7 +4,7 @@ type EventCallback = (event: SystemEvent) => void
 type StatusCallback = (connected: boolean) => void
 
 /* WebSocket 连接地址 */
-const WS_URL = 'ws://localhost:8000/api/v1/ws'
+const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/ws`
 
 /* Mock 事件生成所需的 Agent 信息 */
 const MOCK_AGENTS = [

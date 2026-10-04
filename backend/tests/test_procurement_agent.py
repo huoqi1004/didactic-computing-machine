@@ -557,3 +557,18 @@ async def test_multiple_purchase_orders():
     # 验证每个订单有不同的 po_id
     po_ids = [o["po_id"] for o in orders]
     assert len(set(po_ids)) == 3
+
+
+# ---------------------------------------------------------------------------
+# 生产化整改（2026-10-04）：本文件用例验证**规则路径**的确定性输出，
+# 显式钉 LLM 关闭——LLM 路径由 test_e2e_flows 场景 1（真 Agnes）与
+# 注入/安全套件覆盖。（真 LLM 接入曾使本组用例全部走网络调用而失败）
+# ---------------------------------------------------------------------------
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _pin_rule_mode(monkeypatch):
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "llm_enabled", False)

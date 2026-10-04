@@ -35,7 +35,34 @@ interface AuthState {
   hasPermission: (resource: string, action: string) => boolean
 }
 
-/* ===================== Store ===================== */
+/* ===================== P1-6 凭证存储策略 =====================
+ * access_token：仅内存（zustand state，不持久化）——页面刷新后由
+ *               sessionStorage 中的 refresh_token 静默换新；
+ * refresh_token：sessionStorage（标签页关闭即失效，XSS 窗口收窄）；
+ * localStorage：只持久化 user/isAuthenticated（无凭证）。
+ * 后端 /auth/refresh 已实现 refresh 轮换（每次刷新签发新 refresh_token）。
+ * =========================================================== */
+const REFRESH_STORAGE_KEY = 'erp-refresh-token'
+
+export function saveRefreshToken(rt: string | null | undefined): void {
+  if (rt) sessionStorage.setItem(REFRESH_STORAGE_KEY, rt)
+  else sessionStorage.removeItem(REFRESH_STORAGE_KEY)
+}
+
+export function loadRefreshToken(): string | null {
+  try {
+    return sessionStorage.getItem(REFRESH_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+// 应用启动时恢复 refresh_token 到内存（access_token 由 api.ts 静默刷新重建）
+const _bootRefresh = loadRefreshToken()
+if (_bootRefresh) {
+  // 延迟到 store 创建后：先建 store，再把 refresh_token 放入内存态
+  queueMicrotask(() => useAuthStore.setState({ refreshToken: _bootRefresh }))
+}
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -48,6 +75,7 @@ export const useAuthStore = create<AuthState>()(
       error: null,
 
       setAuth: (data) => {
+        saveRefreshToken(data.refresh_token)
         set({
           token: data.access_token,
           refreshToken: data.refresh_token || null,
@@ -66,6 +94,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
+        saveRefreshToken(null)
         set({
           token: null,
           refreshToken: null,
@@ -109,10 +138,8 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'erp-auth',
-      // 只持久化 token 和 user
+      // P1-6：只持久化用户信息——任何凭证不落 localStorage
       partialize: (state) => ({
-        token: state.token,
-        refreshToken: state.refreshToken,
         user: state.user,
         isAuthenticated: state.isAuthenticated,
       }),

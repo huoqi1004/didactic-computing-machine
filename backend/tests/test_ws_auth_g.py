@@ -64,7 +64,7 @@ def test_ws_query_param_invalid_rejected(client):
 # P1-6 配套：refresh 轮换（后端）
 # ---------------------------------------------------------------------------
 
-async def test_refresh_rotates_refresh_token(client):
+def test_refresh_rotates_refresh_token(client):
     """每次 refresh 签发新 refresh_token（被盗凭证窗口收窄到一个刷新周期）。
 
     注意：本文件所有测试必须保持 **sync**——pytest-asyncio 的主循环与

@@ -38,6 +38,9 @@ Thumbs.db
 mysql-data/
 redis-data/
 
+# 文档生成产物（受控目录 settings.document_output_dir，生成件不入库）
+backend/data/documents/
+
 # Playwright E2E 测试产物
 frontend/e2e/test-results/
 frontend/e2e/playwright-report/

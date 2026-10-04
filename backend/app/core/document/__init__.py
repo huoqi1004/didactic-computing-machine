@@ -17,7 +17,7 @@
 - 数据驱动：每个生成器接收 ``data: dict`` 结构化数据
 - 表格统一格式：``{"headers": [...], "rows": [[...]]}``
 - 失败安全：生成逻辑包裹在 try-except 中，失败抛出带描述的 ValueError
-- 临时输出：文件保存到 ``tempfile.gettempdir()``，返回绝对路径
+- 受控输出：文件保存到 ``settings.document_output_dir``，返回绝对路径
 
 使用方式::
 

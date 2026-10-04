@@ -189,6 +189,10 @@ class Settings(BaseSettings):
     invoice_upload_dir: str = "./data/invoice_uploads"
     invoice_max_upload_mb: int = 10
 
+    # 文档生成产物目录（裁决 D-C：Agent 生成的文档落受控目录，
+    # 下载仍走 /document/download 的鉴权 + basename 防穿越通道）
+    document_output_dir: str = "./data/documents"
+
     # 事件/审计表保留策略（评估报告 B-03 / 路线图 2.8）
     # audit_logs 保留期必须长于 events（审计合规要求）
     event_retention_days: int = 7

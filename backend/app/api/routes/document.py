@@ -16,7 +16,6 @@
 由其根据 ``format`` 分发到对应子生成器（docx / xlsx / pptx / pdf）。
 """
 import os
-import tempfile
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -27,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from app.api.middleware.auth import get_current_user
 from app.core.document import DocumentGenerator, document_generator
+from app.core.document.output import output_dir
 
 logger = structlog.get_logger()
 
@@ -44,8 +44,8 @@ MIME_TYPES: Dict[str, str] = {
     "pdf": "application/pdf",
 }
 
-# 文档输出临时目录（与 DocumentGenerator 子生成器保持一致）
-OUTPUT_DIR = tempfile.gettempdir()
+# 文档输出目录：受控目录（settings.document_output_dir），
+# 与 DocumentGenerator 子生成器同源，经 output_dir() 运行时解析
 
 # =============================================================================
 # Agent 文档模板映射表
@@ -95,6 +95,10 @@ AGENT_TEMPLATES: Dict[str, List[Dict[str, str]]] = {
     "risk": [
         {"template": "risk_report", "format": "pdf", "name": "风险评估报告"},
         {"template": "report", "format": "docx", "name": "风控报告"},
+    ],
+    "project_supervisor": [
+        {"template": "report", "format": "docx", "name": "监理大纲 / 监理实施方案"},
+        {"template": "status_report", "format": "pptx", "name": "监理状态汇报"},
     ],
     # ---- 以下为新增的 22 个 Agent 文档模板配置 ----
     "admin": [
@@ -326,8 +330,8 @@ async def download_document(
     if safe_filename != filename:
         raise HTTPException(status_code=400, detail="非法文件名")
 
-    # 从临时目录查找文件（与 DocumentGenerator 子生成器输出目录一致）
-    file_path = os.path.join(OUTPUT_DIR, safe_filename)
+    # 从受控产物目录查找文件（与 DocumentGenerator 子生成器输出目录一致）
+    file_path = os.path.join(output_dir(), safe_filename)
     if not os.path.exists(file_path) or not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail=f"文件不存在: {safe_filename}")
 

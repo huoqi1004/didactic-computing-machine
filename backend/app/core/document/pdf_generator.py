@@ -29,8 +29,6 @@ PDF 文档生成器 (PDF Document Generator)
 """
 from __future__ import annotations
 
-import os
-import tempfile
 from typing import Any
 
 import structlog
@@ -48,6 +46,8 @@ from reportlab.platypus import (
     TableStyle,
     Paragraph,
 )
+
+from app.core.document.output import resolve_output_path
 
 logger = structlog.get_logger()
 
@@ -121,7 +121,7 @@ class PdfGenerator:
 
         if not filename.endswith(".pdf"):
             filename = f"{filename}.pdf"
-        output_path = os.path.join(tempfile.gettempdir(), filename)
+        output_path = resolve_output_path(filename)
 
         try:
             _ensure_cn_font()

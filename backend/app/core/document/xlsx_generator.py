@@ -34,14 +34,14 @@ Excel 表格生成器 (Excel Spreadsheet Generator)
 """
 from __future__ import annotations
 
-import os
-import tempfile
 from typing import Any
 
 import structlog
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+
+from app.core.document.output import resolve_output_path
 
 logger = structlog.get_logger()
 
@@ -115,7 +115,7 @@ class XlsxGenerator:
 
         if not filename.endswith(".xlsx"):
             filename = f"{filename}.xlsx"
-        output_path = os.path.join(tempfile.gettempdir(), filename)
+        output_path = resolve_output_path(filename)
 
         try:
             wb = Workbook()

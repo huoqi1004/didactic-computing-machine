@@ -28,8 +28,7 @@ Word 文档生成器 (Word Document Generator)
 """
 from __future__ import annotations
 
-import os
-import tempfile
+import re
 from typing import Any
 
 import structlog
@@ -39,11 +38,29 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
+from app.core.document.output import resolve_output_path
+
 logger = structlog.get_logger()
 
 # 中文默认字体
 _DEFAULT_FONT = "宋体"
 _DEFAULT_HEADING_FONT = "黑体"
+
+# 模板会按序自动编号（一、二、…），而模型产出的章节标题常自带"一、/1./第X章"，
+# 两者叠加会渲染成"二、一、监理范围"（2026-10-04 真机实测）——先剥离自带编号。
+_LEADING_SECTION_NUM_RE = re.compile(
+    r"^\s*(?:"
+    r"[（(]?[一二三四五六七八九十百零〇]{1,4}[)）]?[、.．:：]"
+    r"|[（(][一二三四五六七八九十百零〇\d]{1,4}[)）]"
+    r"|[（(]?\d{1,2}[)）]?[、.．:：](?!\d)"
+    r"|第[一二三四五六七八九十百零〇\d]{1,4}[章节部篇条]"
+    r")\s*"
+)
+
+
+def strip_section_leading_number(heading: str) -> str:
+    """剥离章节标题自带的序号（一、/（一）/1./第X章），交由模板统一编号。"""
+    return _LEADING_SECTION_NUM_RE.sub("", heading, count=1).strip()
 
 
 class DocxGenerator:
@@ -91,7 +108,7 @@ class DocxGenerator:
         # 规范化文件名
         if not filename.endswith(".docx"):
             filename = f"{filename}.docx"
-        output_path = os.path.join(tempfile.gettempdir(), filename)
+        output_path = resolve_output_path(filename)
 
         try:
             doc = Document()
@@ -101,6 +118,11 @@ class DocxGenerator:
             # 分发到具体模板生成方法
             method = getattr(self, method_name)
             method(doc, data or {})
+
+            # 页眉标注（裁决 D-C：AI 生成文档强制标注，可溯源、防冒充正式文件）
+            header_note = (data or {}).get("header_note")
+            if header_note:
+                self._add_header_note(doc, str(header_note))
 
             doc.save(output_path)
             logger.info(
@@ -120,6 +142,23 @@ class DocxGenerator:
                 error=str(e),
             )
             raise ValueError(f"Word 文档生成失败（{template_type}）: {e}") from e
+
+    # ===================================================================
+    # 页眉标注（跨模板通用）
+    # ===================================================================
+
+    @staticmethod
+    def _add_header_note(doc: Document, note: str) -> None:
+        """把标注写入各节页眉（首个空段落复用，居中、灰色小字号）。"""
+        for section in doc.sections:
+            header = section.header
+            header.is_linked_to_previous = False
+            para = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
+            para.text = note[:300]
+            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            DocxGenerator._format_runs(para.runs, _DEFAULT_FONT, Pt(9))
+            for run in para.runs:
+                run.font.color.rgb = RGBColor(0x8A, 0x8A, 0x8A)
 
     # ===================================================================
     # 模板：基础文档
@@ -259,7 +298,7 @@ class DocxGenerator:
         start_idx = 2 if data.get("summary") else 1
         for i, section in enumerate(sections):
             idx = start_idx + i
-            heading = section.get("heading", f"第{idx}部分")
+            heading = strip_section_leading_number(str(section.get("heading", ""))) or f"第{idx}部分"
             self._add_heading(doc, f"{'一二三四五六七八九十'[idx-1] if idx <= 10 else idx}、{heading}", level=1)
             if section.get("content"):
                 self._add_paragraph(doc, str(section["content"]))

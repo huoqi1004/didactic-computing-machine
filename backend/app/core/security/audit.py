@@ -16,6 +16,7 @@
 - ``query_from_blockchain()`` 从区块链查询审计记录（支持时间范围与 actor 过滤）
 - 保留现有 SHA-256 哈希链作为本地缓存和降级后端
 """
+import asyncio
 import hashlib
 import structlog
 from datetime import datetime, timezone
@@ -27,6 +28,8 @@ from app.core.event.models import Event, EventType
 from app.core.config import settings
 
 logger = structlog.get_logger()
+
+_CHAIN_RESTORE_TIMEOUT_S = 10.0
 
 
 class AuditEntry:
@@ -231,14 +234,19 @@ class AuditChain:
                 return False
 
             async with engine.connect() as conn:
-                row = (
-                    await conn.execute(
+                # 链尾查询位于启动路径上：audit_logs 无 timestamp 单列索引时
+                # 实测 149 万行全表 filesort 耗时 49.9s/66.2s，足以把 lifespan 拖死。
+                # 超时不阻断启动——按既有降级语义从零起链并告警（断链可见）。
+                result = await asyncio.wait_for(
+                    conn.execute(
                         text(
                             "SELECT entry_hash FROM audit_logs "
                             "ORDER BY timestamp DESC LIMIT 1"
                         )
-                    )
-                ).fetchone()
+                    ),
+                    timeout=_CHAIN_RESTORE_TIMEOUT_S,
+                )
+                row = result.fetchone()
 
             if row and row[0]:
                 self._last_hash = row[0]

@@ -89,6 +89,12 @@ CUSTOMIZATION_DEGRADED = Gauge(
     "定制层降级 (1=读不到定制层，按内置默认或旧缓存运行, 0=正常)",
 )
 
+CONVERSATION_FALLBACK = Counter(
+    "erp_conversation_fallback_total",
+    "对话降级触发总数（裁决 D-E：兜底率飙升是 EDD 核心预警信号）",
+    ["agent_id", "intent", "reason"],  # reason: llm_unavailable / tool_failed / doc_failed
+)
+
 # ===================================================================
 # 3. Saga 协调器指标
 # ===================================================================

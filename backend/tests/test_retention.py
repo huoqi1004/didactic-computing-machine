@@ -170,6 +170,40 @@ async def test_restore_chain_empty_db(sqlite_db):
     assert chain._last_hash is None
 
 
+async def test_restore_chain_stall_does_not_wedge_startup(monkeypatch):
+    """链尾查询卡住时必须超时降级，不得把 lifespan 拖死（实测无索引 49.9s/66.2s）。"""
+    import asyncio
+    import time
+
+    class _StallingConn:
+        async def execute(self, *args, **kwargs):
+            await asyncio.sleep(30)
+
+    class _StallingEngine:
+        def connect(self):
+            class _Ctx:
+                async def __aenter__(self):
+                    return _StallingConn()
+
+                async def __aexit__(self, *exc):
+                    return False
+            return _Ctx()
+
+    import app.core.database as database
+    monkeypatch.setattr(database, "get_engine", lambda: _StallingEngine())
+    monkeypatch.setattr("app.core.security.audit._CHAIN_RESTORE_TIMEOUT_S", 0.2)
+
+    chain = AuditChain()
+    chain._db_available = True
+    t0 = time.perf_counter()
+    restored = await chain.restore_chain_from_db()
+    elapsed = time.perf_counter() - t0
+
+    assert restored is False
+    assert chain._last_hash is None
+    assert elapsed < 5, f"链尾查询未按超时降级，耗时 {elapsed:.1f}s"
+
+
 async def test_audit_memory_entries_capped():
     """内存审计条目有上限（长期运行不膨胀），超出淘汰最旧条目。"""
     chain = AuditChain()

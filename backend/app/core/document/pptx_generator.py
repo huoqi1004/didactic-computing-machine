@@ -29,8 +29,6 @@ PowerPoint 演示文稿生成器 (PowerPoint Generator)
 """
 from __future__ import annotations
 
-import os
-import tempfile
 from typing import Any
 
 import structlog
@@ -39,6 +37,8 @@ from pptx.chart.data import CategoryChartData
 from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Inches, Pt
+
+from app.core.document.output import resolve_output_path
 
 logger = structlog.get_logger()
 
@@ -94,7 +94,7 @@ class PptxGenerator:
 
         if not filename.endswith(".pptx"):
             filename = f"{filename}.pptx"
-        output_path = os.path.join(tempfile.gettempdir(), filename)
+        output_path = resolve_output_path(filename)
 
         try:
             prs = Presentation()

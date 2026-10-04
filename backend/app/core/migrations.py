@@ -142,6 +142,8 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 _CREATE_AUDIT_LOGS_INDEXES = """
 CREATE INDEX IF NOT EXISTS ix_audit_logs_actor_timestamp
     ON audit_logs (actor_did, timestamp DESC);
+CREATE INDEX IF NOT EXISTS ix_audit_logs_timestamp
+    ON audit_logs (timestamp DESC);
 CREATE INDEX IF NOT EXISTS ix_audit_logs_action
     ON audit_logs (action);
 CREATE INDEX IF NOT EXISTS ix_audit_logs_risk_level

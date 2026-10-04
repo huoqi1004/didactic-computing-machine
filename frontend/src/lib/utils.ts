@@ -7,6 +7,24 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * 触发浏览器下载（Blob → 临时 <a download>）。
+ *
+ * 必须先经鉴权请求拿到 Blob：下载端点要求 Bearer token，
+ * 直接给 <a href="/api/..."> 会因不带认证头而 401。
+ */
+export function triggerDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 /* ============ Agent 状态 ============ */
 export const AGENT_STATUS_CONFIG: Record<
   AgentStatus,

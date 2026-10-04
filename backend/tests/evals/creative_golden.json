@@ -1,0 +1,389 @@
+{
+  "_comment": "创作类 golden 评测集（工作包一 1.4 / 评审委员会裁决 D-E）。断言三个维度：结构完整性、项目数据感知性、阶段匹配度。用例不联网——LLM 与治理面均由 runner 打桩，因此每条断言都指向真实生成的 .docx 产物本身（python-docx 回读），而不是模型话术。id 统一 creative_ 前缀，便于 pytest -k creative 选取。",
+  "fixtures": {
+    "projects": {
+      "seed3": [
+        {
+          "project_id": "proj-001",
+          "project_name": "ERP系统实施项目",
+          "stage": "开发测试",
+          "project_status": "in_progress",
+          "milestones_total": 3,
+          "milestones_completed": 2,
+          "budget_usage": 0.4,
+          "launch_ready": false,
+          "risks": ["进度轻微落后，需关注2026-09-30上线窗口", "UAT未完成，暂不具备上线条件"]
+        },
+        {
+          "project_id": "proj-002",
+          "project_name": "企业官网改版项目",
+          "stage": "开发测试",
+          "project_status": "in_progress",
+          "milestones_total": 2,
+          "milestones_completed": 1,
+          "budget_usage": 0.3,
+          "launch_ready": false,
+          "risks": []
+        },
+        {
+          "project_id": "proj-003",
+          "project_name": "新产品研发项目",
+          "stage": "开发测试",
+          "project_status": "in_progress",
+          "milestones_total": 3,
+          "milestones_completed": 1,
+          "budget_usage": 0.25,
+          "launch_ready": false,
+          "risks": []
+        }
+      ],
+      "proj001_dev": [
+        {
+          "project_id": "proj-001",
+          "project_name": "ERP系统实施项目",
+          "stage": "开发测试",
+          "project_status": "in_progress",
+          "milestones_total": 3,
+          "milestones_completed": 2,
+          "budget_usage": 0.4,
+          "launch_ready": false,
+          "risks": ["进度轻微落后，需关注2026-09-30上线窗口"]
+        }
+      ],
+      "proj002_uat": [
+        {
+          "project_id": "proj-002",
+          "project_name": "企业官网改版项目",
+          "stage": "UAT验收",
+          "project_status": "in_progress",
+          "milestones_total": 2,
+          "milestones_completed": 2,
+          "budget_usage": 0.62,
+          "launch_ready": false,
+          "risks": ["验收标准未与业务方书面确认"]
+        }
+      ],
+      "proj001_launch": [
+        {
+          "project_id": "proj-001",
+          "project_name": "ERP系统实施项目",
+          "stage": "上线发布",
+          "project_status": "in_progress",
+          "milestones_total": 3,
+          "milestones_completed": 3,
+          "budget_usage": 0.86,
+          "launch_ready": true,
+          "risks": []
+        }
+      ],
+      "proj003_init": [
+        {
+          "project_id": "proj-003",
+          "project_name": "新产品研发项目",
+          "stage": "立项审批",
+          "project_status": "in_progress",
+          "milestones_total": 3,
+          "milestones_completed": 0,
+          "budget_usage": 0.05,
+          "launch_ready": false,
+          "risks": ["预算基线尚未冻结"]
+        }
+      ]
+    },
+    "outlines": {
+      "outline_full": {
+        "title": "ERP系统实施项目监理大纲",
+        "doc_type": "监理大纲",
+        "summary": "面向 ERP 实施全过程的监理大纲，覆盖范围、阶段检查点与风险应对。",
+        "sections": [
+          {"heading": "监理范围与依据", "content": "依据立项批复、需求基线与合同约定，对 proj-001 的实施范围、工期与质量目标实施全过程监理。"},
+          {"heading": "监理阶段与检查点", "content": "按立项→需求→开发→UAT→上线→结项六阶段设置检查点，每阶段以交付物留痕与评审结论作为通过判据。"},
+          {"heading": "进度与预算监控", "content": "以里程碑完成率与预算使用率为双指标周度跟踪，偏差超过阈值即触发预警与纠偏措施。"},
+          {"heading": "风险与应对措施", "content": "对进度落后、需求变更与验收标准不一致三类主要风险建立台账，明确责任人与闭环时限。"}
+        ],
+        "conclusion": "本大纲为 AI 生成草稿，需项目总监复核后按审批流提交，方可作为正式监理依据。"
+      },
+      "outline_sparse": {
+        "title": "企业官网改版项目监理实施方案",
+        "doc_type": "监理实施方案",
+        "summary": "官网改版项目的监理实施方案草稿。",
+        "sections": [
+          {"heading": "监理工作组织", "content": "明确监理方、项目部与业务方的三方协作机制与例会节奏。"}
+        ],
+        "conclusion": "待人工补充完整后提交审批。"
+      },
+      "outline_report": {
+        "title": "新产品研发项目监理报告",
+        "doc_type": "监理报告",
+        "summary": "新产品研发项目阶段性监理报告草稿。",
+        "sections": [
+          {"heading": "监理范围与依据", "content": "依据立项评审结论与阶段交付计划，对 proj-003 开展监理。"},
+          {"heading": "监理阶段与检查点", "content": "当前处于立项审批阶段，检查点为立项材料完整性与预算基线冻结。"},
+          {"heading": "进度与质量结论", "content": "阶段交付物尚在编制，未形成进度偏差结论。"},
+          {"heading": "风险与应对措施", "content": "预算基线未冻结为主要风险，建议在需求评审前完成基线确认。"}
+        ],
+        "conclusion": "报告结论待项目数据补齐后由人工确认。"
+      },
+      "outline_numbered": {
+        "title": "ERP系统实施项目监理大纲（模型自带章节编号）",
+        "doc_type": "监理大纲",
+        "summary": "模型产出的章节标题自带「一、/1./第三章」编号，用于验证不会与模板自动编号叠加。",
+        "sections": [
+          {"heading": "一、监理范围与依据", "content": "依据立项批复与需求基线，对 proj-001 实施全过程监理。"},
+          {"heading": "二、监理阶段与检查点", "content": "当前处于开发测试阶段，检查点为里程碑交付核验。"},
+          {"heading": "1. 进度与预算监控", "content": "里程碑完成率与预算使用率双指标周度跟踪。"},
+          {"heading": "第三章 风险与应对措施", "content": "对进度落后与验收标准不一致建立风险台账并明确闭环时限。"}
+        ],
+        "conclusion": "本大纲为 AI 生成草稿，需复核后走审批流提交。"
+      },
+      "outline_long_title": {
+        "title": "../../..\\etc/恶意路径▶监理大纲" ,
+        "doc_type": "监理大纲",
+        "summary": "标题含路径穿越与非法字符，用于验证产物文件名净化。",
+        "sections": [
+          {"heading": "监理范围与依据", "content": "验证不安全标题不会写到受控目录之外。"}
+        ],
+        "conclusion": "无"
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "creative_all_projects_outline",
+      "title": "全部在监项目监理大纲",
+      "message": "帮我出一份项目监理大纲",
+      "agent_id": "project-supervisor-agent",
+      "expect_intent": "creative_document",
+      "llm_mode": "outline",
+      "outline": "outline_full",
+      "realtime": "seed3",
+      "expect": {
+        "degraded": false,
+        "manual_queue": false,
+        "audited": true,
+        "min_sections": 6,
+        "required_headings": ["监理范围与依据", "监理阶段与检查点", "风险与应对措施", "在监项目实时快照", "本阶段监理重点"],
+        "doc_must_contain": ["proj-001", "proj-002", "proj-003", "ERP系统实施项目", "里程碑 2/3", "预算使用率 40.0%", "风险 2 项", "AI-DRAFT-"],
+        "doc_must_not_contain": [],
+        "stage_focus_must_contain": ["里程碑交付核验"],
+        "stage_focus_must_not_contain": ["UAT 用例执行与缺陷闭环", "上线前置条件逐项核对", "结项资料归档"],
+        "attachment_format": "docx",
+        "header_must_contain": ["AI 生成草稿", "trace_id", "未经审批"]
+      }
+    },
+    {
+      "id": "creative_project_scoped_plan",
+      "title": "指定项目立项实施计划",
+      "message": "针对 proj-001 拟一份监理实施方案",
+      "agent_id": "project-supervisor-agent",
+      "expect_intent": "creative_document",
+      "expect_project_id": "proj-001",
+      "llm_mode": "outline",
+      "outline": "outline_full",
+      "realtime": "proj001_dev",
+      "expect": {
+        "degraded": false,
+        "tool_args_project_id": "proj-001",
+        "doc_must_contain": ["proj-001"],
+        "doc_must_not_contain": ["proj-002", "proj-003"],
+        "stage_focus_must_contain": ["proj-001（当前阶段 开发测试）"]
+      }
+    },
+    {
+      "id": "creative_uat_stage_fit",
+      "title": "UAT 阶段项目的重点匹配",
+      "message": "写一份企业官网改版项目的监理大纲",
+      "agent_id": "project-supervisor-agent",
+      "expect_intent": "creative_document",
+      "llm_mode": "outline",
+      "outline": "outline_full",
+      "realtime": "proj002_uat",
+      "expect": {
+        "doc_must_contain": ["proj-002", "UAT验收", "预算使用率 62.0%", "里程碑 2/2"],
+        "stage_focus_must_contain": ["UAT 用例执行与缺陷闭环", "业务方签字留痕"],
+        "stage_focus_must_not_contain": ["结项资料归档", "立项材料完整性"]
+      }
+    },
+    {
+      "id": "creative_launch_stage_fit",
+      "title": "上线发布阶段项目的前置条件重点",
+      "message": "起草一份上线阶段监理大纲",
+      "agent_id": "project-supervisor-agent",
+      "expect_intent": "creative_document",
+      "llm_mode": "outline",
+      "outline": "outline_full",
+      "realtime": "proj001_launch",
+      "expect": {
+        "doc_must_contain": ["已具备上线条件", "预算使用率 86.0%"],
+        "stage_focus_must_contain": ["上线前置条件逐项核对", "回滚预案"],
+        "stage_focus_must_not_contain": ["里程碑交付核验"]
+      }
+    },
+    {
+      "id": "creative_init_stage_fit",
+      "title": "立项审批阶段项目不得写成本阶段以外重点",
+      "message": "给新产品研发项目编制监理大纲",
+      "agent_id": "project-supervisor-agent",
+      "expect_intent": "creative_document",
+      "llm_mode": "outline",
+      "outline": "outline_full",
+      "realtime": "proj003_init",
+      "expect": {
+        "doc_must_contain": ["proj-003", "新产品研发项目", "预算使用率 5.0%"],
+        "stage_focus_must_contain": ["立项材料完整性"],
+        "stage_focus_must_not_contain": ["UAT 用例执行与缺陷闭环", "上线前置条件逐项核对"]
+      }
+    },
+    {
+      "id": "creative_report_document",
+      "title": "监理报告文档产出",
+      "message": "编制一份项目监理报告文档",
+      "agent_id": "project-supervisor-agent",
+      "expect_intent": "creative_document",
+      "llm_mode": "outline",
+      "outline": "outline_report",
+      "realtime": "proj003_init",
+      "expect": {
+        "degraded": false,
+        "min_sections": 5,
+        "required_headings": ["监理范围与依据", "监理阶段与检查点", "风险与应对措施", "在监项目实时快照"],
+        "doc_must_contain": ["监理报告", "proj-003", "风险 1 项"]
+      }
+    },
+    {
+      "id": "creative_missing_sections_are_patched",
+      "title": "结构完整性：缺章节以草稿待补口径补齐",
+      "message": "拟一份官网改版监理实施方案",
+      "agent_id": "project-supervisor-agent",
+      "expect_intent": "creative_document",
+      "llm_mode": "outline",
+      "outline": "outline_sparse",
+      "realtime": "proj002_uat",
+      "expect": {
+        "min_sections": 6,
+        "required_headings": ["监理范围与依据", "监理阶段与检查点", "风险与应对措施"],
+        "doc_must_contain": ["AI 草稿未展开该章节，需人工补充后方可提交审批", "监理工作组织"],
+        "summary_must_contain": ["AI 生成草稿"]
+      }
+    },
+    {
+      "id": "creative_realtime_unavailable_still_honest",
+      "title": "实时数据不可得时不臆造项目",
+      "message": "出一份监理大纲",
+      "agent_id": "project-supervisor-agent",
+      "expect_intent": "creative_document",
+      "llm_mode": "outline",
+      "outline": "outline_full",
+      "progress_mode": "unavailable",
+      "expect": {
+        "degraded": false,
+        "doc_must_contain": ["未取到项目实时快照", "需人工确认"],
+        "doc_must_not_contain": ["在监项目实时快照（数据来源"],
+        "no_sections_headed": ["在监项目实时快照"]
+      }
+    },
+    {
+      "id": "creative_llm_unavailable_to_manual_queue",
+      "title": "降级：模型不可用 → 转人工队列 + 管理员待办",
+      "message": "帮我起草一份监理实施方案",
+      "agent_id": "project-supervisor-agent",
+      "expect_intent": "creative_document",
+      "llm_mode": "unavailable",
+      "realtime": "seed3",
+      "expect": {
+        "degraded": true,
+        "degraded_reason": "llm_unavailable",
+        "manual_queue": true,
+        "audited": false,
+        "no_attachments": true,
+        "content_must_contain": ["创作服务暂不可用", "管理员待办"],
+        "metric_reason": "llm_unavailable"
+      }
+    },
+    {
+      "id": "creative_llm_error_to_manual_queue",
+      "title": "降级：模型调用异常 → 转人工队列",
+      "message": "帮我出一份监理大纲",
+      "agent_id": "project-supervisor-agent",
+      "expect_intent": "creative_document",
+      "llm_mode": "error",
+      "realtime": "seed3",
+      "expect": {
+        "degraded": true,
+        "degraded_reason": "llm_failed",
+        "manual_queue": true,
+        "content_must_contain": ["已生成管理员待办"],
+        "metric_reason": "llm_failed"
+      }
+    },
+    {
+      "id": "creative_llm_garbage_to_manual_queue",
+      "title": "降级：模型返回不可解析内容 → 转人工队列",
+      "message": "帮我写一份监理实施方案",
+      "agent_id": "project-supervisor-agent",
+      "expect_intent": "creative_document",
+      "llm_mode": "garbage",
+      "realtime": "seed3",
+      "expect": {
+        "degraded": true,
+        "degraded_reason": "llm_failed",
+        "manual_queue": true,
+        "no_attachments": true
+      }
+    },
+    {
+      "id": "creative_doc_failure_to_manual_queue",
+      "title": "降级：文档生成失败 → 转人工队列（不落半截产物）",
+      "message": "帮我出一份监理大纲",
+      "agent_id": "project-supervisor-agent",
+      "expect_intent": "creative_document",
+      "llm_mode": "outline",
+      "outline": "outline_full",
+      "realtime": "seed3",
+      "doc_mode": "fail",
+      "expect": {
+        "degraded": true,
+        "degraded_reason": "doc_failed",
+        "manual_queue": true,
+        "no_attachments": true,
+        "content_must_contain": ["doc_failed"],
+        "metric_reason": "doc_failed"
+      }
+    },
+    {
+      "id": "creative_unsafe_title_stays_in_controlled_dir",
+      "title": "产物落受控目录：恶意标题不得越界",
+      "message": "起草监理大纲",
+      "agent_id": "project-supervisor-agent",
+      "expect_intent": "creative_document",
+      "llm_mode": "outline",
+      "outline": "outline_long_title",
+      "realtime": "proj001_dev",
+      "expect": {
+        "degraded": false,
+        "controlled_dir": true,
+        "filename_must_not_contain": ["/", "\\", "..", "▶"],
+        "header_must_contain": ["AI 生成草稿"]
+      }
+    },
+    {
+      "id": "creative_self_numbered_headings",
+      "title": "章节自带编号不得与模板编号叠加",
+      "message": "给 proj-001 出一份监理大纲",
+      "agent_id": "project-supervisor-agent",
+      "expect_intent": "creative_document",
+      "llm_mode": "outline",
+      "outline": "outline_numbered",
+      "realtime": "proj001_dev",
+      "expect": {
+        "degraded": false,
+        "audited": true,
+        "min_sections": 6,
+        "required_headings": ["监理范围与依据", "监理阶段与检查点", "进度与预算监控", "风险与应对措施"],
+        "headings_no_double_number": true,
+        "card_headings_unnumbered": true,
+        "header_must_contain": ["AI 生成草稿", "trace_id"]
+      }
+    }
+  ]
+}

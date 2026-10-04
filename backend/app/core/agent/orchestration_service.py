@@ -197,6 +197,28 @@ async def resume_after_decision(
                 "status": rb_result.get("status", "failed"),
                 "channel_id": channel_id}
 
+    # 管理员待办（人工队列：无图执行，决定仅关闭条目并留痕——创作类降级等
+    # 需要人工接手但没有可恢复检查点的场景）
+    if domain == "admin_todo":
+        reply = ("已受理并处理。" if approved else "已驳回。") + (
+            f"处理说明：{comment}" if comment else "")
+        async with session_scope() as session:
+            from app.db.models import agent_approval_requests
+            from sqlalchemy import update
+
+            await session.execute(
+                update(agent_approval_requests)
+                .where(agent_approval_requests.c.thread_id == thread_id)
+                .values(
+                    status="executed" if approved else "rejected",
+                    decided_by=decided_by,
+                    decided_at=datetime.now(timezone.utc),
+                    result_reply=reply[:4000],
+                )
+            )
+        await _audit_decision(decided_by, thread_id, approved, comment, agent_key)
+        return {"reply": reply, "status": "done", "channel_id": channel_id}
+
     # Supervisor 协同人审恢复（Phase C：先恢复子图、再综合）
     if domain == "supervisor":
         from app.core.agent.supervisor import resume_supervisor
@@ -348,6 +370,51 @@ async def _create_approval_record(payload: dict, ctx: ToolContext) -> None:
         )
     except Exception as e:  # noqa: BLE001
         logger.error("orchestration.approval_record_failed", error=str(e))
+
+
+async def create_admin_todo(*, agent_key: str, tool: str, preview: str,
+                            args: Optional[dict] = None, requested_by: str,
+                            channel_id: Optional[str] = None) -> Optional[str]:
+    """管理员待办（人工队列条目）→ agent_approval_requests 行，返回 thread_id。
+
+    与 _create_approval_record 的区别：没有可恢复的 LangGraph 检查点，
+    决定经 resume_after_decision 的 admin_todo 分支只关闭条目、不执行任何
+    工具（合成 thread_id 先例同 operation_ledger.request_rollback）。
+    DB 不可用返回 None（调用方据此仍可回复用户，不阻断对话）。
+    """
+    from uuid import uuid4
+
+    from app.db.repositories.base import dialect_upsert_stmt, has_db, session_scope
+
+    if not has_db():
+        return None
+    thread_id = f"todo:{uuid4().hex[:12]}"
+    try:
+        async with session_scope() as session:
+            from app.db.models import agent_approval_requests
+
+            values = dict(
+                thread_id=thread_id,
+                channel_id=channel_id or None,
+                agent_key=agent_key,
+                domain="admin_todo",
+                tool=tool[:96],
+                args_json=args or {},
+                preview=preview,
+                risk="manual_review",
+                status="pending",
+                requested_by=requested_by,
+                approve_roles=None,
+            )
+            await session.execute(
+                dialect_upsert_stmt(agent_approval_requests, values)
+            )
+        logger.info("orchestration.admin_todo_created",
+                    thread_id=thread_id, agent_key=agent_key, tool=tool)
+        return thread_id
+    except Exception as e:  # noqa: BLE001
+        logger.error("orchestration.admin_todo_create_failed", error=str(e))
+        return None
 
 
 async def _audit_decision(decided_by: str, thread_id: str, approved: bool,

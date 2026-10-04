@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { websocketService } from '../services/websocket'
-import { apiService } from '../services/api'
+import { apiService, sendMessageStream } from '../services/api'
 
 /* ===================== 类型定义 ===================== */
 
@@ -170,6 +170,15 @@ export interface DataCard {
 export type ChatRole = 'user' | 'agent'
 export type ChatMessageStatus = 'sending' | 'sent' | 'error'
 
+/** 创作类意图产出的可下载附件（后端落受控目录，经鉴权下载端点取回） */
+export interface ChatAttachment {
+  name: string
+  filename: string
+  url: string
+  format: string
+  size: number
+}
+
 export interface ChatMessage {
   id: string
   role: ChatRole
@@ -180,12 +189,38 @@ export interface ChatMessage {
   thinkingProcess?: string[]
   dataCard?: DataCard
   status?: ChatMessageStatus
+  /** 降级显性化（裁决 D-A）：后端规则骨架/人工队列回复必须标 true */
+  degraded?: boolean
+  degradedReason?: string
+  intent?: string
+  classifier?: string
+  /** 数据来源：agent_native=Agent 本体实时数据；unavailable=取不到数 */
+  dataSource?: string
+  manualQueue?: boolean
+  todoId?: string
+  traceId?: string
+  attachments?: ChatAttachment[]
+  /** 流式失败后由非流式端点一次性重答（通道降级，不是模型降级，不挂降级徽标） */
+  streamFallback?: boolean
+  streamFallbackReason?: string
+  /** 输出护栏撤回：正文已截断为终止帧文案（裁决 D-D 第 2 条） */
+  retracted?: boolean
+  retractReason?: string
 }
 
 export interface ConversationResponse {
   content: string
   thinkingProcess: string[]
   dataCard?: DataCard
+  degraded?: boolean
+  degradedReason?: string
+  intent?: string
+  classifier?: string
+  dataSource?: string
+  manualQueue?: boolean
+  todoId?: string
+  traceId?: string
+  attachments?: ChatAttachment[]
 }
 
 export interface QuickCommand {
@@ -339,6 +374,31 @@ interface SystemState {
     remark?: string,
   ) => Promise<void>
   selectException: (id: string | null) => void
+}
+
+/**
+ * 对话回复（一次性 JSON 或 SSE done 帧）里必须逐字段落到消息上的元数据。
+ *
+ * 只带已定义字段：done 帧不含 thinkingProcess/dataCard（它们各有自己的帧），
+ * 盲撒会把流式期间攒下的内容抹成 undefined。丢 degraded/dataSource 字段
+ * 就等于让兜底在界面上冒充正式回答（裁决 D-A）。
+ */
+function conversationFields(res: ConversationResponse): Partial<ChatMessage> {
+  const fields: Partial<ChatMessage> = {
+    degraded: res.degraded,
+    degradedReason: res.degradedReason,
+    intent: res.intent,
+    classifier: res.classifier,
+    dataSource: res.dataSource,
+    manualQueue: res.manualQueue,
+    todoId: res.todoId,
+    traceId: res.traceId,
+    attachments: res.attachments,
+    dataCard: res.dataCard,
+  }
+  return Object.fromEntries(
+    Object.entries(fields).filter(([, v]) => v !== undefined),
+  ) as Partial<ChatMessage>
 }
 
 export const useSystemStore = create<SystemState>((set, get) => ({
@@ -636,19 +696,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     const agent = get().chatAgents.find((a) => a.id === agentId)
     const agentName = agent?.name || 'Agent'
 
-    const userMsg: ChatMessage = {
-      id: `msg-${Date.now()}-u`,
-      role: 'user',
-      agentId,
-      agentName: '当前用户',
-      content,
-      timestamp: new Date().toISOString(),
-      status: 'sent',
-    }
-
-    // 追加用户消息并持久化
-    const appendAndPersist = (msgs: ChatMessage[]) => {
-      set({ conversationMessages: msgs })
+    const writeStorage = (msgs: ChatMessage[]) => {
       try {
         const raw = localStorage.getItem(CONVERSATION_STORAGE_KEY)
         const all: Record<string, ChatMessage[]> = raw ? JSON.parse(raw) : {}
@@ -659,34 +707,99 @@ export const useSystemStore = create<SystemState>((set, get) => ({
       }
     }
 
-    appendAndPersist([...get().conversationMessages, userMsg])
-    set({ conversationLoading: true })
+    const userMsg: ChatMessage = {
+      id: `msg-${Date.now()}-u`,
+      role: 'user',
+      agentId,
+      agentName: '当前用户',
+      content,
+      timestamp: new Date().toISOString(),
+      status: 'sent',
+    }
+    set({
+      conversationMessages: [...get().conversationMessages, userMsg],
+      conversationLoading: true,
+    })
+    writeStorage(get().conversationMessages)
+
+    /* 流式占位消息：token 边到边写进气泡。
+       set 每片都做会把渲染压成瓶颈，故 80ms 合并一次；持久化只在终止态做——
+       半截回答不该进历史对话。 */
+    let current: ChatMessage = {
+      id: `msg-${Date.now()}-a`,
+      role: 'agent',
+      agentId,
+      agentName,
+      content: '',
+      timestamp: new Date().toISOString(),
+      status: 'sending',
+      thinkingProcess: [],
+    }
+    const commit = (patch: Partial<ChatMessage>, persist = false) => {
+      current = { ...current, ...patch }
+      const msgs = get().conversationMessages.map((m) => (m.id === current.id ? current : m))
+      set({ conversationMessages: msgs })
+      // 用户已切到别的 Agent 时不能再写它的历史（否则拿新会话覆盖旧 Agent 存档）
+      if (persist && get().activeAgentId === agentId) writeStorage(msgs)
+    }
+    set({ conversationMessages: [...get().conversationMessages, current] })
+
+    let streamed = ''
+    let flushTimer: ReturnType<typeof setTimeout> | null = null
+    const flushTokens = () => {
+      if (flushTimer) {
+        clearTimeout(flushTimer)
+        flushTimer = null
+      }
+      commit({ content: streamed })
+    }
 
     try {
-      const res = await apiService.sendMessage(agentId, content)
-      const agentMsg: ChatMessage = {
-        id: `msg-${Date.now()}-a`,
-        role: 'agent',
-        agentId,
-        agentName,
-        content: res.content,
-        timestamp: new Date().toISOString(),
-        thinkingProcess: res.thinkingProcess,
-        dataCard: res.dataCard,
-        status: 'sent',
+      const outcome = await sendMessageStream(agentId, content, {
+        onThinking: (step) => {
+          if (!step) return
+          commit({ thinkingProcess: [...(current.thinkingProcess || []), step] })
+        },
+        onToken: (text) => {
+          streamed += text
+          if (!flushTimer) flushTimer = setTimeout(flushTokens, 80)
+        },
+        onDataCard: (card) => commit({ dataCard: card }),
+        // done 携带降级标记/人工队列/附件等元数据：丢字段就等于把降级冒充正式回答
+        onDone: (meta) => commit(conversationFields(meta)),
+        onRetract: () => undefined,
+        onError: () => undefined,
+      })
+      flushTokens()
+
+      if (outcome.kind === 'retracted') {
+        // 已推送的分片收不回来，整段截断为终止帧文案并留标记（裁决 D-D 第 2 条）
+        commit({ content: outcome.notice, retracted: true, retractReason: outcome.reason,
+          status: 'sent' }, true)
+        return
       }
-      appendAndPersist([...get().conversationMessages, agentMsg])
+
+      if (outcome.kind !== 'completed') {
+        // 断线/异常 → 一次性重答（幂等，不做断点续传）。回答改由非流式端点出具，
+        // 这条标记是通道降级，不能冒充模型降级，所以不额外写 degraded。
+        const res = await apiService.sendMessage(agentId, content)
+        commit({
+          ...conversationFields(res),
+          thinkingProcess: res.thinkingProcess,
+          content: res.content,
+          streamFallback: true,
+          streamFallbackReason: outcome.reason,
+          status: 'sent',
+        }, true)
+        return
+      }
+
+      commit({ status: 'sent' }, true)
     } catch {
-      const errMsg: ChatMessage = {
-        id: `msg-${Date.now()}-e`,
-        role: 'agent',
-        agentId,
-        agentName,
+      commit({
         content: '抱歉，我暂时无法响应，请稍后重试。',
-        timestamp: new Date().toISOString(),
         status: 'error',
-      }
-      appendAndPersist([...get().conversationMessages, errMsg])
+      }, true)
     } finally {
       set({ conversationLoading: false })
     }

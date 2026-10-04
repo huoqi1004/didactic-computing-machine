@@ -133,3 +133,102 @@ Agnes-3.0-flash 接入后 LLM 路径已生效——**用截图同款问题实测
 - 每批次完成报委员会销项；全部批次完成 → 本方案关闭。
 
 **签署**：内控合规组 ✓ / 平台架构组 ✓ / 产品体验组 ✓
+
+---
+
+## 五、第二批实施记录与销项（工作包三：流式 + 裁决 D-D 强制项，2026-10-05）
+
+验收行原文：**"第二批 | 工作包三（流式） | 1-1.5 人日 | 首 token < 2s；dataCard/thinking 分帧正确；SSE 失败降级可用"**。
+三条中两条达标，一条（首 token < 2s）不达标且根因不在本系统——见 5.5 与 5.7 第 1 项。
+
+### 5.1 D-D 强制项逐条对照
+
+| 强制项 | 落点 | 状态 |
+| --- | --- | --- |
+| Conversation 页先行 | `frontend/src/pages/Conversation.tsx`，其余页面未动 | ✓ |
+| 客户端 fetch + ReadableStream（禁 EventSource） | `frontend/src/services/api.ts:724-800`，带 `Authorization` 头 | ✓ |
+| 滑动窗口检测 + 聚合复核 | `conversation.py` `_STREAM_GUARD_WINDOW=240 / _STREAM_GUARD_OVERLAP=120`，逐窗口复核 + 流末全文复核 | ✓ |
+| `[内容已撤回]` 终止帧 + 审计留痕 | `retract` 帧为终止帧（其后不再发 `done`），审计 `result=denied`、`details.status=retracted`，`reason` 只记 `type@pattern` 不落原文 | ✓ |
+| 断线一次性重答（幂等，不做 resume） | `error` 帧 `fallback:"one_shot"`，前端改打 `POST /conversation/chat` 重答一次并标注"通道降级" | ✓ |
+
+### 5.2 甲方加码项（本轮两条裁决）落地与实测
+
+| 指标 | 改前 | 改后 | 取证 |
+| --- | --- | --- | --- |
+| 流式正文形态 | JSON 包壳：`{"text": "{"}` 逐字进正文流，用户先看到花括号 | 6/6 例纯文本增量 | `_STREAM_PLAIN_TEXT_DIRECTIVE` 只挂流式路径；真机 :8010 |
+| 单次回答成本 | 51.7s / 936 字 | 5.5–8.6s / 163–255 字（不再白烧 dataCard token，合 D-E 第 3 条） | 同一问题真机对照 |
+| 首分片失败 | 真机 429 → 约 400ms 直接 `error` 帧、0 字 | mock 5xx 腿出现 2 条 `conversation.stream_first_chunk_retry` 后正常出帧；重试上限 3 次、加码 ≤1.2s（门槛是 2s，等更多无意义） | :8012 日志 + `_tmp_mock_frames.json` |
+| 连接预热 | 首轮对话现建 TLS | httpx 池 `keepalive_expiry=30s` + lifespan `GET /models` 预热（`app.llm_prewarm_scheduled`） | `client.py` / `main.py` 8.3 |
+| 凭证形态命中即撤回 | `check_output` 只产 SANITIZE/ALLOW，无 BLOCK 语义，挡不住整段撤回 | 新增只读探测 `guardrails.find_credential_leaks()`（按 regex 前缀认领 password/api/secret/private/token 五档，天然排除卡号与 SSN，不累加脱敏计数、不打日志） | `guardrails.py` + `test_guardrails.py` |
+
+### 5.3 撤回与误杀取证（OpenAI 兼容 mock provider，`_tmp_mock_llm.py` 起 :8011，后端 :8012 只换上游，路由/护栏/帧协议/前端全部走产品真实代码）
+
+- 注入腿：46 个 token 帧、484 字后 `retract`，`reason=prompt_injection`，`pattern=ignore\s+(previous|above|all)\s+(instructions|prompts|rules)`；mock 备了 58 片，实际未走完即拦停。
+- 凭证腿：`retract reason=credential_leak`，`pattern=api[_\s-]?key\s*[=:]\s*\S+`，`charsStreamed=482`；断言审计里不含泄露的密钥原文。
+- 误杀防线：16 位卡号不撤回（离线实测 `_stream_guard_hit("…4111111111111111…") = None`——`check_input` 无敏感数据档，此前误以为会触发）；正常监理答案收尾为 `done`。
+- 分帧正确性（验收行第 2 条）：`thinking×3 → token×6 → dataCard → done`，`done` 带 `traceId/intent/classifier/degraded/status/elapsedMs/chars/hasDataCard/firstTokenMs`。
+
+### 5.4 真机 UI 腿（:5178 vite → :8012，browser-use 驱动，DOM 取证）
+
+- 渐进渲染：正文长度 4 步递增 964 → 981 → 1050 → 1131，@ t=18 / 652 / 1946 / 2038 ms。
+- 撤回显示：`[data-testid=retract-notice]` 两条，文案"输出护栏已撤回本条回答｜命中模式：prompt_injection / credential_leak"；被撤回正文与 `sk-` 串均不在 DOM 中，`[内容已撤回]` 占位可见。
+- 断流 → 一次性重答（验收行第 3 条）：`[data-testid=stream-fallback]`"流式通道中断，已由对话接口一次性重答（回答内容不受影响）"+ 降级徽标"规则降级回复｜原因：模型调用失败"；时间线 26ms（用户消息）→ 5406ms（3 个 thinking）→ 14698ms（重答落屏）。
+- 裁决 D-A：查询意图 + 上游全失败时，正文是"实时监理数据（来源：项目监理agent 本体，经治理面读取）：在监 1 个项目，里程碑合计 2/3…"，dataCard 渲染成实时表（项目编号/当前阶段/里程碑/预算使用率/上线就绪/风险数）；同腿 HTTP 侧 `dataSource=agent_native, has_data_card=true, degraded=true`。非查询意图（capability_guide）则 `dataSource=null` 且不挂数据卡——没有把引导文案伪装成业务结论。
+- 通道限制：本会话像素截图不可用（`NATIVE_BROWSER_VIEWPORT_UNAVAILABLE`，in-app Browser 面板未打开），视觉证据以 DOM 快照为准，**像素图待补测**。
+
+### 5.5 首 token 口径实测（验收行第 1 条不达标的数据）
+
+| 口径 | 首帧（thinking） | 首 token | n |
+| --- | --- | --- | --- |
+| 管线自身（mock 上游、空载串行） | 18.1–21.9 ms（响应头）/ 18.4–72.2 ms | 46.5–94.4 ms | 5 |
+| 真实网关（空载串行，本轮窗口） | 30.9 / 260.6 / 1990.9 ms | 3520 / 3647 / 3766 ms → **0/3 < 2s** | 3 |
+| 真实网关（同日早窗口 23:00–00:15） | 13–93 ms | min 1101 / median 1697.5 ms → 3/7 < 2s | 7 |
+| 真实网关分类调用单独计时 | — | min 768 / p50 1678 / max 7076 ms | 10 |
+
+结论：本系统在该链路上的开销实测 ≤0.1s，"首 token < 2s" 的门槛几乎完全由供应商 TTFT 决定（同日两窗口 median 1697ms vs 3647ms，差 2.1 倍）。**不达标项归因为供应商侧，整改建议见 5.7 第 1 项。**
+
+### 5.6 本轮实测发现并已改（不是登记）
+
+① **LLM 意图分类在真实网关上 5/5 全失败**（`intent_classify_failed error=Expecting value: line 1 column 1 (char 0)`），且每次失败前白烧 ~214 token、耗时 1.4–8.0s。根因：分类调用没传 `NO_THINK_EXTRA`，思考态下网关 `content` 为空，client 按 `_extract_content` 回落到 `reasoning_content` 自然语言，JSON 解析必炸——等于工作包一交付的"双路分类"里 LLM 这一路从未生效。修复后同 prompt 10 次采样**命中 8/10**（改前 0/5）。
+② **该调用串行卡在首帧之前**：供应商抖动时它能独自吃掉整个首 token 预算。加 `_INTENT_CLASSIFY_TIMEOUT=1.5s` 硬上限，超时主动放手回落规则结果（规则落空本就是 GUIDE，无正确性损失）。断流腿首帧因此从 **3668.5ms 降到 1844.4ms**（`_tmp_boom_probe.py` 同腿对照；收尾时机器空载复测 n=3：1842.1 / 1844.4 / 1875.7ms，上限由 1.5s 超时决定而非负载）。同腿 `error` 帧（前端据此发起一次性重答）实测 5444.4 / 6325.8 / 9455.8ms，median 6325.8ms。
+③ **解析认值不认键**：同一条 prompt 实测既出 `{"intent":…}` 也出 `{"label":…}`，认死键会把已经命中的分类又判成失败。
+④ 上一轮遗留的"断流腿首帧 3.6s"归因完成：不是流式管线，而是 ①——规则未命中触发分类调用，撞上游 500 后又被 client 内部 3 次重试放大；日志序列 `async_retry_5xx ×3 → intent_classify_failed → stream_first_chunk_retry ×2 → stream_llm_failed`。
+测试：`test_conversation_upgrade.py` 新增 4 条（关思考载荷 / 认值不认键 / 非 JSON 不抛异常 / 超时预算生效）。
+
+### 5.7 待委员会裁决（三条）
+
+1. **"首 token < 2s" 口径重定义**：建议拆成"管线预算 ≤150ms（实测已达标）+ 供应商 TTFT 单独 SLO"。若坚持端到端 2s，需要供应商侧承诺或在网关层加"超时即降级到治理面直出"的兜底策略——这已超出工作包三范围。
+2. **分类仲裁预算取值**：1.5s 是命中率与延迟的折中（该窗口内预算内命中约 4/10）。可调项：放宽到 2s 换命中率、或对 GUIDE 类直接跳过仲裁（规则 GUIDE 已是安全默认）。
+3. **像素截图取证通道**：需要甲方打开 in-app Browser 面板，或批准用 Playwright 通道补拍。
+
+### 5.8 明确不做（含理由，沿用计划 A3）
+
+- 投机式"首分片超时即重开"：算术上不划算（2.0s 等待 + 0.4s 退避 + 新 TTFT 很可能超过原本要避免的 4.0s），且 `wait_for` 取消生成器后 `aclose()` 可能炸 `async generator is already running`。
+- 治理面采集 `asyncio.gather` 并行化：实测 0.5–80ms，且会打乱 prompt 文本顺序（`test_conversation_stream.py` 帧序断言钉着）。
+- `_build_payload` 里 `thinking` 键与 `NO_THINK_EXTRA` 的语义冲突：**A/B 各 5 次直连**，keep TTFT [711.1, 981.9, 1877.6, 2014.6, 2672.2] vs drop [744.7, 774.1, 786.5, 1806.0, 3155.4]，median 1877.6 → 786.5ms——方向一致但 n=5 不显著（Mann-Whitney U=15/25，p≈0.3）。按计划"有实测收益才动"，**未动共用载荷**（该函数被全部 LLM 调用共用，`test_llm.py` 钉载荷形状）；① 的命中率证据只支撑"在分类调用点补 `NO_THINK_EXTRA`"，已按调用点修完。空载 n≥12/arm 的补测挂在这里，等 5.7 第 3 项通道一并解决。
+
+### 5.9 第三批前置条件
+
+- 工作包二（Skill/MCP + D-B）未开始；**MCP 准入审查材料需先行提交委员会备案**（office-word-mcp-server 许可证/维护活跃度/权限声明与行为一致性 + 自研只读查询工具）。
+- 5.7 第 1 项口径裁决会影响工作包三是否需要追加供应商侧兜底改造，建议与第三批验收一并过。
+- 5.10 的补偿幂等竞态（`test_rollback_drills.py` 跨用例后台写）需在第三批前定责——它直接影响红线 2 的可判定性。
+
+### 5.10 测试与全量回归（第二批收尾，2026-10-05 01:08）
+
+| 通道 | 命令 | 结果 |
+| --- | --- | --- |
+| 后端全量 | `.venv/Scripts/python.exe -m pytest tests/ -q -p no:cacheprovider` | **1 failed, 1480 passed, 5 skipped** in 1081.86s（18:01） |
+| 前端全量 | `node_modules/.bin/vitest run` | **15 files / 253 passed** in 12.97s |
+| 本批次新增用例 | — | `test_conversation_stream.py`（帧序/审计条数/撤回/降级）、`test_conversation_upgrade.py` +4（5.6 三条修复各钉一条）、`test_guardrails.py` +凭证探测档 |
+
+前后端**串行**跑（项目记忆已警示并发会让等待型断言假红灯）。
+
+唯一红灯归因（已回树核实，判为既有跨用例竞态，不是第二批缺陷）：
+
+- 现象：`tests/drill/test_rollback_drills.py::test_rollback_drill_table_driven` —— 全量里红 `hr_add_employee`，`tests/drill/` 复跑红 `sales_create_order`，单文件复跑红 `crm_create_customer`，**三轮三个不同 param**；而每个 param 单独复跑都 PASS（39.37s / 44.54s）。
+- 断言点：`test_rollback_drills.py:217-221`——补偿重放（设计上必须 no-op）之后再读一次 `COUNT(*)`，读到 1，而重放前一次读（`:211`）是 0。即两次读之间有一行被**后台写**补了回来。
+- 排除项：收集顺序固定、无 xdist、无 pytest-randomly → 不是随机顺序；本文件不在工作树改动清单里；演练用例不经过 conversation / guardrails / llm client 的任何本轮改动路径，`audit.py` 本轮只给启动链尾查询加了 10s 超时（`_CHAIN_RESTORE_TIMEOUT_S`）。
+- 结论：**红线 2（补偿幂等）在这条竞态窗口上不可判定**，与待决策项 #40（EventStore/event_bus 单例跨事件循环）同族，登记给委员会随第三批一并处置；本批次不冒充"全绿"。
+
+取证脚本说明：本轮的 `_tmp_*` 探针（mock provider / 帧计时 / 分类采样 / A-B 对照）连同产物已在收尾全部删除（`backend/` 下 `_tmp_*` 计数 0；自起的 :8010/:8011/:8012/:5177/:5178 进程树已 taskkill；:5173 上的 vite 启动于 2026-10-03 09:12，早于本计划，未动）。因此上表数字以本文档记录为准，脚本不再可复现；如需复现，5.3 已写明栈配置（自建 OpenAI 兼容 mock provider 起 :8011、后端 :8012 只换上游，路由/护栏/帧协议/前端全走产品真实代码），5.5 写明了空载串行采样方法——并发采样会自我污染计时，这是本轮踩过的坑。
+

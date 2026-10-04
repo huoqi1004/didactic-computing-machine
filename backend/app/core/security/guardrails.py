@@ -84,13 +84,36 @@ class SecurityGuardrails:
         "classified", "proprietary",
     ]
 
+    # 凭证形态：SENSITIVE_PATTERNS 里"泄露即事故"的子集，按模式前缀认领，避免两处维护同一串正则。
+    # 卡号/SSN 不在此列——业务正文里 16 位单号极常见，整段撤回会误伤正确答案。
+    _CREDENTIAL_PATTERN_PREFIXES = ("password", "api", "secret", "private", "token")
+
     def __init__(self):
         self._injection_regex = [re.compile(p, re.IGNORECASE) for p in self.INJECTION_PATTERNS]
         self._jailbreak_regex = [re.compile(p, re.IGNORECASE) for p in self.JAILBREAK_PATTERNS]
         self._sensitive_regex = [re.compile(p, re.IGNORECASE) for p in self.SENSITIVE_PATTERNS]
+        self._credential_regex = [
+            regex for regex, pattern in zip(self._sensitive_regex, self.SENSITIVE_PATTERNS)
+            if pattern.startswith(self._CREDENTIAL_PATTERN_PREFIXES)
+        ]
         self._blocked_count = 0
         self._sanitized_count = 0
         self._allowed_count = 0
+
+    def find_credential_leaks(self, text: str) -> list[dict]:
+        """只读探测凭证形态：不累加脱敏计数、不打日志。
+
+        流式护栏每 240 字调一次，走 ``check_output`` 会把 ``get_stats()`` 的
+        脱敏计数灌满并刷出告警噪声，这里要的是判定而不是记录。
+        """
+        return [
+            {
+                "type": ThreatType.SENSITIVE_DATA.value,
+                "pattern": regex.pattern,
+                "severity": "critical",
+            }
+            for regex in self._credential_regex if regex.search(text)
+        ]
 
     def check_input(self, text: str, agent_did: str = "") -> tuple[GuardrailAction, list[dict]]:
         """

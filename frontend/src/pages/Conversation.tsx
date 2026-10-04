@@ -17,10 +17,22 @@ import {
   Table2,
   BarChart3,
   ListOrdered,
+  FileText,
+  Download,
   type LucideIcon,
 } from 'lucide-react'
-import { useSystemStore, type ChatAgent, type ChatMessage, type DataCard as DataCardType } from '../stores/systemStore'
-import { cn, formatTime } from '../lib/utils'
+import { useSystemStore, type ChatAgent, type ChatAttachment, type ChatMessage, type DataCard as DataCardType } from '../stores/systemStore'
+import { apiService } from '../services/api'
+import { cn, formatTime, triggerDownload } from '../lib/utils'
+
+/* 降级原因的可读文案（后端 reason 是机器码，直接展示给用户没有意义） */
+const DEGRADED_REASON_LABEL: Record<string, string> = {
+  llm_unavailable: '模型通道未启用',
+  llm_failed: '模型调用失败',
+  doc_failed: '文档生成失败',
+  tool_failed: '实时数据取数失败',
+  channel_unavailable: '对话通道不可用（占位回复，非 Agent 数据）',
+}
 
 /* Agent 图标映射 */
 const AGENT_ICON_MAP: Record<string, LucideIcon> = {
@@ -63,6 +75,8 @@ export default function Conversation() {
 
   const [input, setInput] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  /* 流式回答已在气泡里逐片生长时，"正在思考"的三点动画要让位（否则同屏两个进度） */
+  const isStreamingReply = conversationMessages.some((m) => m.status === 'sending')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -220,7 +234,9 @@ export default function Conversation() {
           {conversationMessages.map((msg) => (
             <MessageBubble key={msg.id} message={msg} agentIcon={activeAgent?.icon} />
           ))}
-          {conversationLoading && <TypingIndicator agentName={activeAgent?.name || 'Agent'} />}
+          {conversationLoading && !isStreamingReply && (
+            <TypingIndicator agentName={activeAgent?.name || 'Agent'} />
+          )}
           <div ref={messagesEndRef} />
         </div>
 
@@ -334,18 +350,35 @@ function AgentListItem({
   )
 }
 
-function MessageBubble({
+export function MessageBubble({
   message,
   agentIcon,
 }: {
   message: ChatMessage
   agentIcon?: string
 }) {
+  const [downloadError, setDownloadError] = useState('')
+
   if (!message || !message.role) {
     return null
   }
   const isUser = message.role === 'user'
   const Icon = isUser ? User : AGENT_ICON_MAP[agentIcon || 'Package'] || Package
+
+  /* 附件下载：走鉴权端点取 Blob，再触发浏览器下载 */
+  const handleDownload = async (att: ChatAttachment) => {
+    setDownloadError('')
+    try {
+      const blob = await apiService.downloadDocument(att.filename)
+      if (!blob || blob.size === 0) {
+        setDownloadError(`下载失败：${att.filename} 不存在或已被清理`)
+        return
+      }
+      triggerDownload(blob, att.filename)
+    } catch {
+      setDownloadError('下载失败，请稍后重试')
+    }
+  }
 
   return (
     <div className={cn('flex gap-3 animate-slide-in', isUser ? 'flex-row-reverse' : 'flex-row')}>
@@ -383,7 +416,89 @@ function MessageBubble({
           )}
         >
           {message.content}
+          {!isUser && message.status === 'sending' && (
+            <span
+              data-testid="streaming-caret"
+              className="inline-block w-1.5 h-4 ml-1 align-middle bg-primary/70 animate-pulse"
+            />
+          )}
         </div>
+
+        {/* 输出护栏撤回（裁决 D-D）：正文已被截断，必须让用户看到"被撤回"而不是空答案 */}
+        {!isUser && message.retracted && (
+          <div data-testid="retract-notice" className="flex flex-wrap items-center gap-2 text-[11px]">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border bg-status-circuit/10 text-status-circuit border-status-circuit/30">
+              <ShieldAlert className="w-3 h-3" />
+              输出护栏已撤回本条回答
+            </span>
+            {message.retractReason && (
+              <span className="text-slate-500">命中模式：{message.retractReason}</span>
+            )}
+          </div>
+        )}
+
+        {/* 流式中断后的一次性重答：这是通道降级不是模型降级，故不挂降级徽标 */}
+        {!isUser && message.streamFallback && (
+          <p data-testid="stream-fallback" className="text-[11px] text-slate-500">
+            流式通道中断，已由对话接口一次性重答（回答内容不受影响）
+          </p>
+        )}
+
+        {/* 降级徽标（裁决 D-A）：兜底回复不得冒充正式回答 */}
+        {!isUser && message.degraded && (
+          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+            <span
+              data-testid="degraded-badge"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border bg-status-paused/10 text-status-paused border-status-paused/30"
+            >
+              <AlertCircle className="w-3 h-3" />
+              {message.manualQueue ? '服务暂不可用，已转人工队列' : '规则降级回复'}
+            </span>
+            {message.degradedReason && (
+              <span className="text-slate-500">
+                原因：{DEGRADED_REASON_LABEL[message.degradedReason] || message.degradedReason}
+              </span>
+            )}
+            {message.dataSource === 'agent_native' && (
+              <span className="text-slate-500">数据源：Agent 本体实时数据</span>
+            )}
+            {message.dataSource === 'unavailable' && (
+              <span className="text-status-circuit">实时数据不可用，未给出业务结论</span>
+            )}
+            {message.todoId && (
+              <span className="text-slate-500 font-mono">待办 {message.todoId}</span>
+            )}
+          </div>
+        )}
+
+        {/* 创作类附件（裁决 D-C：产物经鉴权下载端点取回） */}
+        {!isUser && message.attachments && message.attachments.length > 0 && (
+          <div className="space-y-1.5">
+            {message.attachments.map((att) => (
+              <button
+                key={att.filename}
+                type="button"
+                onClick={() => handleDownload(att)}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-primary/30 bg-primary/10 hover:bg-primary/20 text-left transition-colors"
+              >
+                <FileText className="w-4 h-4 text-primary shrink-0" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs text-slate-200 truncate">{att.name}</span>
+                  <span className="block text-[11px] text-slate-500">
+                    {att.format.toUpperCase()} · AI 生成草稿 · {(att.size / 1024).toFixed(1)} KB
+                  </span>
+                </span>
+                <Download className="w-4 h-4 text-primary shrink-0" />
+              </button>
+            ))}
+            {message.traceId && (
+              <p className="text-[11px] text-slate-500 font-mono">trace_id {message.traceId}</p>
+            )}
+          </div>
+        )}
+        {!isUser && downloadError && (
+          <p className="text-[11px] text-status-circuit">{downloadError}</p>
+        )}
 
         {/* 思考过程折叠面板 */}
         {!isUser && message.thinkingProcess && Array.isArray(message.thinkingProcess) && message.thinkingProcess.length > 0 && (

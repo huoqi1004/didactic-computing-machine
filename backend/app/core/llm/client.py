@@ -48,6 +48,13 @@ class LLMResponseError(LLMError):
     """LLM响应异常（向后兼容，继承自LLMError）"""
 
 
+# 关闭思考模式的透传参数。2026-10-04 真机实测（_tmp_thinking_variants 五路对照）：
+# ``{"thinking": {"type": "disabled"}}`` 在本供应商 agnes-3.0-flash 上是**空参数**——
+# reasoning_content 照旧 174 片，而 delta.content 一片没有，正文整段落进思考字段；
+# ``chat_template_kwargs.enable_thinking=false`` 才真正关闭（reasoning 0 片、正文首片 4.4s）。
+NO_THINK_EXTRA: dict = {"chat_template_kwargs": {"enable_thinking": False}}
+
+
 class LLMClient:
     """
     LLM客户端 - OpenAI兼容API封装
@@ -142,6 +149,10 @@ class LLMClient:
                 base_url=self.base_url,
                 timeout=httpx.Timeout(self.timeout, connect=10.0),
                 headers=self._build_headers(),
+                # httpx 默认 keepalive_expiry=5s，撑不到下一轮对话：用户读一眼答案的
+                # 功夫连接就被池回收，下一次请求重新 TCP+TLS 握手。流式首 token 归因
+                # 实测这段是本侧唯一还能压的开销（100-300ms），拉到 30s 复用连接。
+                limits=httpx.Limits(max_keepalive_connections=20, keepalive_expiry=30.0),
             )
         return self._async_client
 
@@ -168,6 +179,23 @@ class LLMClient:
         if self._async_client and not self._async_client.is_closed:
             await self._async_client.aclose()
             self._async_client = None
+
+    async def prewarm(self) -> bool:
+        """提前完成 DNS + TCP + TLS 握手，让第一轮对话不再付冷启动的成本。
+
+        只压掉握手这一段（实测约 100-300ms），供应商自己的排队压不掉；
+        失败只告警——预热是优化项，不是启动前置条件。
+        """
+        try:
+            client = self._get_async_client()
+            await client.get("/models")
+            logger.info("llm_client.prewarmed", base_url=self.base_url)
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.warning("llm_client.prewarm_failed",
+                           base_url=self.base_url, error=str(e)[:200],
+                           error_type=type(e).__name__)
+            return False
 
     def close_sync(self):
         """关闭同步客户端"""
@@ -389,6 +417,8 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         extra: Optional[dict] = None,
+        scene: str = "stream",
+        cost_domain: str = "",
     ) -> AsyncIterator[str]:
         """
         异步流式输出 - 逐个token返回
@@ -396,6 +426,9 @@ class LLMClient:
         用法：
             async for chunk in client.chat_async_stream(messages):
                 print(chunk, end="")
+
+        末帧 usage 不返回给调用方，直接按域计入运行时日累计——流式流量与
+        chat_completion 走同一套成本口径（裁决 D-E），否则流式上线后成本可见性断档。
         """
         payload = self._build_payload(
             messages,
@@ -405,25 +438,50 @@ class LLMClient:
             extra=extra,
         )
         payload["stream"] = True
+        payload["stream_options"] = {"include_usage": True}
 
         await self._check_rate_limit()
 
         client = self._get_async_client()
+        # 正文分片可能在思考之后才开始（甚至整轮都没有），思考分片先攒着：
+        # 收流时若正文为空，就把思考内容整体补出，与 _extract_content 的回退口径一致，
+        # 否则调用方看到空串会误判"模型没答"而落降级。
+        content_seen = False
+        reasoning_tail: list[str] = []
         try:
             async with client.stream(
                 "POST", "/chat/completions", json=payload
             ) as response:
                 self._raise_for_status(response)
                 async for line in response.aiter_lines():
-                    chunk = self._parse_sse_line(line)
+                    chunk, reasoning, usage = self._parse_sse_chunk(line)
+                    if usage:
+                        self._record_cost_domain(scene=scene,
+                                                 cost_domain=cost_domain,
+                                                 usage=usage)
+                        logger.info(
+                            "llm_client.chat_stream_usage",
+                            model=self.model, scene=scene,
+                            total_tokens=usage.get("total_tokens"),
+                        )
                     if chunk:
+                        content_seen = True
                         yield chunk
+                    elif reasoning:
+                        reasoning_tail.append(reasoning)
         except (httpx.TimeoutException, httpx.ConnectError) as e:
             raise (
                 LLMTimeoutError(f"流式请求超时: {e}")
                 if isinstance(e, httpx.TimeoutException)
                 else LLMConnectionError(f"流式连接失败: {e}")
             )
+        if not content_seen and reasoning_tail:
+            fallback_text = "".join(reasoning_tail)
+            logger.info(
+                "llm_client.chat_stream_content_from_reasoning",
+                model=self.model, scene=scene, chars=len(fallback_text),
+            )
+            yield fallback_text
 
     async def function_call_async(
         self,
@@ -469,6 +527,8 @@ class LLMClient:
         max_tokens: Optional[int] = None,
         response_format: Optional[dict] = None,
         extra: Optional[dict] = None,
+        scene: str = "default",
+        cost_domain: str = "",
     ) -> str:
         """
         异步聊天补全 - 返回纯文本响应
@@ -507,12 +567,17 @@ class LLMClient:
             logger.info(
                 "llm_client.chat_completion",
                 model=self.model,
+                scene=scene,
                 elapsed_ms=round(elapsed * 1000, 2),
                 prompt_tokens=usage.get("prompt_tokens"),
                 completion_tokens=usage.get("completion_tokens"),
                 total_tokens=usage.get("total_tokens"),
                 success=True,
             )
+            # 裁决 D-E：创作类长文本 token 消耗必须可归集——scene 标签进日志，
+            # 实际 token 数按域计入运行时日累计（P2-7 全成本报表口径的数据源）。
+            # 计量失败绝不允许打断模型调用本身（对话可用性优先于成本统计）。
+            self._record_cost_domain(scene=scene, cost_domain=cost_domain, usage=usage)
             return content
         except Exception as e:
             elapsed = time.monotonic() - start_time
@@ -799,19 +864,42 @@ class LLMClient:
                 f"无法提取tool_calls: {e}; 原始: {str(data)[:500]}"
             ) from e
 
-    def _parse_sse_line(self, line: str) -> Optional[str]:
-        """解析SSE流式响应行，返回增量文本（无内容则返回None）"""
+    def _record_cost_domain(self, *, scene: str, cost_domain: str,
+                            usage: dict) -> None:
+        """按域计入运行时日累计（P2-7 全成本报表口径的数据源）。
+
+        计量失败绝不允许打断模型调用本身——对话可用性优先于成本统计。
+        """
+        if not cost_domain:
+            return
+        tokens = int((usage or {}).get("total_tokens") or 0)
+        if tokens <= 0:
+            return
+        try:
+            from app.core.agent.runtime import agent_runtime
+
+            agent_runtime._record_tokens(cost_domain, tokens)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("llm_client.token_accounting_failed",
+                           scene=scene, domain=cost_domain, error=str(e))
+
+    def _parse_sse_chunk(self, line: str) -> tuple[Optional[str], Optional[str], Optional[dict]]:
+        """解析 SSE 行，返回（正文增量, 思考增量, usage）。usage 只在末帧出现。"""
         if not line or not line.startswith("data: "):
-            return None
+            return None, None, None
         payload = line[len("data: "):].strip()
         if payload == "[DONE]":
-            return None
+            return None, None, None
         try:
             obj = json.loads(payload)
-            delta = obj.get("choices", [{}])[0].get("delta", {})
-            return delta.get("content")
-        except (json.JSONDecodeError, IndexError, KeyError):
-            return None
+        except json.JSONDecodeError:
+            return None, None, None
+        delta = (obj.get("choices") or [{}])[0].get("delta", {}) or {}
+        return delta.get("content"), delta.get("reasoning_content"), obj.get("usage")
+
+    def _parse_sse_line(self, line: str) -> Optional[str]:
+        """解析SSE流式响应行，返回增量文本（无内容则返回None）"""
+        return self._parse_sse_chunk(line)[0]
 
 
 # 全局LLM客户端单例（懒加载，仅在首次访问时创建）

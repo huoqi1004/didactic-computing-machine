@@ -173,3 +173,44 @@ def test_normal_output_allowed(fresh_guardrails):
         assert action == GuardrailAction.ALLOW
         assert sanitized == text  # 原文不变
         assert len(threats) == 0
+
+
+# ========== 凭证形态只读探测（流式撤回档，工作包三补漏） ==========
+
+def test_find_credential_leaks_hits_secrets(fresh_guardrails):
+    """凭证形态命中：password/api_key/secret/private_key/token=<长串>。"""
+    guardrails = fresh_guardrails
+
+    samples = [
+        "配置如下：api_key=sk-abcdefghijklmnopqrst",
+        "password = Hunter2026!",
+        "client_secret: 4f9a8b7c6d5e",
+        "private_key=-----BEGIN RSA PRIVATE KEY-----",
+        "token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+    ]
+    for text in samples:
+        hits = guardrails.find_credential_leaks(text)
+        assert hits, f"凭证形态应被探测到: {text}"
+        assert hits[0]["type"] == ThreatType.SENSITIVE_DATA.value
+
+
+def test_find_credential_leaks_ignores_business_numbers(fresh_guardrails):
+    """卡号/SSN 是业务数字常见形态，不在撤回档里——否则会误杀正确答案。"""
+    guardrails = fresh_guardrails
+
+    for text in ["合同号 4111111111111111 已归档",
+                 "档案编号 123-45-6789",
+                 "里程碑 2/3，预算使用率 40.0%，风险项 1 条"]:
+        assert guardrails.find_credential_leaks(text) == [], f"不该命中: {text}"
+
+
+def test_find_credential_leaks_is_readonly(fresh_guardrails):
+    """探测函数不得污染 get_stats：流式每 240 字调一次，计数会失真。"""
+    guardrails = fresh_guardrails
+
+    for _ in range(5):
+        guardrails.find_credential_leaks("api_key=sk-abcdefghijklmnopqrst")
+
+    stats = guardrails.get_stats()
+    assert stats["sanitized"] == 0
+    assert stats["blocked"] == 0

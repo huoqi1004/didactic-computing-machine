@@ -24,6 +24,7 @@ from app.core.llm.client import (
     LLMClientError,
     LLMConnectionError,
     LLMResponseError,
+    NO_THINK_EXTRA,
     get_llm_client,
 )
 from app.core.llm.prompts import (
@@ -1446,3 +1447,91 @@ class TestLLMEndToEnd:
         total_debit = sum(e["debit"] for e in result["entries"])
         total_credit = sum(e["credit"] for e in result["entries"])
         assert total_debit == total_credit
+
+
+class TestChatAsyncStreamShape:
+    """流式分片形状（工作包三，2026-10-04 真机实测驱动）
+
+    真机五路对照实验结论：本供应商 agnes-3.0-flash 上 ``thinking.type=disabled``
+    是**空参数**（reasoning 照旧 174 片、content 0 片），正文整段落进
+    reasoning_content；只取 delta.content 的流式实现会收不到任何分片，
+    对话路由据此把一轮正常回答误判成"模型没答"而落降级。
+    回退口径与 ``_extract_content`` 对齐：正文为空时用思考内容补出。
+    """
+
+    class _StreamResp:
+        def __init__(self, lines):
+            self._lines = lines
+            self.status_code = 200
+            self.request = MagicMock()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def aiter_lines(self):
+            for line in self._lines:
+                yield line
+
+    def _wire(self, monkeypatch, lines):
+        monkeypatch.setattr(settings, "llm_thinking_enabled", False)
+        client = LLMClient(max_retries=1, rate_limit=100)
+        recorded = []
+        monkeypatch.setattr(client, "_record_cost_domain", lambda **kw: recorded.append(kw))
+        http = MagicMock()
+        http.stream.return_value = self._StreamResp(lines)
+        monkeypatch.setattr(client, "_get_async_client", lambda: http)
+        return client, http, recorded
+
+    @pytest.mark.asyncio
+    async def test_yields_content_deltas_live_and_counts_usage(self, monkeypatch):
+        lines = [
+            'data: {"choices":[{"delta":{"role":"assistant"}}]}',
+            'data: {"choices":[{"delta":{"content":"在监 "}}]}',
+            'data: {"choices":[{"delta":{"content":"2 个项目"}}]}',
+            'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
+            '"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}',
+            "data: [DONE]",
+        ]
+        client, http, recorded = self._wire(monkeypatch, lines)
+
+        got = [chunk async for chunk in client.chat_async_stream(
+            [{"role": "user", "content": "hi"}],
+            scene="conversation_stream",
+            cost_domain="project_supervisor",
+            extra=NO_THINK_EXTRA,
+        )]
+
+        assert got == ["在监 ", "2 个项目"]
+        assert recorded and recorded[-1]["cost_domain"] == "project_supervisor", "流式要计入成本口径"
+        payload = http.stream.call_args.kwargs["json"]
+        assert payload["stream"] is True
+        assert payload["stream_options"] == {"include_usage": True}
+        assert payload["chat_template_kwargs"] == {"enable_thinking": False}
+
+    @pytest.mark.asyncio
+    async def test_reasoning_only_answer_is_not_lost(self, monkeypatch):
+        lines = [
+            'data: {"choices":[{"delta":{"reasoning_content":"监理要盯"}}]}',
+            'data: {"choices":[{"delta":{"reasoning_content":"里程碑与预算"}}]}',
+            'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        ]
+        client, _, _ = self._wire(monkeypatch, lines)
+
+        got = [chunk async for chunk in client.chat_async_stream([{"role": "user", "content": "hi"}])]
+
+        assert got == ["监理要盯里程碑与预算"], "正文全空时补出思考内容，否则调用方判成空回答"
+
+    @pytest.mark.asyncio
+    async def test_reasoning_dropped_once_content_arrives(self, monkeypatch):
+        lines = [
+            'data: {"choices":[{"delta":{"reasoning_content":"先想一下"}}]}',
+            'data: {"choices":[{"delta":{"content":"正式回答"}}]}',
+        ]
+        client, _, _ = self._wire(monkeypatch, lines)
+
+        got = [chunk async for chunk in client.chat_async_stream([{"role": "user", "content": "hi"}])]
+
+        assert got == ["正式回答"], "有正文就不把思考混进答案，避免同一段话输出两遍"

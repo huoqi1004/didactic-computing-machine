@@ -706,6 +706,7 @@ async def lifespan(app: FastAPI):
         import app.agents.crm.tools  # noqa: F401  (Phase B)
         import app.agents.sales.tools  # noqa: F401  (Phase B)
         import app.agents.contract.tools  # noqa: F401  (Phase B)
+        import app.agents.project_supervisor.tools  # noqa: F401  (监理对话链路升级)
         from app.core.agent.tools_v2 import tool_registry_v2
 
         logger.info(
@@ -849,6 +850,22 @@ async def lifespan(app: FastAPI):
     logger.info("app.audit_verify_loop_started",
                 incremental_hours=settings.audit_verify_incremental_hours,
                 full_days=settings.audit_verify_full_days)
+
+    # 8.3 LLM 网关连接预热：把 DNS+TCP+TLS 握手挪到启动期，第一轮对话不再为冷启动付费。
+    #     首 token 归因实测：本侧管线 ≤100ms，握手这段只值 100-300ms，供应商排队压不掉；
+    #     挂后台任务，外部网关抖动不该阻塞启动。
+    llm_prewarm_task = None
+    if settings.llm_enabled:
+        from app.core.llm.client import get_llm_client
+
+        async def _llm_prewarm() -> None:
+            try:
+                await get_llm_client().prewarm()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("app.llm_prewarm_failed", error=str(e)[:200])
+
+        llm_prewarm_task = asyncio.create_task(_llm_prewarm())
+        logger.info("app.llm_prewarm_scheduled", base_url=settings.llm_base_url)
 
     # 8.5 外部 MCP 工具桥接（D3 环境变量清单 + F4.1 管理端登记清单）
     #     register_external_tools() 此前只在测试里被调用过，运行期从未接线，

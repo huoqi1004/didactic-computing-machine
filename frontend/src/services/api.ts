@@ -15,6 +15,7 @@ import type {
   ChatAgent,
   ChatMessage,
   ConversationResponse,
+  DataCard,
   ExceptionItem,
   ExceptionStats,
 } from '../stores/systemStore'
@@ -50,13 +51,13 @@ function addRefreshSubscriber(cb: (token: string | null) => void) {
 let _refreshPromise: Promise<string | null> | null = null
 export async function refreshAccessToken(): Promise<string | null> {
   if (_refreshPromise) return _refreshPromise
-  _refreshPromise = (async () => {
+  const pending = (async () => {
     const refreshToken = loadRefreshToken() || useAuthStore.getState().refreshToken
     if (!refreshToken) return null
     try {
-      const resp = await axios.post('/api/v1/auth/refresh', null, {
-        headers: { Authorization: `Bearer ${refreshToken}` },
-      })
+      // 后端 /auth/refresh 契约是 **请求体** RefreshRequest.refresh_token；
+      // 早前只放 Authorization 头会让刷新恒 422 → 启动恢复把用户踢回登录页
+      const resp = await axios.post('/api/v1/auth/refresh', { refresh_token: refreshToken })
       const access: string = resp.data.access_token
       // refresh 轮换：保存新 refresh_token（sessionStorage）
       saveRefreshToken(resp.data.refresh_token)
@@ -68,11 +69,16 @@ export async function refreshAccessToken(): Promise<string | null> {
       return access
     } catch {
       return null
-    } finally {
-      _refreshPromise = null
     }
   })()
-  return _refreshPromise
+  // 去重窗口的生命周期必须等于"本次尝试"：无凭证早退时也要释放，
+  // 否则这条 resolved-null 会永久挂在模块上，之后的 401 全部刷不出新 token
+  _refreshPromise = pending
+  try {
+    return await pending
+  } finally {
+    if (_refreshPromise === pending) _refreshPromise = null
+  }
 }
 
 // 启动恢复：localStorage 只有 user（无凭证）——有 refresh_token 则静默重建会话
@@ -689,308 +695,180 @@ const PRESET_CONVERSATIONS: Record<string, ChatMessage[]> = {
   ],
 }
 
-/** 根据关键词生成 Mock 对话回复 */
-function buildMockConversationResponse(agentId: string, message: string): ConversationResponse {
-  const lower = message.toLowerCase()
-
-  // 库存相关
-  if (agentId === 'inventory-agent') {
-    // 预测类（优先匹配，避免被"库存"关键词吞没）
-    if (lower.includes('预测') || lower.includes('预估') || lower.includes('趋势') || lower.includes('下季度') || lower.includes('下月') || lower.includes('未来')) {
-      return {
-        content:
-          '基于历史消耗趋势与季节性分析，下季度库存预测如下：\n1. 钢化玻璃面板：当前已缺货，预计下季度需求1500件，建议立即补货1000件；\n2. 固态硬盘1TB：当前320件低于安全库存500件，预计下季度消耗800件，建议补货800件；\n3. 电源适配器65W：当前210件，预计下季度消耗400件，建议补货500件；\n4. 处理器与内存条：库存充足，预计下季度平稳消耗，无需补货。综合预测下季度库存周转率将提升8%。',
-        thinkingProcess: [
-          '识别意图：库存预测（非实时查询）',
-          '加载历史消耗数据与季节性因子',
-          '对每个品类运行趋势预测模型',
-          '生成下季度需求预测与补货建议',
-        ],
-        dataCard: {
-          type: 'table',
-          title: '下季度库存预测',
-          columns: [
-            { key: 'name', label: '品类' },
-            { key: 'current', label: '当前库存' },
-            { key: 'predicted', label: '预测需求' },
-            { key: 'action', label: '建议操作' },
-          ],
-          rows: [
-            { name: '钢化玻璃面板', current: '0', predicted: '1500', action: '紧急补货1000件' },
-            { name: '固态硬盘1TB', current: '320', predicted: '800', action: '补货800件' },
-            { name: '电源适配器65W', current: '210', predicted: '400', action: '补货500件' },
-            { name: '处理器', current: '320', predicted: '250', action: '无需补货' },
-          ],
-        },
-      }
-    }
-    // 补货类（在预测之后、查询之前匹配）
-    if (lower.includes('补货') || lower.includes('建议') || lower.includes('采购') || lower.includes('进货')) {
-      return {
-        content:
-          '根据销量预测模型，生成 5 条补货建议。钢化玻璃面板为紧急补货，预计总采购金额 ¥464,500。',
-        thinkingProcess: [
-          '加载 reorder_engine 模块',
-          '计算每个 SKU 的再订货点 ROP',
-          '识别 5 个 SKU 低于 ROP',
-          '调用 supplier.quote() 获取报价',
-          '生成补货建议清单',
-        ],
-        dataCard: {
-          type: 'table',
-          title: '智能补货建议',
-          columns: [
-            { key: 'sku', label: 'SKU' },
-            { key: 'name', label: '品名' },
-            { key: 'current', label: '当前库存' },
-            { key: 'suggest', label: '建议补货' },
-            { key: 'cost', label: '预计金额' },
-          ],
-          rows: [
-            { sku: 'SKU-B002', name: '钢化玻璃面板', current: 0, suggest: 1000, cost: '¥95,000' },
-            { sku: 'SKU-A002', name: '固态硬盘 1TB', current: 320, suggest: 800, cost: '¥336,000' },
-            { sku: 'SKU-C002', name: '电源适配器 65W', current: 210, suggest: 500, cost: '¥22,500' },
-          ],
-        },
-      }
-    }
-    // 查询类（最宽泛，放最后）
-    if (lower.includes('库存') || lower.includes('状态') || lower.includes('查询') || lower.includes('查看') || lower.includes('多少')) {
-      return {
-        content:
-          '已为您查询当前库存状态。系统共监控 12 个品类，其中 4 项低于安全库存，1 项已缺货。库存总价值 ¥1,892,450.50。',
-        thinkingProcess: [
-          '解析用户意图：查询库存状态',
-          '调用 inventory.list() 获取全部 SKU',
-          '按状态分类统计并汇总',
-          '生成库存总览数据卡片',
-        ],
-        dataCard: {
-          type: 'stats',
-          title: '库存状态总览',
-          stats: [
-            { label: '库存品类', value: '12', tone: 'primary' },
-            { label: '库存总价值', value: '¥1,892,450', tone: 'accent' },
-            { label: '预警品类', value: '5', tone: 'paused' },
-            { label: '缺货品类', value: '1', tone: 'circuit' },
-          ],
-        },
-      }
-    }
-    return {
-      content:
-        '我已收到您的指令。作为库存管家，我可以帮您查询库存状态、生成补货建议、盘点核对或设置预警。请问您需要哪方面的协助？',
-      thinkingProcess: ['解析用户输入', '匹配库存管理能力域', '未命中具体意图，返回能力引导'],
-    }
-  }
-
-  // 会计相关
-  if (agentId === 'accounting-agent') {
-    if (lower.includes('凭证') || lower.includes('审批')) {
-      return {
-        content:
-          '当前共有 3 张待审批凭证，合计金额 ¥1,434,400。所有凭证借贷平衡，税务计算无误，可进入审批流程。',
-        thinkingProcess: [
-          '调用 voucher.list(status=pending)',
-          '校验借贷平衡与税务计算',
-          '按金额降序排列',
-          '生成审批建议',
-        ],
-        dataCard: {
-          type: 'table',
-          title: '待审批凭证清单',
-          columns: [
-            { key: 'no', label: '凭证号' },
-            { key: 'summary', label: '摘要' },
-            { key: 'amount', label: '金额' },
-            { key: 'status', label: '校验' },
-          ],
-          rows: [
-            { no: '记-20260726-002', summary: '销售产品收入-X9系列', amount: '¥856,000', status: '通过' },
-            { no: '记-20260726-003', summary: '支付员工工资', amount: '¥358,000', status: '通过' },
-            { no: '记-20260726-001', summary: '采购原材料-铝合金外壳', amount: '¥220,400', status: '通过' },
-          ],
-        },
-      }
-    }
-    if (lower.includes('日报') || lower.includes('日结') || lower.includes('结算')) {
-      return {
-        content:
-          '今日日报已生成。本日共处理凭证 8 张，其中已过账 2 张、待审批 3 张。主营业务收入 ¥856,000，管理费用 ¥386,200，净利润 ¥469,800。日清日结流程已就绪，是否执行？',
-        thinkingProcess: [
-          '汇总当日所有凭证数据',
-          '按科目分类计算收支',
-          '生成利润概算',
-          '检查日清日结前置条件',
-        ],
-        dataCard: {
-          type: 'stats',
-          title: '今日财务日报',
-          stats: [
-            { label: '凭证总数', value: '8', tone: 'primary' },
-            { label: '主营业务收入', value: '¥856,000', tone: 'accent' },
-            { label: '管理费用', value: '¥386,200', tone: 'paused' },
-            { label: '净利润', value: '¥469,800', tone: 'accent' },
-          ],
-        },
-      }
-    }
-    return {
-      content:
-        '我已收到您的指令。作为会计专员，我可以协助凭证审批、科目核对、税务计算与日清日结。请问您需要什么帮助？',
-      thinkingProcess: ['解析用户输入', '匹配会计能力域', '返回能力引导'],
-    }
-  }
-
-  // 风控相关
-  if (agentId === 'risk-agent') {
-    if (lower.includes('合规') || lower.includes('检查')) {
-      return {
-        content:
-          '合规检查完成。本月共审计 247 项操作，发现 2 处合规风险：1 项非工作时间段大额转账未复核、1 项供应商信用评分低于阈值仍入库。建议立即处理。',
-        thinkingProcess: [
-          '加载 compliance_rules 规则引擎',
-          '扫描本月全部 247 项操作记录',
-          '匹配 18 条合规规则',
-          '识别 2 处违规：资金操作 + 供应商准入',
-          '生成合规风险报告',
-        ],
-        dataCard: {
-          type: 'stats',
-          title: '合规审计结果',
-          stats: [
-            { label: '审计操作数', value: '247', tone: 'primary' },
-            { label: '合规通过', value: '245', tone: 'accent' },
-            { label: '合规风险', value: '2', tone: 'circuit' },
-            { label: '合规率', value: '99.2%', tone: 'accent' },
-          ],
-        },
-      }
-    }
-    return {
-      content:
-        '风控哨兵正在值守。当前风控引擎运行正常，今日已拦截 3 笔异常交易，冻结 1 个高风险订单。可为您检查合规风险或查询异常交易明细。',
-      thinkingProcess: ['加载风控仪表盘', '汇总今日风控事件', '返回状态总览'],
-    }
-  }
-
-  // 采购相关
-  if (agentId === 'procurement-agent') {
-    return {
-      content:
-        '采购助手已就绪。我可以进行供应商比价、采购下单、到货跟踪与合同审核。当前有 1 笔采购订单待审批（PO-20260726-045，铝合金外壳 5800 件）。',
-      thinkingProcess: ['查询待办采购订单', '返回采购状态总览'],
-    }
-  }
-
-  // 审计相关
-  if (agentId === 'audit-agent') {
-    return {
-      content:
-        '审计巡检报告已生成。7 月份共完成 3 轮合规审计，操作留痕完整率 100%，未发现数据篡改。详细报告可导出查看。',
-      thinkingProcess: ['加载审计日志', '校验操作留痕完整性', '生成审计摘要'],
-    }
-  }
-
-  // 项目监理相关
-  if (agentId === 'project-supervisor-agent') {
-    // 上线/发布审计类（最具体，优先匹配）
-    if (lower.includes('上线') || lower.includes('发布') || lower.includes('审计') || lower.includes('就绪')) {
-      return {
-        content:
-          '上线就绪度审计结论：当前3个在建项目均未达到上线节点。其中 ERP系统实施项目（proj-001）计划2026-09-30上线，但 UAT 测试尚未完成、上线变更审批未发起，暂不具备上线条件，建议完成 UAT 验收并走变更流程后再安排上线。',
-        thinkingProcess: [
-          '识别意图：上线/发布审计',
-          '逐个项目核对上线前置条件（UAT、变更审批、回滚预案）',
-          '判定上线就绪度',
-          '输出审计结论与上线建议',
-        ],
-        dataCard: {
-          type: 'table',
-          title: '上线就绪度审计',
-          columns: [
-            { key: 'project', label: '项目' },
-            { key: 'stage', label: '当前阶段' },
-            { key: 'uat', label: 'UAT验收' },
-            { key: 'release', label: '上线审批' },
-            { key: 'verdict', label: '审计结论' },
-          ],
-          rows: [
-            { project: 'ERP系统实施项目', stage: '开发/测试', uat: '未完成', release: '未发起', verdict: '暂不具备上线条件' },
-            { project: '企业官网改版项目', stage: '前端开发', uat: '未开始', release: '未发起', verdict: '不适用（未到上线节点）' },
-            { project: '新产品研发项目', stage: '工程样机', uat: '未开始', release: '未发起', verdict: '不适用（未到上线节点）' },
-          ],
-        },
-      }
-    }
-    // 合规/风险检查类
-    if (lower.includes('合规') || lower.includes('检查') || lower.includes('风险') || lower.includes('违规')) {
-      return {
-        content:
-          '项目合规检查完成。3个在建项目的立项审批、需求基线均已完成，流程合规。主要风险：proj-001 时间进度轻微落后，可能影响9-30上线窗口；无预算超支、无违规上线行为。整体合规，建议关注里程碑交付。',
-        thinkingProcess: [
-          '识别意图：项目合规检查',
-          '逐阶段核对立项/需求/开发/UAT/上线合规清单',
-          '分级标注风险项',
-          '生成合规检查结论',
-        ],
-        dataCard: {
-          type: 'table',
-          title: '项目合规检查结果',
-          columns: [
-            { key: 'stage', label: '阶段' },
-            { key: 'status', label: '状态' },
-            { key: 'note', label: '说明' },
-          ],
-          rows: [
-            { stage: '立项审批', status: '通过', note: '3个项目均完成立项评审与预算审批' },
-            { stage: '需求评审', status: '通过', note: '需求基线已冻结' },
-            { stage: '开发测试', status: '进行中', note: 'proj-001 集成测试执行中' },
-            { stage: 'UAT验收', status: '未完成', note: '未到验收节点' },
-            { stage: '上线发布', status: '未发起', note: '未到上线节点' },
-          ],
-        },
-      }
-    }
-    // 进展/进度/项目状态类（最宽泛，放最后）
-    if (lower.includes('进展') || lower.includes('进度') || lower.includes('项目') || lower.includes('里程碑') || lower.includes('状态') || lower.includes('现状') || lower.includes('报告')) {
-      return {
-        content:
-          '项目进展监理报告：当前3个在建项目整体正常。ERP系统实施项目（proj-001）进行中，里程碑完成2/3，预算使用率40%，进度轻微落后，需关注9-30上线窗口；企业官网改版项目（proj-002）前端开发进行中；新产品研发项目（proj-003）处于工程样机阶段。',
-        thinkingProcess: [
-          '识别意图：查询项目进展',
-          '汇总各项目里程碑完成率与预算使用率',
-          '计算进度偏差',
-          '生成项目进展监理总览',
-        ],
-        dataCard: {
-          type: 'stats',
-          title: '项目进展监理总览',
-          stats: [
-            { label: '在建项目', value: '3', tone: 'primary' },
-            { label: '里程碑完成', value: '3/8', tone: 'accent' },
-            { label: '预算超支', value: '0', tone: 'accent' },
-            { label: '进度风险', value: '1', tone: 'paused' },
-          ],
-        },
-      }
-    }
-    return {
-      content:
-        '项目监理agent已就绪。我可以帮您查询项目进展、检查合规状态、执行上线审计或生成监理报告。请问您需要监理哪个项目？',
-      thinkingProcess: ['解析用户输入', '未命中具体意图', '返回能力引导'],
-    }
-  }
-
-  // 默认回复
+/**
+ * 传输层兜底（对话通道不可达/超时）：只给中性占位，不产业务数字。
+ *
+ * 旧实现按关键词拼一段"看起来像答案"的本地样例，请求一超时就冒充 Agent 的真实
+ * 回复。裁决 D-A 要求降级显性化——前端这一层同样不能留第二套数据源。
+ */
+function transportFailureResponse(agentId: string): ConversationResponse {
   return {
-    content: '我已收到您的消息，正在处理中。请问还有什么可以帮您？',
-    thinkingProcess: ['解析用户输入', '未匹配具体能力', '返回默认响应'],
+    content: `对话服务暂时不可达（网络异常或后端超时），未能取到「${agentId}」的实时数据。`
+      + '本条为占位回复，不含业务结论，请稍后重试。',
+    thinkingProcess: [
+      '请求对话接口 /conversation/chat',
+      '通道不可用（网络异常或超时）',
+      '返回占位回复，不臆造业务数据',
+    ],
+    degraded: true,
+    degradedReason: 'channel_unavailable',
+    dataSource: 'unavailable',
+  }
+}
+
+/* ===================== SSE 流式对话客户端（工作包三 / 裁决 D-D） ===================== */
+
+/**
+ * 流式帧回调。帧语义与后端 conversation/chat/stream 一一对应：
+ * thinking（真实流水线步骤）/ token（正文增量）/ dataCard（尾帧结构化卡片）/
+ * done（收尾元数据）/ retract（护栏撤回终止帧）/ error（流异常，需一次性重答）。
+ */
+export interface ChatStreamHandlers {
+  onThinking: (step: string) => void
+  onToken: (text: string) => void
+  onDataCard: (card: DataCard) => void
+  onDone: (meta: ConversationResponse) => void
+  onRetract: (info: { notice: string; reason: string }) => void
+  onError: (info: { reason: string; detail: string }) => void
+}
+
+export type ChatStreamOutcome =
+  | { kind: 'completed' }
+  | { kind: 'retracted'; notice: string; reason: string }
+  | { kind: 'failed'; reason: string }
+
+/** 拆一帧 SSE 文本（event/data 两行，多余字段忽略）。 */
+function parseSseFrame(block: string): { event: string; data: any } | null {
+  let event = ''
+  const dataLines: string[] = []
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event:')) event = line.slice(6).trim()
+    else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
+  }
+  if (!event || dataLines.length === 0) return null
+  try {
+    return { event, data: JSON.parse(dataLines.join('\n')) }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 消费一次 SSE 响应，返回终止状态。
+ *
+ * 只有后端明确发出终止帧（done/retract/error）才算走完：连接被代理掐断、
+ * 或 HTTP 层失败一律返回 failed，由调用方做一次性重答（裁决 D-D 第 3 条）。
+ * 终止帧一到即收流——撤回之后的补发帧不能把 retracted 洗成 completed。
+ */
+async function readSseResponse(
+  resp: Response,
+  handlers: ChatStreamHandlers,
+): Promise<ChatStreamOutcome> {
+  if (!resp.ok || !resp.body) {
+    return { kind: 'failed', reason: `http_${resp.status}` }
+  }
+  let outcome: ChatStreamOutcome = { kind: 'failed', reason: 'stream_incomplete' }
+  let terminal = false
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let sep = buffer.indexOf('\n\n')
+    while (sep >= 0 && !terminal) {
+      const block = buffer.slice(0, sep)
+      buffer = buffer.slice(sep + 2)
+      sep = buffer.indexOf('\n\n')
+      const frame = parseSseFrame(block)
+      if (!frame) continue
+      switch (frame.event) {
+        case 'thinking':
+          handlers.onThinking(String(frame.data?.step ?? ''))
+          break
+        case 'token':
+          handlers.onToken(String(frame.data?.text ?? ''))
+          break
+        case 'dataCard':
+          handlers.onDataCard(frame.data as DataCard)
+          break
+        case 'retract':
+          handlers.onRetract({
+            notice: String(frame.data?.notice ?? '[内容已撤回]'),
+            reason: String(frame.data?.reason ?? 'guardrail_block'),
+          })
+          outcome = {
+            kind: 'retracted',
+            notice: String(frame.data?.notice ?? '[内容已撤回]'),
+            reason: String(frame.data?.reason ?? 'guardrail_block'),
+          }
+          terminal = true
+          break
+        case 'error':
+          handlers.onError({
+            reason: String(frame.data?.reason ?? 'stream_failed'),
+            detail: String(frame.data?.detail ?? ''),
+          })
+          outcome = { kind: 'failed', reason: String(frame.data?.reason ?? 'stream_failed') }
+          terminal = true
+          break
+        case 'done':
+          handlers.onDone(frame.data as ConversationResponse)
+          outcome = { kind: 'completed' }
+          terminal = true
+          break
+      }
+    }
+    if (terminal) break
+  }
+  return outcome
+}
+
+/**
+ * 流式发送对话消息（fetch + ReadableStream）。
+ *
+ * 为什么不用 EventSource：它无法带 Authorization 头，而对话端点必须鉴权
+ * （降级取数依赖真实 user_id 走 RBAC 与审计）——裁决 D-D 第 1 条。
+ * 401 只静默刷新重试一次，避免与刷新链路形成循环。
+ */
+export async function sendMessageStream(
+  agentId: string,
+  message: string,
+  handlers: ChatStreamHandlers,
+): Promise<ChatStreamOutcome> {
+  const path = '/api/v1/conversation/chat/stream'
+  const payload = JSON.stringify({ agent_id: agentId, message })
+  // 卡死的流不能把对话界面钉住：60s 无任何分片即中止，交给一次性重答
+  const controller = new AbortController()
+  const watchdog = setTimeout(() => controller.abort(), 60000)
+  const request = (token: string | null) =>
+    fetch(path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: payload,
+      signal: controller.signal,
+    })
+  try {
+    let resp = await request(useAuthStore.getState().token)
+    if (resp.status === 401) {
+      const access = await refreshAccessToken()
+      if (!access) return { kind: 'failed', reason: 'unauthorized' }
+      resp = await request(access)
+    }
+    return await readSseResponse(resp, handlers)
+  } catch (e) {
+    return { kind: 'failed', reason: e instanceof Error ? e.message : 'stream_error' }
+  } finally {
+    clearTimeout(watchdog)
   }
 }
 
 /* ===================== 例外管理 Mock 数据 ===================== */
-
 const now = Date.now()
 const minutesAgo = (m: number) => new Date(now - m * 60000).toISOString()
 const hoursAgo = (h: number) => new Date(now - h * 3600000).toISOString()
@@ -1680,12 +1558,15 @@ export const apiService = {
 
   sendMessage: (agentId: string, message: string): Promise<ConversationResponse> =>
     withFallback(async () => {
-      const res = await apiClient.post('/conversation/chat', {
-        agent_id: agentId,
-        message,
-      })
+      // 全局 10s 超时对不上 LLM 对话：实测监理 Agent 带实时数据的一次回答要 ~12s，
+      // 掐断后就地落到本地兜底，界面就把假数据当成 Agent 的真实回复（真机踩过）
+      const res = await apiClient.post(
+        '/conversation/chat',
+        { agent_id: agentId, message },
+        { timeout: 60000 },
+      )
       return res as unknown as ConversationResponse
-    }, buildMockConversationResponse(agentId, message)),
+    }, transportFailureResponse(agentId)),
 
   getPresetConversations: (): Record<string, ChatMessage[]> => PRESET_CONVERSATIONS,
 

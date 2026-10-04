@@ -59,6 +59,69 @@ def _ci_default_rule_mode(monkeypatch):
     monkeypatch.setattr(_settings, "llm_enabled", False)
 
 
+# ========== SPACE-1 测试/生产库隔离（2026-10-04 评审整改指令）==========
+# 回归套件默认重定向到独立测试库 erp_test_db（生产形态 MySQL、与 erp_db 完全
+# 隔离）——终结"测试写入放大污染生产形态库"（3 天 12.9GB/410 万事件实证）。
+# 会话开始清空测试库（Fresh State），会话结束保留数据供排查。
+# 逃生口：ERP_TEST_USE_PROD_DB=1 可显式回归生产形态库（默认禁用）。
+import os as _os
+import tempfile
+
+from app.core.config import settings as _space1_settings
+
+if _os.environ.get("ERP_TEST_USE_PROD_DB") != "1":
+    _base, _, _ = _space1_settings.mysql_url.rpartition("/")
+    _space1_settings.mysql_url = f"{_base}/erp_test_db?charset=utf8mb4"
+
+# Fresh State 测试库的确定性登录凭据（仅测试进程内存，不落 .env/.git）
+_space1_settings.seed_password = "admin123"
+
+
+def pytest_sessionstart(session):
+    """会话开始：确保测试库结构存在并清空为 Fresh State（全零起点）。"""
+    import asyncio
+
+    async def _prepare():
+        from sqlalchemy import text
+
+        from app.core import database as _db
+
+        engine = await _db.init_db()
+        if engine is None:
+            return
+        info = await _db.bootstrap_schema()
+        if "error" in info:
+            raise RuntimeError(f"测试库建表失败: {info['error']}")
+        async with engine.begin() as conn:
+            await conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+            tables = (
+                await conn.execute(text(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = DATABASE()"
+                ))
+            ).scalars().all()
+            for t in tables:
+                await conn.execute(text(f"TRUNCATE TABLE {t}"))
+            await conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+        # RBAC 内存种子重载（清库后与 DB 对齐：空 DB + 内存种子，
+        # 由各测试的 TestClient lifespan / persist 按需回写）
+        print(f"[SPACE-1] 测试库就绪：{len(tables)} 表已清空（erp_test_db，与生产库隔离）")
+
+    asyncio.run(_prepare())
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """会话结束：清理临时 sqlite 会话文件（如存在）。"""
+    import glob
+    import os
+
+    for f in glob.glob(os.path.join(tempfile.gettempdir(), "erp_pytest_*.db")):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+
+
 # ========== 全局单例重置 ==========
 
 @pytest.fixture(autouse=True)

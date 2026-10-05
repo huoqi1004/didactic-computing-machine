@@ -1125,15 +1125,10 @@ def build_creative_doc_data(agent_config: dict, message: str, outline: dict,
 
 
 def _safe_doc_filename(title: str, trace_id: str) -> str:
-    """
-    产物文件名：只保留中日韩文字/字母数字/连字符，带时间戳与 trace 短码避免覆盖。
+    """产物文件名：与文档生成工具共用同一净化口径（见 output.safe_artifact_name）。"""
+    from app.core.document.output import safe_artifact_name
 
-    白名单而非黑名单——标题来自模型输出，黑名单正则挡不住 ▶/emoji/控制字符，
-    而这些字符进了 Content-Disposition 会打挂下载（产物目录对外经下载端点暴露）。
-    """
-    stem = re.sub(r"[^\w\u4e00-\u9fff-]+", "", title)[:40] or "creative-draft"
-    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    return f"{stem}-{stamp}-{(trace_id or 'na')[:6]}.docx"
+    return safe_artifact_name(title, trace_id, "docx")
 
 
 async def _handle_creative(agent_id: str, message: str, agent_config: dict,

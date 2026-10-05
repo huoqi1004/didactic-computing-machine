@@ -193,3 +193,23 @@ class SkillRegistry:
 
 # 进程内单例
 skill_registry = SkillRegistry()
+
+
+def resolve_activatable_skill(name: str) -> tuple[str, str]:
+    """请求指定的技能名 → ``(可用技能名, 不可用原因)``（不可用时名字为空）。
+
+    入口只判"存在 + 启用 + 白名单工具都已注册"：域一致性要等执行域确定
+    （supervisor 会委派子域），由 ``runtime._skill_for`` 收口。
+    工具未注册必须在这里挡住——白名单过滤后为空会让整轮执行直接报错，
+    那不是技能降级而是对话链路故障。
+    """
+    skill_name = (name or "").strip()
+    if not skill_name:
+        return "", ""
+    skill = skill_registry.get(skill_name)
+    if skill is None:
+        return "", f"技能不存在或已停用: {skill_name}"
+    _ = SkillRegistry._validate(skill)
+    if not skill.valid:
+        return "", f"{skill_name}: {skill.invalid_reason}"
+    return skill.name, ""

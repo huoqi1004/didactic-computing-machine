@@ -232,3 +232,74 @@ Agnes-3.0-flash 接入后 LLM 路径已生效——**用截图同款问题实测
 
 取证脚本说明：本轮的 `_tmp_*` 探针（mock provider / 帧计时 / 分类采样 / A-B 对照）连同产物已在收尾全部删除（`backend/` 下 `_tmp_*` 计数 0；自起的 :8010/:8011/:8012/:5177/:5178 进程树已 taskkill；:5173 上的 vite 启动于 2026-10-03 09:12，早于本计划，未动）。因此上表数字以本文档记录为准，脚本不再可复现；如需复现，5.3 已写明栈配置（自建 OpenAI 兼容 mock provider 起 :8011、后端 :8012 只换上游，路由/护栏/帧协议/前端全走产品真实代码），5.5 写明了空载串行采样方法——并发采样会自我污染计时，这是本轮踩过的坑。
 
+---
+
+## 六、第三批实施记录与销项（工作包二：Skill/MCP + 裁决 D-B 修正，2026-10-05）
+
+验收行原文（第 82 行）：**"第三批 | 工作包二（Skill/MCP） | 2-3 人日 | Skill 热加载生效+管理端启停；MCP 经准入审查+只读治理；审计留痕"**。
+实施令第三批前置：**"MCP 准入审查材料先行提交委员会备案"**——备案件 `docs/mcp-admission-review-2026-10-05.md`（94 行）已先行成文，本批实现按该件结论走自研路径。
+
+### 6.1 备案件结论摘要（不重复取证细节，详见该文件）
+
+| 对象 | 结论 | 决定性理由 |
+| --- | --- | --- |
+| 社区 `office-word-mcp-server` | **本批不予准入** | 上游 `archived=true`（CVE 无修复通道）+ 54 工具无条件注册、服务端无禁用开关 + 文件读写无路径归一/白名单（任意路径读写）+ `convert_to_pdf` 可被模型触发拉起外部进程；叠加本仓桥接层无鉴权头/无超时/无版本锁定列，六检查 4 项无法闭合 |
+| 自研 `erp_readonly_query` + `document_generate_docx` / `document_generate_xlsx` | **已落地并纳入治理面** | 零新增攻击面（不出网、不起进程、产物只进受控目录），表白名单 + 按表 RBAC 二次鉴权 + 写工具补偿幂等，调用全量留痕 |
+
+D-B 逐条对照：`mcp-server-sqlite` 否选→按裁决改自研只读查询（✓ 已落地）；首批准入 2 个→自研工具 ✓、第三方 server 经审后 ✗ 不接入（能力面由既有 python-docx/openpyxl 生成器承接）；"external_tools 白名单桥接 + SSRF 三关卡 + 调用审计"→桥接层既有且经回归覆盖，但本批**无外部 server 接入**，该路径未被使用（不是绕过，是没用）；fetch / filesystem 第二批候选→未启动，仍属待裁决（备案件 §5-4）。
+
+### 6.2 验收行三条逐条对照（全部实测，非估算）
+
+| 验收项 | 落点 | 实测证据（真机 :8010，产品 HTTP 通道） |
+| --- | --- | --- |
+| Skill 热加载生效 | `skills.py` 目录指纹（路径+文件名+纳秒 mtime）触发重扫 | 不重启进程：发布目录写入 `zz_batch3_probe.yaml` → 目录 `count 12→13`，新项 `valid=True tools=['document_generate_docx']`；删除 YAML 后回落 |
+| 管理端启停 | `PUT /api/v1/agent-ops/skills/{name}/enabled` → `skill_versions.set_enabled` → 定制层 | 停用（收紧）：`200 {'status':'applied','reason':'收紧类变更即时生效','thread_id':None}`，目录 `enabled=False`；启用（放宽）：`200 {'status':'pending_approval','thread_id':'cust:skill:weekly_report:user_admin'}`，**待批期间目录仍 `enabled=False`**（红线 2：提案不顶掉现状） |
+| 人审闭环（启停的另一半） | `POST /api/v1/agent-ops/customizations/skill/weekly_report/decide` | `200 {'status':'rejected','reply':'定制变更已驳回（当前生效配置未改动）'}`；`customization_versions` id=700 → `rejected` + `approved_by=user_chairman`；`?status=pending_approval` 由 1 条→0 条；`/agent-ops/approvals` 由 5 张→4 张且 `weekly_report_cards=[]`（卡片自动关闭）；终态新进程读 DB：`get_override('skill','weekly_report')=None` → `enabled=True` |
+| MCP 经准入审查 | 备案件 §2 六检查逐项 + §1 取证通道与未核实项声明 | 提交委员会备案（本批实现的前置件） |
+| 只读治理 | `erp_readonly_query`：14 表白名单 + SELECT-only + 禁止 token + 强制 LIMIT(200/1000) + 按表二次鉴权 | 入口闸门真实拦截：cio 初次 5/5 表返回"权限不足：需要 `platform:read`"，周报数值全标"待补"（未编造）；授权后 `platform:read` 1 行，K2 腿真实取数 `numeric=12`（含 `3,308,000`） |
+| 审计留痕 | `_audit_skill_activation` 写 `audit_logs` | 3 轮请求 → `audit_rows=6`：`skill.activated\|skill:weekly_report\|success\|low` 与 `skill.activation_denied\|skill:not_a_skill\|denied\|medium\|{"reason":"技能不存在或已停用: not_a_skill", "trace_id":..., "thread_id":"channel:CH-8d43324bbebf"}` |
+
+### 6.3 工具面与出厂目录现状
+
+`GET /api/v1/agent-ops/tools` 共 40 个工具，新增 3 个均带 `permission/risk_level/has_compensation/args_schema` 字段面：`erp_readonly_query`（readonly/`platform:read`）、`document_generate_docx`、`document_generate_xlsx`（write_low/`document:create`）。`GET /api/v1/agent-ops/skills` 出厂目录 **12 项、invalid=0**，其中 platform 域 5 项（`data_brief`/`docx_report`/`meeting_notes`/`weekly_report`/`xlsx_report`，工具引用全部可解析）。
+
+一处**提交声明与树内容不符**必须报备：工作包二要求的"五件套 Skill"此前**从未存在过**——`git log --all -- 'backend/app/core/agent/skills/*.yaml'` 只有一个提交（`8a99aee` phase-D，6 项业务技能），`421d99d` 的提交信息写着"五件套 Skill（D-B/D5 落地）"却没有任何技能 YAML（`git show 421d99d --name-only` 共 7 个文件，全是 tools/intent/sandbox/tests），磁盘上也没有（本批新建的 6 个文件 mtime 均为 2026-10-05，其余 6 个为 2026-09-19）。也就是说整改方案 1.2 里"Skill 目录有定义但工具名 0 注册点"的真实形态更糟：连定义都没有。本批把 5 件套 + `supervision_plan` 正式落盘并纳入版本控制，目录 6→12。D-C 页眉标注由治理面强制注入，调用方自带标注一律丢弃（实测产物页眉 `AI 生成草稿 · 生成时间 … · trace_id … · 未经审批，不得作为正式交付物`，伪造的"正式交付物"未出现）；补偿重放首轮 `{"removed": true}`、次轮 `{"removed": false, "reason": "产物已不存在（补偿幂等：no-op）"}`。
+
+### 6.4 本批实测发现并已改（不是登记）
+
+1. **fea297c 误删了 `result = await agent_runtime.run(...)`**——`orchestration_service.run_scenario_for_agent` 的非 supervisor 分支自此直接读未定义的 `result`，任何"直连单个 Agent（非总调度）"的调用必抛 NameError。`git show af3af8c:backend/app/core/agent/orchestration_service.py` 第 92 行可复核。**两批全量回归（1480 passed）从未为它红灯——该分支零覆盖**。已恢复调用，并由 `test_skills.py::test_orchestration_activates_skill_into_ctx_and_audits`（monkeypatch `agent_runtime.run` 断 `reply=="ok"`）钉住。
+2. **`base.py` 把编排键当 LLM 参数下发**：`ctx.extra` 里的 `skill`/`domain` 等键随 kwargs 进 OpenAI 载荷。改为 `_llm_keys` 白名单过滤（`temperature/max_tokens/response_format/extra/scene/cost_domain`）。
+3. **supervisor 规则路径没有 platform 域**：`ROUTE_KEYWORDS` 缺 platform，规则降级时"汇总本周经营进展并生成一份周报文档"回"未识别出该指令涉及的业务域。目前可协同的域：contract、crm、hr、payroll、reimbursement、sales、treasury"（实测 1.4s）。已补 platform 关键词。
+4. **分类抖动会让指名技能被静默丢弃**：同一指令两次分别分到 `platform+knowledge` 与 `knowledge`，`runtime._skill_for` 的域守卫据此丢掉 weekly_report → 无产物（I 腿 `reply_len=1292`、`artifact_link=NONE`）。新增 `supervisor._apply_skill_route`：请求指名的技能所在域并入委派集合（幂等、置于最前、不改多域语义）。修后日志 `supervisor.skill_domain_forced domain=platform`，K2 腿 `doc_link=True`。
+5. **`audit._save_verify_state` 里 `orjson` NameError**：真机日志 `audit.verify_state_save_failed error=name 'orjson' is not defined`——审计链点位与报告**从未落库**。补局部 import 后实测 `verify_chain checked=5442`，`audit_verify_state.last_incremental_at` 由 `None`→`2026-10-04 23:59:53`，`last_report` 56 B 首次写入。
+6. **`erp_readonly_query` 表名未归一**：白名单校验按 `strip().lower()`，按表鉴权却用原始表名查 `_TABLE_RESOURCE` → `" Payroll_RECORDS "` 这类变体绕过白名单判定后 KeyError。已统一归一，并加 `test_table_name_normalization_before_domain_check`（断言 seen `payroll:read` + PermissionError）。
+7. **`platform:read` 入口资格把业务角色全挡在只读查询外**：本批最初只给 chairman/ceo，真机周报 5/5 表被拒。改为业务角色统一获得**入口资格**（`seed.py` 尾部对 `ROLE_PERMISSION_MATRIX` 补 `platform:{"read"}`），数据面仍由按表二次鉴权收口（读 `payroll_records` 需 `payroll:read`）；持有者 27→24。
+8. **一处早期表述需更正（我的探针误判，不是产品缺陷）**：D2 腿 chairman 停用技能被 403 拦下，我当时记作"erp_db 与种子矩阵漂移"。回树核实 `seed.py:851`——chairman 的 customization 恰为 `{read, approve, create, publish}`，**不含 update**，403 是设计正确行为（CIO 执行、董事长审批）。真正的漂移只有 `platform:read` 一处：`seed.py:1310` 的播种是"先查后插、从不撤销"，所以三个专用角色在 erp_db 里仍持有 `platform:read`（代码侧已收回），需人工撤销——登记待委员会（6.6-②）。
+9. **conftest 与 D-04 的断言冲突定责**：`tests/conftest.py` 为隔离把 `settings.seed_password` 钉成共享口令，使 D-04 要治理的"随机口令模式"三条断言在测试环境恒不成立。已在 `test_seed_password.py` 加 `random_mode_seed` fixture 显式清掉覆盖后重建种子（不改 conftest 的隔离语义，也不弱化断言）。
+
+### 6.5 测试（本批新增 14 条 + 改写 3 条 + 两处计数断言校正）
+
+| 文件 | 新增用例 | 钉住的行为 |
+| --- | --- | --- |
+| `test_platform_sandbox_g.py` | `test_readonly_query_denied_without_domain_permission` / `test_readonly_whitelist_tables_exist_in_orm` / `test_table_name_normalization_before_domain_check` / `test_platform_read_is_entry_gate_for_business_roles` / `test_document_tools_registered_with_governance_triplet` / `test_document_generate_docx_forces_draft_header` / `test_document_compensation_removes_then_noop` / `test_skill_activation_audit_rows_persist` | 按表二次鉴权、14 表白名单与 ORM `__tablename__` 逐项对齐防漂移、表名归一、入口资格排除集（三个专用角色）与业务角色恰为 `{"read"}`、写工具三件套齐备、D-C 页眉强制注入、补偿二轮 no-op、启停留痕真写 `audit_logs` |
+| `test_skills.py` | `test_builtin_skills_all_valid` / `test_resolve_activatable_skill` / `test_resolve_activatable_skill_respects_disable` / `test_skill_for_not_applied_when_tools_out_of_domain` / `test_orchestration_activates_skill_into_ctx_and_audits` | 出厂目录不得存在"引用未注册工具"的技能；`resolve_activatable_skill` 的 (name, reason) 契约；停用项不可激活；跨域技能不套工具（域守卫）；生产侧 `kwargs.skill → ctx.extra["skill"]` 并回落纯域——同时覆盖 6.4-① 恢复的 `agent_runtime.run` 分支 |
+| `test_supervisor.py` | `test_apply_skill_route_keeps_named_skill_domain` | 指名技能的域并入委派集合：`["knowledge"] → ["platform","knowledge"]`、幂等、空/未知技能/None ctx 原样返回 |
+| `test_seed_password.py` | 改写 3 条走 `random_mode_seed` | 6.4-⑨ |
+| `test_external_mcp.py` | 计数断言由 `len(skills) == 6` 改为按名字集合断言 + `assert not invalid` | 目录会随版本增长，写死条数等于给自己埋漂移红灯；改后 overlay 有额外技能时也不假红灯 |
+
+### 6.6 待委员会裁决（五项，本批不自行决定）
+
+1. **备案件 `docs/mcp-admission-review-2026-10-05.md` §5 四条原样转呈**：是否为外部 MCP 新增 stdio transport / 允许本机拉起第三方 server 进程；`external` 是否入 RBAC `RESOURCES`；外部 MCP 的最小治理前置（`mcp_servers` 增列 `transport/api_key_ref/version_pin` + 调用侧 timeout/熔断 + 按 `ToolAnnotations` 强制分级）；`fetch`/`filesystem` 第二批候选是否一并冻结。
+2. **erp_db 中三个专用角色（`log_auditor`/`customization_admin`/`customization_approver`）残留的 `platform:read` 是否撤销**。代码侧本批已收回，但播种 insert-only 不会 revoke，库里仍是授予态；`log_auditor` 的"零业务资源"是两条安全回归钉住的不变量，属于必须撤销的一类。
+3. **5.7-1 首 token 口径**：仍按"管线预算 ≤150ms + 供应商 TTFT 单独 SLO"拆，还是坚持端到端 2s 并要求网关层兜底——它决定本方案能否关闭（第三批不涉及，但验收行口径是共用的）。
+4. **#40 事件循环单例族**：本批全量再次复现（`test_ws_auth_g.py::test_refresh_rotates_refresh_token` 报 `Lock ... bound to a different event_loop`，隔离复跑 PASS），与 5.10 红线 2 竞态同族，仍未定责。
+5. **`mcp` 类定制入口的存废**：第三方 server 本批零准入，但管理端仍可配 server + 勾选工具（`agent_customizations` type="mcp"）。入口保留而接入面为空，是否算"可点但必然无效"的 UI 债，请委员会定：保留（等 §5-3 前置件）或暂时隐藏并标注"未准入"。
+
+### 6.7 明确不做 / 未实现（含理由）
+
+- **不接入任何第三方 MCP server**（备案件 §2 六检查 4 项无法闭合，且桥接层无鉴权头/超时/版本锁定）——`external_tools.py` 桥接与 SSRF 三关卡原样保留，本批未使用；
+- **platform 域不新增 Agent**：`runtime._build_graph(domain, skill)` 只要工具注册即可建图，新增 Agent 只会多一个空壳节点（真机 K2 腿即在 supervisor 委派下跑通，无需本体 Agent）；
+- **未做**：`office-word-mcp-server` 的依赖 CVE 扫描（无离线数据源，备案件 §1 已列为"未核实项"，不作为结论依据）；
+- **未做**：§5-3 的桥接层治理前置（等裁决 6.6-①，实现前任何"可准入"结论都不成立）；
+- **前端未动**：技能启停/版本历史 UI 在 F4.4/F4.5 已具备，本批无新增交互面。
+

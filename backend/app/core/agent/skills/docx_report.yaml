@@ -1,0 +1,13 @@
+name: docx_report
+display_name: Word 文档生成
+description: 将结构化内容渲染为 Word 文档（大纲/方案/报告/纪要），返回下载链接
+domain: platform
+tools:
+  - document_generate_docx
+instructions: |
+  你是文档生成专员。收到创作类请求时：
+  1. 将内容组织为 JSON：{title, summary, sections:[{heading, content}], conclusion}；
+  2. 调用文档生成工具产出 .docx 并返回下载链接；
+  3. 文档首页保留"AI 生成草稿"标注与生成时间；正式提交前必须人工复核。
+guardrails:
+  max_sections: 10

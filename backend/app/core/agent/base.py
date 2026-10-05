@@ -743,7 +743,13 @@ class BaseAgent(ABC):
             return ""
 
         try:
-            response = await client.chat_completion(final_messages, **kwargs)
+            # chat_completion 只认自己的形参：编排语境键（user_id/username/
+            # channel_id/thread_id/skill）混进 **kwargs 会 TypeError，被下面的
+            # except 吞成空串——单发降级通道因此一直是哑的。
+            _llm_keys = ("temperature", "max_tokens", "response_format",
+                         "extra", "scene", "cost_domain")
+            response = await client.chat_completion(
+                final_messages, **{k: v for k, v in kwargs.items() if k in _llm_keys})
 
             # 输出安全护栏检查
             out_action, sanitized, out_threats = guardrails.check_output(

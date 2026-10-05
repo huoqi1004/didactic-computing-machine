@@ -14,7 +14,6 @@ from app.core.auth import PasswordHasher
 from app.core.config import settings
 from app.core.rbac.engine import RBACEngine
 from app.core.rbac.seed import (
-    SEED_PASSWORDS,
     SEED_USERS,
     _build_seed_users,
 )
@@ -24,17 +23,39 @@ from app.core.rbac.seed import (
 _WEAK_PASSWORD_SAMPLES = ["admin123", "chairman123", "ceo123", "cho123", "staff123"]
 
 
-async def test_seed_users_no_weak_password():
+@pytest.fixture(scope="module")
+def random_mode_seed():
+    """按出厂默认（未注入 ERP_SEED_PASSWORD）重建种子用户与明文密码表。
+
+    conftest 为测试隔离把 settings.seed_password 钉成共享口令，模块级
+    SEED_USERS/SEED_PASSWORDS 因此是"注入模式"的产物——而 D-04 要治理的是
+    随机模式，不显式清掉覆盖这几条断言在测试环境里恒不成立。
+    """
+    from app.core.rbac import seed as seed_mod
+
+    original_pw, original_map = settings.seed_password, dict(seed_mod.SEED_PASSWORDS)
+    settings.seed_password = ""
+    seed_mod.SEED_PASSWORDS.clear()
+    users = seed_mod._build_seed_users()
+    passwords = dict(seed_mod.SEED_PASSWORDS)
+    seed_mod.SEED_PASSWORDS.clear()
+    seed_mod.SEED_PASSWORDS.update(original_map)
+    settings.seed_password = original_pw
+    return users, passwords
+
+
+async def test_seed_users_no_weak_password(random_mode_seed):
     """全部种子用户的密码哈希不匹配任何旧弱密码。"""
-    assert len(SEED_USERS) >= 24
-    for user in SEED_USERS:
+    users = random_mode_seed[0]
+    assert len(users) >= 24
+    for user in users:
         username = user["username"]
         # 旧密码模式：{username}123
         assert not PasswordHasher.verify_password(
             f"{username}123", user["password_hash"]
         ), f"种子用户 {username} 仍在使用弱密码 {{username}}123"
     # 典型弱密码样本逐一验证（对任意用户都不匹配）
-    for user in SEED_USERS:
+    for user in users:
         for weak in _WEAK_PASSWORD_SAMPLES:
             assert not PasswordHasher.verify_password(
                 weak, user["password_hash"]
@@ -49,19 +70,20 @@ async def test_seed_users_must_change_password():
         )
 
 
-async def test_random_passwords_generated_and_usable():
+async def test_random_passwords_generated_and_usable(random_mode_seed):
     """随机模式下每个种子用户都有独立强密码，且能通过密码校验。"""
-    usernames = {u["username"] for u in SEED_USERS}
-    assert set(SEED_PASSWORDS.keys()) >= usernames
+    users, passwords = random_mode_seed
+    usernames = {u["username"] for u in users}
+    assert set(passwords.keys()) >= usernames
     # 独立性：24 个用户密码互不相同
-    assert len(set(SEED_PASSWORDS.values())) == len(SEED_PASSWORDS)
+    assert len(set(passwords.values())) == len(passwords)
     # 强度：token_urlsafe(9) 产生 12 字符密码
-    for password in SEED_PASSWORDS.values():
+    for password in passwords.values():
         assert len(password) >= 12
     # 可用性：随机密码能通过对应哈希的校验
-    for user in SEED_USERS:
+    for user in users:
         assert PasswordHasher.verify_password(
-            SEED_PASSWORDS[user["username"]], user["password_hash"]
+            passwords[user["username"]], user["password_hash"]
         )
 
 
@@ -82,13 +104,13 @@ async def test_env_seed_password_mode(monkeypatch):
         monkeypatch.undo()
 
 
-async def test_change_password_clears_flag():
+async def test_change_password_clears_flag(random_mode_seed):
     """修改密码后 must_change_password 标记清除，新密码生效。"""
     engine = RBACEngine()
     engine.add_user(
         user_id="u_test_pw",
         username="pw_tester",
-        password_hash=PasswordHasher.hash_password(SEED_PASSWORDS["staff"]),
+        password_hash=PasswordHasher.hash_password(random_mode_seed[1]["staff"]),
         full_name="改密测试",
         department="信息部",
         email="pw_tester@erp.com",

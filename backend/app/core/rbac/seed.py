@@ -117,6 +117,10 @@ RESOURCES: dict[str, str] = {
     "admin": "行政管理",
     "document": "文档管理",
     "message": "内部通讯",
+    # 工作包二（D-B）：跨域通用能力（只读 SQL 查询、文档/报表产物生成）。
+    # 单列资源而不是挂在某个业务域下——否则一个自然语言查询工具会同时把
+    # payroll/treasury 等敏感域的读权限放大到"会问就能查"。
+    "platform": "平台通用能力",
 }
 
 ACTIONS: list[str] = ["read", "create", "update", "delete", "approve", "manage"]
@@ -867,6 +871,25 @@ ROLE_PERMISSION_MATRIX["customization_admin"]["agent"] = {"read"}
 ROLE_PERMISSION_MATRIX["customization_approver"]["system"] = {"manage"}
 ROLE_PERMISSION_MATRIX["customization_approver"]["agent"] = {"read", "approve"}
 
+# ---- 工作包二（D-B）：platform 只读入口资格 ----
+# platform:read 的语义是"允许调用 ERP 只读查询工具"，不是"能读所有业务表"——
+# 真正的数据面由 app/agents/platform/tools.py 的按表二次鉴权（<域>:read）收回，
+# 无 payroll:read 的角色经平台工具同样读不到 payroll_records。入口对业务角色开放、
+# 且只开放 read（写/管理一律不给），否则非董事会角色用周报/纪要/报表技能时
+# 取数会被入口整体挡下：真机实测 cio 经 supervisor 生成周报，白名单 5 张表
+# 全部返回"权限不足：需要 platform:read"，产出的周报数值列全是"待补"。
+# 三个专用角色不给入口：log_auditor 的"零业务资源"是 test_operation_logs_g3 与
+# test_security_hardening_g 两条安全回归钉住的不变量（审计与操作分离），
+# customization_admin/approver 同样无任何业务域读权——按表鉴权会把每张表都拒掉，
+# 给入口只是留一个"能问就能查"的错觉。
+# chairman/ceo 已由上面 RESOURCES 推导获得 platform，不覆盖它们的既有动作集。
+_PLATFORM_ENTRY_EXCLUDED: frozenset[str] = frozenset({
+    "log_auditor", "customization_admin", "customization_approver",
+})
+for _role_code, _role_matrix in ROLE_PERMISSION_MATRIX.items():
+    if _role_code in _PLATFORM_ENTRY_EXCLUDED or "platform" in _role_matrix:
+        continue
+    _role_matrix["platform"] = {"read"}
 
 
 def _expand_matrix_to_permissions() -> dict[str, list[str]]:

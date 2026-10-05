@@ -47,6 +47,11 @@ ROUTE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "crm": ("客户", "商机", "联系人"),
     "sales": ("订单", "销售", "下单", "销售额"),
     "contract": ("合同", "签约", "条款"),
+    # 工作包二（D-B）：平台通用能力域（只读查询 / 文档·报表产物）。规则路径必须显式
+    # 列出——否则 platform 技能只能等 LLM 分类撞中，实测"汇总本周经营进展并生成一份
+    # 周报文档"规则落空，直接回复"未识别出该指令涉及的业务域"。关键词取产物名词，
+    # 不用"查询/数据"这类会横扫业务域的宽词（工作包一改过的"关键词过宽"教训）。
+    "platform": ("周报", "月报", "日报", "文档", "纪要", "报表", "大纲", "生成报告"),
 }
 
 # 工作流委派项（名称以 workflow: 开头时由 delegate 节点启动工作流）
@@ -114,6 +119,33 @@ class SupervisorState(TypedDict, total=False):
     error: Optional[str]
 
 
+def _apply_skill_route(domains: list[str], ctx: Optional[ToolContext]) -> list[str]:
+    """请求指名的技能所在域并入委派集合（幂等，置于最前，不改变多域协同语义）。
+
+    指名技能是用户的显式意图，委派集合必须包含该技能所在的域。真机实测同一句
+    "汇总本周经营进展并生成一份周报文档" 配 skill=weekly_report，LLM 分类两次
+    分别给出 ``["platform","contract"]`` 与 ``["knowledge"]``；落到 knowledge 时
+    技能被 runtime 的域守卫静默丢弃，周报退化成整篇"待填写/___"模板且无 docx
+    产物——分类抖动由此直接放大成产物链断裂。技能停用/引用未注册工具时不介入
+    （由激活链路判定并留审计，路由退回纯消息分类）。
+    """
+    name = ((getattr(ctx, "extra", None) or {}).get("skill") or "").strip()
+    if not name:
+        return domains
+    from app.core.agent.skills import resolve_activatable_skill, skill_registry
+
+    resolved, _reason = resolve_activatable_skill(name)
+    if not resolved:
+        return domains
+    skill = skill_registry.get(resolved)
+    if skill is None or not skill.domain or skill.domain in domains:
+        return domains
+    routed = [skill.domain, *domains]
+    logger.info("supervisor.skill_domain_forced",
+                skill=skill.name, domain=skill.domain, routed=routed)
+    return routed
+
+
 def build_supervisor_graph():
     """编译监督者图（Checkpointer 由调用方注入 compile）。"""
     from langgraph.graph import END, START, StateGraph
@@ -124,6 +156,7 @@ def build_supervisor_graph():
         domains = await classify_with_llm(message)
         if domains is None:
             domains = classify_by_rules(message)
+        domains = _apply_skill_route(domains, state["input"].get("ctx"))
         if not domains:
             return {"route_plan": [], "reply": (
                 "未识别出该指令涉及的业务域。目前可协同的域："

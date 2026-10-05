@@ -551,6 +551,7 @@ class AuditChain:
             return {}
 
     async def _save_verify_state(self, engine, mode: str, report: dict) -> None:
+        import orjson
         from sqlalchemy import text
 
         now = datetime.now(timezone.utc)

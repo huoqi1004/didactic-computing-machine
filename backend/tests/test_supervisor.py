@@ -118,6 +118,36 @@ async def test_classify_rules_single_and_multi():
     assert set(classify_by_rules("汇总报销和资金余额")) == {"reimbursement", "treasury"}
     assert "workflow:procure_to_pay" in classify_by_rules("安排采购到支付流程")
     assert classify_by_rules("今天天气怎么样") == []
+    # 工作包二：平台域（文档/报表产物）必须走规则路径可达，且不横扫业务域
+    assert classify_by_rules("汇总本周经营进展并生成一份周报文档") == ["platform"]
+    assert "platform" in classify_by_rules("把这份会议纪要整理成文档")
+    assert classify_by_rules("查一下报销单") == ["reimbursement"]
+
+
+def test_apply_skill_route_keeps_named_skill_domain():
+    """指名技能的域必须进入委派集合——分类抖动不能静默丢掉技能与产物。
+
+    真机实测：同一句"汇总本周经营进展并生成一份周报文档"+skill=weekly_report，
+    LLM 分类一次给 platform+contract（产出 docx），一次给 knowledge（技能被域守卫
+    丢弃，退化成整篇"待填写"模板且无产物）。
+    """
+    from app.core.agent.supervisor import _apply_skill_route
+    from app.core.agent.tools_v2 import ToolContext
+
+    import app.agents.platform.document_tools  # noqa: F401  注册 platform 域工具
+    import app.agents.platform.tools  # noqa: F401
+
+    def ctx(skill):
+        return ToolContext(user_id="u1", thread_id="t1", extra={"skill": skill})
+
+    assert _apply_skill_route(["knowledge"], ctx("weekly_report")) == [
+        "platform", "knowledge"]
+    # 幂等：域已在集合内不重复插入
+    assert _apply_skill_route(["platform"], ctx("weekly_report")) == ["platform"]
+    # 未指名 / 技能不存在 / 无 ctx → 原样返回，退回纯消息分类
+    assert _apply_skill_route(["knowledge"], ctx("")) == ["knowledge"]
+    assert _apply_skill_route(["knowledge"], ctx("no_such_skill")) == ["knowledge"]
+    assert _apply_skill_route(["knowledge"], None) == ["knowledge"]
 
 
 async def test_supervisor_cross_domain_summary(sup_env, monkeypatch):

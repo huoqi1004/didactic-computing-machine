@@ -125,11 +125,14 @@ async def test_external_tool_schema_validation(external_env, monkeypatch):
 
 
 async def test_phase_d_composite_summary(external_env, monkeypatch):
-    """Phase D 汇总：MCP 出口（7域）+ 外部接入（1）+ Skills（6）+ 目录 API。"""
+    """Phase D 汇总：MCP 出口（7域）+ 外部接入（1）+ Skills（12）+ 目录 API。"""
     import app.agents.contract.tools  # noqa: F401
     import app.agents.crm.tools  # noqa: F401
     import app.agents.hr.tools  # noqa: F401
     import app.agents.payroll.tools  # noqa: F401
+    import app.agents.platform.document_tools  # noqa: F401
+    import app.agents.platform.tools  # noqa: F401
+    import app.agents.project_supervisor.tools  # noqa: F401
     import app.agents.reimbursement.tools  # noqa: F401
     import app.agents.sales.tools  # noqa: F401
     import app.agents.treasury.tools  # noqa: F401
@@ -150,5 +153,12 @@ async def test_phase_d_composite_summary(external_env, monkeypatch):
     assert by_risk.get("write_low", 0) >= 7
     assert by_risk.get("write_high", 0) >= 2
 
-    skills = skill_registry.to_catalog()
-    assert len(skills) == 6 and all(s["valid"] for s in skills)
+    skills = {s["name"]: s for s in skill_registry.to_catalog()}
+    # 按名字断言而非按总数——发布目录（overlay）可能有管理端物化的已发布技能，
+    # 写死总数会随环境状态漂移成假红灯
+    assert {"reimbursement_handle", "treasury_daily", "hr_headcount",
+            "crm_customer_view", "sales_order_handle", "contract_risk_review",
+            "docx_report", "xlsx_report", "supervision_plan", "meeting_notes",
+            "weekly_report", "data_brief"} <= set(skills)
+    invalid = [s for s in skills.values() if not s["valid"]]
+    assert not invalid, invalid

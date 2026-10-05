@@ -1,0 +1,7 @@
+N0 catalog_before={'enabled': False, 'valid': True, 'published': False, 'version': ''}
+N1 disable http=200 body={'status': 'applied', 'reason': '收紧类变更即时生效', 'thread_id': None}
+N1 catalog_after_disable={'enabled': False, 'valid': True, 'published': False, 'version': ''}
+N2 enable http=200 body={'status': 'pending_approval', 'reason': '放宽类变更需人工审批后生效', 'thread_id': 'cust:skill:weekly_report:user_admin'}
+N2 catalog_after_enable={'enabled': False, 'valid': True, 'published': False, 'version': ''}
+N3 approvals http=200 count=5 sample=[{'thread_id': 'cust:skill:weekly_report:user_admin', 'channel_id': None, 'agent_key': 'customization', 'domain': 'customization', 'tool': 'skill:weekly_report', 'args': {'new': {'enabled': True, 'overrides': {'action': 'set_enabled', 'enabled': True}}, 'old': {'enabled': False, 'overrides': {'actio
+N5 deleted=0 skill_rows_left=1 versions_created=2

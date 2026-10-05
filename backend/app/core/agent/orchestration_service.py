@@ -80,6 +80,22 @@ async def run_scenario_for_agent(agent, messages: list[dict], kwargs: dict) -> O
         trace_id=get_trace_id(), business_key=get_business_key(),
     )
 
+    # Skill 激活（F4.4 消费点的生产侧）：请求显式指名技能才套用，
+    # 未指名/不可用一律按纯域执行——域不一致由 runtime._skill_for 收口。
+    requested_skill = str(kwargs.get("skill") or "")
+    if requested_skill:
+        from app.core.agent.skills import resolve_activatable_skill
+
+        activated, deny_reason = resolve_activatable_skill(requested_skill)
+        if activated:
+            ctx.extra["skill"] = activated
+        await _audit_skill_activation(
+            ctx, agent.domain, activated, requested_skill, deny_reason)
+        if not activated:
+            logger.warning("orchestration.skill_not_activated",
+                           skill=requested_skill, domain=agent.domain,
+                           reason=deny_reason, user=user_id)
+
     # Supervisor 跨域协同（Phase C）：意图分类→委派子域→综合
     if agent.domain == "supervisor":
         from app.core.agent.supervisor import start_supervisor
@@ -88,6 +104,8 @@ async def run_scenario_for_agent(agent, messages: list[dict], kwargs: dict) -> O
         if result["status"] == "awaiting_approval":
             await _create_approval_record(result.get("interrupt") or {}, ctx)
         return str(result.get("reply") or "")
+
+    result = await agent_runtime.run(agent.domain, user_message, ctx)
 
     if result["status"] == "awaiting_approval":
         await _create_approval_record(result.get("interrupt") or {}, ctx)
@@ -315,6 +333,27 @@ async def resume_after_decision(
         "status": result["status"],
         "channel_id": channel_id,
     }
+
+
+async def _audit_skill_activation(ctx: ToolContext, domain: str,
+                                  activated: str, requested: str,
+                                  reason: str) -> None:
+    """技能启停留痕（第三批验收项：审计留痕）。审计自身失败不得影响对话。"""
+    try:
+        from app.core.security.audit import audit_chain
+
+        await audit_chain.log(
+            actor_did=ctx.user_id or "unknown",
+            action="skill.activated" if activated else "skill.activation_denied",
+            resource=f"skill:{activated or requested}",
+            result="success" if activated else "denied",
+            details={"requested": requested, "domain": domain,
+                     "reason": reason, "thread_id": ctx.thread_id,
+                     "trace_id": ctx.trace_id},
+            risk_level="low" if activated else "medium",
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("orchestration.skill_audit_failed", error=str(e))
 
 
 async def _create_approval_record(payload: dict, ctx: ToolContext) -> None:

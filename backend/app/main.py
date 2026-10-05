@@ -707,6 +707,11 @@ async def lifespan(app: FastAPI):
         import app.agents.sales.tools  # noqa: F401  (Phase B)
         import app.agents.contract.tools  # noqa: F401  (Phase B)
         import app.agents.project_supervisor.tools  # noqa: F401  (监理对话链路升级)
+        # 工作包二（D-B）：平台级工具——自研只读查询 + 文档/报表产物生成。
+        # 此前两个模块都未被 lifespan 导入，注册装饰器从未执行（死代码），
+        # 出厂 Skill 引用的 document_generate_docx/xlsx 全仓 0 注册点即源于此。
+        import app.agents.platform.document_tools  # noqa: F401  (Skill 工具落点)
+        import app.agents.platform.tools  # noqa: F401  (D-B 自研只读查询)
         from app.core.agent.tools_v2 import tool_registry_v2
 
         logger.info(

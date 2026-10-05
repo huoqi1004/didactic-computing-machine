@@ -1,0 +1,10 @@
+E0 channel_http=200 id=CH-8d43324bbebf
+E1[activated] http=200 9.8s reply_len=0 head=
+E1[denied_case] http=200 15.0s reply_len=0 head=
+E2 audit_rows=6
+E3 skill.activation_denied|skill:not_a_skill|denied|medium|{"domain": "supervisor", "reason": "技能不存在或已停用: not_a_skill", "trace_id": "e17bdbdc8098477c9fcc737757db43da", "requested": "not_a_skill", "thread_id": "channel:CH-8d43324bbebf"}
+E3 skill.activated|skill:weekly_report|success|low|{"domain": "supervisor", "reason": "", "trace_id": "0080ac85cb454d878a06ed481464f2a1", "requested": "weekly_report", "thread_id": "channel:CH-8d43324bbebf"}
+E3 skill.activation_denied|skill:not_a_skill|denied|medium|{"domain": "supervisor", "reason": "技能不存在或已停用: not_a_skill", "trace_id": "8ae28c8d74a1472bb3ac3f1fca1a19a6", "requested": "not_a_skill", "thread_id": "channel:CH-8d43324bbebf"}
+E3 skill.activated|skill:weekly_report|success|low|{"domain": "supervisor", "reason": "", "trace_id": "60fc5423ed82456a91292d6b23d8004c", "requested": "weekly_report", "thread_id": "channel:CH-8d43324bbebf"}
+E3 skill.activation_denied|skill:not_a_skill|denied|medium|{"domain": "supervisor", "reason": "技能不存在或已停用: not_a_skill", "trace_id": "de3abe57d40e4b88afdfa993a617b486", "requested": "not_a_skill", "thread_id": "channel:CH-8d43324bbebf"}
+E3 skill.activated|skill:weekly_report|success|low|{"domain": "supervisor", "reason": "", "trace_id": "e08c40991c63431c8214b46d7b1b84f1", "requested": "weekly_report", "thread_id": "channel:CH-8d43324bbebf"}

@@ -257,6 +257,14 @@ class AgentRuntime:
         if not cfg or (cfg.get("domain") and cfg["domain"] != domain):
             logger.info("runtime.skill_not_applied", skill=name, domain=domain)
             return ""
+        # 白名单在本域一个都不落地时不套用：工具会全被过滤掉，
+        # _build_graph 直接报错——域改名/工具下线后技能应退回纯域执行，不是把对话打挂
+        if cfg.get("tools") and not any(
+                tool_registry_v2.get(t) and tool_registry_v2.get(t).agent_domain == domain
+                for t in cfg["tools"]):
+            logger.warning("runtime.skill_tools_not_in_domain",
+                           skill=name, domain=domain, tools=cfg["tools"])
+            return ""
         return name
 
     # ------------------------------------------------------------------

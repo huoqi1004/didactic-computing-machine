@@ -1151,6 +1151,9 @@ class AgentCommandRequest(BaseModel):
     """Agent 指令请求"""
     command: str = Field(..., description="指令内容")
     agent_id: Optional[str] = Field(None, description="目标 Agent key（不填则用频道绑定的 Agent）")
+    skill: Optional[str] = Field(
+        None, max_length=64,
+        description="本轮指定启用的 Skill 名（留空=按域默认执行；不可用时回落纯域并留审计）")
 
 
 class MarkReadRequest(BaseModel):
@@ -1640,6 +1643,8 @@ async def send_agent_command(
                 username=username,
                 channel_id=channel_id,
                 thread_id=f"channel:{channel_id}",
+                # Skill 激活（F4.4）：显式指名才套用，不可用时按纯域执行并留审计
+                skill=req.skill or "",
             )
             if response and response.strip():
                 agent_response = response.strip()

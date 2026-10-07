@@ -1,6 +1,0 @@
-P1 user_chairman me_http=200 body={'user_id': 'user_chairman', 'username': 'chairman', 'full_name': '董事长', 'department': '董事会', 'email': 'chairman@erp.com', 'role_codes': ['chairman'], 'roles': [{'role_id': 'role_001', 'role_code': 'chairman', 'role_name': '董事长', 'level': 1, 'parent_role_id': None, 'description': '战略决策、全局监督、重大事项终审'}], 'permissions': ['accounting:read', 'admin:read', 'agent:read', 'asset:read', 'audit:approve', 'au
-P2 user_chairman disable_http=403 detail={"detail":"权限不足：需要 customization:update 权限"}
-P1 user_admin me_http=200 body={'user_id': 'user_admin', 'username': 'admin', 'full_name': '系统管理员', 'department': '信息部', 'email': 'admin@erp.com', 'role_codes': ['cio'], 'roles': [{'role_id': 'role_005', 'role_code': 'cio', 'role_name': 'CIO', 'level': 3, 'parent_role_id': 'role_002', 'description': '信息系统、数据安全、合规审计'}], 'permissions': ['accounting:read', 'admin:approve', 'admin:create', 'admin:delete', 'admin:manage', 'admin:rea
-P2 user_admin disable_http=200 detail={'status': 'applied', 'reason': '收紧类变更即时生效', 'thread_id': None}
-P3 after_disable present=1 enabled=False count=13
-P4 custom_rows_removed=1 version_rows=1 yaml=True

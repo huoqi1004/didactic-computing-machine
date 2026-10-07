@@ -1,6 +1,0 @@
-Q1 cache_entries=1 skill_weekly_report_entry=None
-Q2 fresh_process: present=True enabled=True valid=True domain=platform
-Q3 platform_skills=['data_brief:enabled=True,valid=True', 'docx_report:enabled=True,valid=True', 'meeting_notes:enabled=True,valid=True', 'weekly_report:enabled=True,valid=True', 'xlsx_report:enabled=True,valid=True']
-Q4 approvals_http=200 total=4 weekly_report_cards=[]
-Q5 http_pending_left=0
-Q6 http_live_customizations=2 skill_rows=[{'type': 'skill', 'target': 'weekly_report', 'enabled': False, 'overrides': {'action': 'set_enabled', 'enabled': False}}]

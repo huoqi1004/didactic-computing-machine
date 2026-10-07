@@ -237,7 +237,7 @@ Agnes-3.0-flash 接入后 LLM 路径已生效——**用截图同款问题实测
 ## 六、第三批实施记录与销项（工作包二：Skill/MCP + 裁决 D-B 修正，2026-10-05）
 
 验收行原文（第 82 行）：**"第三批 | 工作包二（Skill/MCP） | 2-3 人日 | Skill 热加载生效+管理端启停；MCP 经准入审查+只读治理；审计留痕"**。
-实施令第三批前置：**"MCP 准入审查材料先行提交委员会备案"**——备案件 `docs/mcp-admission-review-2026-10-05.md`（94 行）已先行成文，本批实现按该件结论走自研路径。
+实施令第三批前置：**"MCP 准入审查材料先行提交委员会备案"**——备案件 `docs/mcp-admission-review-2026-10-05.md`（93 行）已先行成文，本批实现按该件结论走自研路径。
 
 ### 6.1 备案件结论摘要（不重复取证细节，详见该文件）
 
@@ -273,7 +273,7 @@ D-B 逐条对照：`mcp-server-sqlite` 否选→按裁决改自研只读查询�
 4. **分类抖动会让指名技能被静默丢弃**：同一指令两次分别分到 `platform+knowledge` 与 `knowledge`，`runtime._skill_for` 的域守卫据此丢掉 weekly_report → 无产物（I 腿 `reply_len=1292`、`artifact_link=NONE`）。新增 `supervisor._apply_skill_route`：请求指名的技能所在域并入委派集合（幂等、置于最前、不改多域语义）。修后日志 `supervisor.skill_domain_forced domain=platform`，K2 腿 `doc_link=True`。
 5. **`audit._save_verify_state` 里 `orjson` NameError**：真机日志 `audit.verify_state_save_failed error=name 'orjson' is not defined`——审计链点位与报告**从未落库**。补局部 import 后实测 `verify_chain checked=5442`，`audit_verify_state.last_incremental_at` 由 `None`→`2026-10-04 23:59:53`，`last_report` 56 B 首次写入。
 6. **`erp_readonly_query` 表名未归一**：白名单校验按 `strip().lower()`，按表鉴权却用原始表名查 `_TABLE_RESOURCE` → `" Payroll_RECORDS "` 这类变体绕过白名单判定后 KeyError。已统一归一，并加 `test_table_name_normalization_before_domain_check`（断言 seen `payroll:read` + PermissionError）。
-7. **`platform:read` 入口资格把业务角色全挡在只读查询外**：本批最初只给 chairman/ceo，真机周报 5/5 表被拒。改为业务角色统一获得**入口资格**（`seed.py` 尾部对 `ROLE_PERMISSION_MATRIX` 补 `platform:{"read"}`），数据面仍由按表二次鉴权收口（读 `payroll_records` 需 `payroll:read`）；持有者 27→24。
+7. **`platform:read` 入口资格把业务角色全挡在只读查询外**：本批最初只给 chairman/ceo，真机周报 5/5 表被拒（H 腿 reply 原文"均返回 **权限不足：需要 `platform:read` 权限**"，各数值全标"待补"）。改为业务角色统一获得**入口资格**（`seed.py` 尾部对 `ROLE_PERMISSION_MATRIX` 补 `platform:{"read"}`，排除三个专用角色），数据面仍由按表二次鉴权收口（读 `payroll_records` 仍需 `payroll:read`）。收尾实测两侧口径：代码侧持有者 **24** 个角色，erp_db 侧 **27** 个，差集恰为 `customization_admin`/`customization_approver`/`log_auditor`（即 6.6-②），代码侧无"该有却缺"的角色（差集为空，下次启动也不会补插）。修后真机 K2 腿 `numeric=12`、取到真实金额 `3,308,000`。
 8. **一处早期表述需更正（我的探针误判，不是产品缺陷）**：D2 腿 chairman 停用技能被 403 拦下，我当时记作"erp_db 与种子矩阵漂移"。回树核实 `seed.py:851`——chairman 的 customization 恰为 `{read, approve, create, publish}`，**不含 update**，403 是设计正确行为（CIO 执行、董事长审批）。真正的漂移只有 `platform:read` 一处：`seed.py:1310` 的播种是"先查后插、从不撤销"，所以三个专用角色在 erp_db 里仍持有 `platform:read`（代码侧已收回），需人工撤销——登记待委员会（6.6-②）。
 9. **conftest 与 D-04 的断言冲突定责**：`tests/conftest.py` 为隔离把 `settings.seed_password` 钉成共享口令，使 D-04 要治理的"随机口令模式"三条断言在测试环境恒不成立。已在 `test_seed_password.py` 加 `random_mode_seed` fixture 显式清掉覆盖后重建种子（不改 conftest 的隔离语义，也不弱化断言）。
 
@@ -292,7 +292,7 @@ D-B 逐条对照：`mcp-server-sqlite` 否选→按裁决改自研只读查询�
 1. **备案件 `docs/mcp-admission-review-2026-10-05.md` §5 四条原样转呈**：是否为外部 MCP 新增 stdio transport / 允许本机拉起第三方 server 进程；`external` 是否入 RBAC `RESOURCES`；外部 MCP 的最小治理前置（`mcp_servers` 增列 `transport/api_key_ref/version_pin` + 调用侧 timeout/熔断 + 按 `ToolAnnotations` 强制分级）；`fetch`/`filesystem` 第二批候选是否一并冻结。
 2. **erp_db 中三个专用角色（`log_auditor`/`customization_admin`/`customization_approver`）残留的 `platform:read` 是否撤销**。代码侧本批已收回，但播种 insert-only 不会 revoke，库里仍是授予态；`log_auditor` 的"零业务资源"是两条安全回归钉住的不变量，属于必须撤销的一类。
 3. **5.7-1 首 token 口径**：仍按"管线预算 ≤150ms + 供应商 TTFT 单独 SLO"拆，还是坚持端到端 2s 并要求网关层兜底——它决定本方案能否关闭（第三批不涉及，但验收行口径是共用的）。
-4. **#40 事件循环单例族**：本批全量再次复现（`test_ws_auth_g.py::test_refresh_rotates_refresh_token` 报 `Lock ... bound to a different event_loop`，隔离复跑 PASS），与 5.10 红线 2 竞态同族，仍未定责。
+4. **#40 事件循环单例族**：第三批收窄前那轮全量曾报 `test_ws_auth_g.py::test_refresh_rotates_refresh_token` = `RuntimeError: <asyncio.locks.Lock ... [locked]> is bound to a different event loop`（隔离复跑 PASS 32.18s），最终那轮（1514 passed）**不复现**——间歇性、跨用例共享单例所致，与 5.10 红线 2 的补偿幂等竞态同族（`test_rollback_drills` 那轮也一并转绿，同样属"本轮未复现"而非"已定责"）。仍未处置。
 5. **`mcp` 类定制入口的存废**：第三方 server 本批零准入，但管理端仍可配 server + 勾选工具（`agent_customizations` type="mcp"）。入口保留而接入面为空，是否算"可点但必然无效"的 UI 债，请委员会定：保留（等 §5-3 前置件）或暂时隐藏并标注"未准入"。
 
 ### 6.7 明确不做 / 未实现（含理由）
@@ -302,4 +302,75 @@ D-B 逐条对照：`mcp-server-sqlite` 否选→按裁决改自研只读查询�
 - **未做**：`office-word-mcp-server` 的依赖 CVE 扫描（无离线数据源，备案件 §1 已列为"未核实项"，不作为结论依据）；
 - **未做**：§5-3 的桥接层治理前置（等裁决 6.6-①，实现前任何"可准入"结论都不成立）；
 - **前端未动**：技能启停/版本历史 UI 在 F4.4/F4.5 已具备，本批无新增交互面。
+
+### 6.8 测试与全量回归（第三批收尾）
+
+| 通道 | 命令 | 结果 |
+| --- | --- | --- |
+| 后端全量（授权面收窄前） | `.venv/Scripts/python.exe -m pytest tests/ -q -p no:cacheprovider` | 2 failed, 1511 passed, 5 skipped, **1 error** in 694.37s |
+| 受影响 3 文件复跑 | `pytest tests/test_operation_logs_g3.py tests/test_security_hardening_g.py tests/test_platform_sandbox_g.py` | **35 passed** in 35.92s |
+| 本批主干三文件组合复跑 | `pytest tests/test_supervisor.py tests/test_skills.py tests/test_platform_sandbox_g.py` | **31 passed** in 57.72s |
+| 后端全量（收窄后，独占） | `.venv/Scripts/python.exe -m pytest tests/ -q -p no:cacheprovider` | **1514 passed, 5 skipped, 0 failed, 0 error** in 784.62s (13:04)，进程退出码 0 |
+| 前端 vitest | 未跑 | 本批 `git status` 改动面仅 `backend/` 与 `docs/`，无前端文件变更——如实记"未跑"，不冒充绿灯 |
+
+- 本表是 `8a72aac`（第三批交付树）的绿灯快照。2026-10-08 收尾时的工作树还叠着新一批**未提交**的在途件，那次全量数与逐条归因见 **6.11.1**（6 条红灯无一条落在本档验收面上）。
+
+两条红灯归因（都是我的改动引入，已回树核实并当轮改掉）：
+- 现象：`test_operation_logs_g3`、`test_security_hardening_g` 双红，报错 `Extra items in the left set: 'platform'`。
+- 真因：我在 `seed.py` 用"给全体角色补 `platform:{read}`"的泛化写法，破坏了 `log_auditor` 的"零业务资源"不变量（审计与操作分离，是这两条回归钉住的安全断言）。
+- 处置：**不弱化测试**，改为排除三个专用角色（`_PLATFORM_ENTRY_EXCLUDED`），并在 `test_platform_read_is_entry_gate_for_business_roles` 里复述该不变量。
+- 那 1 个 error（`test_ws_auth_g`，事件循环 Lock 跨循环）最终那轮不复现 → 见 6.6-④，属间歇性、未定责，不写作"已修"。
+
+### 6.9 取证与收尾清理
+
+- **探针**：`_tmp_batch3_{api_probe,d2,e,g,h,i,j,k,m,m2,n,o,p,q,r}.py` 及其 `.out`、`_tmp_batch3_server{,2,3,4,5}.log`、`_tmp_batch3_fullrun{,2,3}.log` 收尾全部删除（`backend/` 下 `_tmp_*` 计数 0）。因此 6.2/6.8 表内数字以本文档记录为准；复现路径：真机腿按项目记忆的 :8010 通道（自签 token + `redis_store.save_session`，改 Python 必须重启），离线腿按 6.5 的用例名直接 `pytest -k`。
+- **进程**：自起实例 :8010（PID 树 32252→32652，命令行含 `--port 8010` 已核对）`taskkill /F /T` 已终止；**:8000 全程无监听**（`curl` exit 7），故本批未触碰任何生产端口实例。杀进程前均先探健康再确认命令行。
+- **数据面终态**（收尾新进程实测）：`skill_definitions` **0 行**；`agent_customizations` 仅剩 2 行且都是本批之前的 `type='tool'` 历史行（id=1 `sales_create_order` pending_approval、id=3 `treasury_fund_transfer_request` active）；`customization_versions` 中 `pending_approval` **0 条**；`data/skills_overlay/` **空**；`data/documents/` 3 份均为 2026-10-04 既有产物（本批自建的 2 份已由工具补偿删除）。
+- **刻意保留**：`customization_versions` 里本批 4 行（697 active / 698 superseded / 699 active / 700 rejected）是变更留痕而非生效配置，删它等于篡改定制审计视图（F5.1）的数据源。配套 `audit_logs` 留痕：`skill.activated/success` 8 条、`skill.activation_denied/denied` 3 条、`skill.change.rejected/success` 1 条（P 腿那次驳回本身也被审计）。
+- **消息频道**：本批写在既有频道 `CH-8d43324bbebf` 的 4 条消息已按 `message_id` 删除，回读条数恢复 **1312**（= 操作前）。探针里 `cleaned_channels=[]`（H8/I9/G4）是我按 name 删频道的写法永远删不到（agent 频道按 `agent_id` 去重返回既有"总调度"），属取证脚本缺陷，不是产品问题——频道本身是既有的，未动。
+- **取证局限**：像素级截图通道仍未开（5.7-③），本批真机证据全部来自 HTTP 响应体 + 服务端 structlog + DB 回读三面对照，无截图。
+
+### 6.10 第三批结论（提交委员会销项）
+
+验收行三条：**Skill 热加载 ✓**（不重启 12→13 且新项可解析）、**管理端启停 ✓**（停用即时生效 / 启用转人审 / 驳回走产品 decide 通道闭环，待批期间不顶掉现状）、**MCP 经准入审查 ✓**（备案件已提交，结论"不予准入"）、**只读治理 ✓**（14 表白名单 + SELECT-only + 强制 LIMIT + 按表二次鉴权，入口闸门在真机上拦过 5/5 表）、**审计留痕 ✓**（`skill.activated` / `skill.activation_denied` / `skill.change.rejected` 落 `audit_logs`）。
+
+需要委员会明确一点：验收行的"MCP 经准入审查"是按"**审查后不接入第三方 server，能力面由自研只读工具与既有文档生成器承接**"达成的（D-B 指定的优先自研路径）。若委员会要求"首批准入 2 个"必须包含至少一个第三方 server，则前置件是 6.6-① 的桥接层治理改造，而不是降低备案件的六检查结论。
+
+三批全部落地并各自提交（第一批 `8afb162`、第二批 `af3af8c`、第三批 `8a72aac`）。方案遗留项集中在两处：6.6（五项待裁决）与 5.7（首 token 口径 + 仲裁预算 + 截图通道）——除此之外本方案可进入关闭评审。
+
+### 6.11 跨会话事实与收尾后树状态（2026-10-08 补记）
+
+本节全部回树核实，不复述记忆。
+
+- **第三批由另一会话提交为 `8a72aac`**（50 文件 +2338/−44：3 个 platform 工具 + `document_tools.py` + 6 个技能 YAML + supervisor/runtime/skills/orchestration/seed/audit 改动 + 14 条新用例 + 备案件 + 本文档 6.1~6.4）。6.5~6.10 由本次补完。
+- 该提交**把 24 个 `_tmp_batch3_*` 取证脚本与 `.out` 一起入了库**。取证件是一次性的（内含自签 token 调用、裸 SQL 清理、对 :8010 的端口假设），留在仓库会随代码腐化并被人误当产品代码读——本次收尾已 `git rm` 全部 24 项并删除未跟踪的日志/输出。6.2/6.8 的数字已逐条落在本文档，复现路径见 6.9。
+- 树里另有**新一批在途改动**（`dfd82b2` 全域子Agent套件+意图识别实施计划）：`tools_v2.py` / `workflows.py` / `operation_log.py` / `conversation.py` / `runtime.py` / `tools.py` + 6 个新技能 YAML + `tests/test_batch3_suites_g.py`。本收尾**未改动其中任何一个文件的内容**，除下面一处必要修复。经 `git ls-tree HEAD backend/app/core/agent/skills/` 核对：**HEAD 只有 12 个 YAML**（6 个业务域 + 第三批落的 6 个 platform），磁盘 18 个——多出的 `accounting_daily` / `audit_report` / `bookkeeping_voucher` / `compliance_check` / `risk_scan` / `tax_filing` 全部是 `??` 未跟踪状态，属新一批在途件。
+- **已修：`app/agents/platform/tools.py` 自 2026-10-05 17:14 起不可导入**。`_registration_ok = _register_analysis_tool()` 之后残留 13 行悬空函数体（`if len(dataset_json) > 51200: … return {...}`），报 `IndentationError: unexpected indent (tools.py, line 260)`；后果是 platform 模块整体 import 失败、`test_platform_sandbox_g.py` 连坐 7 红（我在 10-05 16:10 那次全量 1514 passed 之后才出现，非本批引入）。这 13 行与 `_register_analysis_tool()` 内第 230-242 行逐句重复（只差 `result`/`parsed` 变量名），没有 `def` 头、无入口，是死代码。删除后：`compileall app` 全绿、`import app.agents.platform.tools` 成功、`python_data_analysis` 名字仍由 `globals()` 注入、`_registration_ok=False`（沙箱闸门未开时的 E2 占位语义，与本文件既有设计一致）。**新一批若要接 code-exec，改的应是 `_register_analysis_tool` 内的处理器，本收尾不代做该工作包的功能。**
+- **待新一批处置（本收尾不越界改）**：`test_skills.py::test_builtin_skills_all_valid` 现红，实测目录 18 项中 **4 项 invalid**——`bookkeeping_voucher→bookkeeping_query_vouchers`、`compliance_check→compliance_query`、`risk_scan→risk_query`、`tax_filing→tax_query_records`，这 4 个工具名当前全仓 0 注册点（`grep -rn 'name="<tool>"' app/` 逐个实测返回 0），正是 6.3 记的"能列出但一跑就空"的装饰件形态。这条断言是第三批特意加的（把写死条数改成按名字集合 + `assert not invalid`），现在它起作用了：要么补注册工具，要么撤下这 4 个 YAML，不能带着无效技能交付。
+- **一处口径冲突需提醒（不改对方计划，只登记）**：新一批 `docs/plan-agent-suites-intent-2026-10-04.md` 批次一 1.1 写着"office-word-mcp-server 接入 … D-B 遗留项闭环"，与本档 6.1 的六检查结论直接冲突——备案件的结论是**本批不予准入**，且 6.6-① 的桥接层治理前置（`transport/api_key_ref/version_pin` + timeout/熔断 + 按 `ToolAnnotations` 强制分级）在实现前，任何"可准入"都不成立。建议该条在委员会就 6.6-① 裁决前挂起，否则等于把六检查 4 项不通过的 server 直接放进治理面。
+
+#### 6.11.1 全量回归（当前树、独占、2026-10-08）
+
+实测口径：`backend/.venv/Scripts/python.exe -m pytest tests/ -q`（独占运行，前端 vitest 未并发），日志 `_tmp_batch4_fullrun.log`（数字入档后删除）。结果：
+
+```
+6 failed, 1512 passed, 5 skipped, 3 warnings in 617.40s (0:10:17)
+PYTEST_EXIT=1
+```
+
+对照 6.8：第三批交付树（`8a72aac`）为 **1514 passed / 5 skipped，共 1519 条**；本次 **1512 passed / 6 failed / 5 skipped，共 1523 条**——净增 4 条全部来自新一批的 `tests/test_batch3_suites_g.py`。6 条 red **全部落在新一批的未提交在途件上**，本档五条验收面（热加载 / 启停 / 准入 / 只读治理 / 审计）无一新增红灯。逐条归因（每条都对过日志正文与源码，非按文件名猜）：
+
+| # | 红灯用例 | 报错（日志原文要点） | 归因 |
+|---|----------|----------------------|------|
+| 1 | `test_batch3_suites_g.py::test_code_exec_runs_analysis_in_sandbox` | `TypeError: string indices must be integers, not 'str'`（`<string>:3`，即沙箱 harness 内） | 新一批未提交的 `_build_analysis_harness` 缺陷：`f"data = json.loads({_json.dumps(dataset_json)!r})"` 对**已是 JSON 文本**的入参再 `dumps` 一次，harness 里单层 `json.loads` 只能还原出字符串，`data` 因此是 `str` 而非 list。见下方"续写点" |
+| 2 | `test_batch3_suites_g.py::test_supervisor_doc_workflow_full_loop` | `ValueError: 工作流定义非法: gate 节点 gate 阈值必须在白名单: supervisor_doc_auto_approve`（`workflows.py:528`） | 新一批未提交的 `workflows.py:423` 引入了阈值键 `supervisor_doc_auto_approve`，但 `customization.THRESHOLD_DEFAULTS` 里没有它——全仓 `grep -rn supervisor_doc_auto_approve app/` 只命中 `workflows.py:423` 这一处 |
+| 3 | `test_workflow_dsl_f3.py::test_builtin_dsl_templates_all_valid` | `supervisor_doc_workflow 定义非法`，同一条 `gate 阈值必须在白名单` | 与 #2 **同一根因**（既有校验器打中新加的非法 DSL），不是独立缺陷 |
+| 4 | `test_skills.py::test_builtin_skills_all_valid` | 4 项 invalid（见上一条） | 新一批未跟踪的 4 个技能 YAML 引用 0 注册点工具名 |
+| 5 | `test_external_mcp.py::test_phase_d_composite_summary` | `assert not invalid` 同一 4 项 | 与 #4 **同一根因**（第三批把计数断言换成按名字集合 + invalid 闸门，两处共用） |
+| 6 | `test_migration.py::TestMigrationManager::test_compliance_report` | `assert 'export' in ('read', 'write')` | **既有非确定性**，与两批都无关：`last_activity` 在两次同微秒写入时 tie-break 不定。本次单跑三次实测 failed / failed / passed（10-01 F5.6 已把这条记为已知脆断言） |
+
+- **`tools.py` 的 code-exec 整块尚未提交**：`git diff --numstat HEAD -- backend/app/agents/platform/tools.py` = `104 0`，即 `DataAnalysisArgs`/`_build_analysis_harness`/`_parse_analysis_result`/`_register_analysis_tool` 全部是工作树新增，HEAD 里根本没有这些名字。**所以上表 #1 的 IndentationError 与 code-exec 红灯同源于这一块未提交编辑**，不是 `8a72aac` 的回归；我删掉的 13 行死尾也在这一块之内。
+- **新一批测试文件自身有一处重名覆盖（顺带查明，未提交不代改）**：`tests/test_batch3_suites_g.py` 里 `test_code_exec_runs_analysis_in_sandbox` **定义了两次**（第 109 行与第 152 行，模块级同名 `async def`）。Python 后定义遮蔽前定义，pytest 只收集到第 152 行那一版（直接用 `_build_analysis_harness` + `_async_return`）——第 109 行那版**从未执行**，而它才是走 `DataAnalysisArgs` + `ToolRegistryV2` + `_AsyncCtx` 容器包装的那条链路；`_AsyncCtx`（142-149 行）在收集到的版本里也没有任何引用点。5 个 `def test_` 实际只跑 4 个（正好对上用例总数 1519→1523 只增 4）。这类"文件里数得出来、报告里跑不到"的用例，第三批在 6.4-① 已经栽过一次（`orchestration_service` 零覆盖），故一并记给新一批：给两版改不同函数名（或删一版），别留静默失效的测试。
+- **给新一批留的 code-exec 续写点（已查明缺陷，但属对方工作包功能，本收尾不代做）**：把 `tools.py:176` 的双层编码改成单层——`f"data = json.loads({dataset_json!r})"`。这一条**已离线实测**（纯字符串构造 + `exec` 我自己的两版模板，与被测产品代码无关）：现形态还原出 `data` 类型为 `str`（`'[{"amount": 100}, {"amount": 300}]'`），改形态还原出 `list`（`[{'amount': 100}, {'amount': 300}]`），再跑对方用例里那段 `result = {'total': sum(d['amount'] for d in data)}` 得 `{'total': 400}` —— 正是 #1 断言的期望值。之所以不动它：这一块是对方会话正在写的未提交 WIP，我改了既进不了我的提交（会把 6 个已跟踪文件的在途改动一并卷进来），也可能被对方下一轮覆盖。
+- 本表数字的可复现性依赖"当前工作树 = HEAD + 新一批未提交件"这一状态；若新一批后续把 `tools.py`/`workflows.py` 落盘或补注册工具，#1~#5 会随之变化，届时以他们的回归数为准，本条只钉 2026-10-08 04:56 这一棵树的状态。
 

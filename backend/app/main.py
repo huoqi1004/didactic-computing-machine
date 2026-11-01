@@ -33,8 +33,17 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         app.state.session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
-        logger.info("app.schema_ready")
+        from app.seed import seed
+        from app.core.database import get_session
+        session = get_session()
+        if session is not None:
+            async with session as s:
+                result = await seed(s)
+                await s.commit()
+            logger.info("app.schema_ready", seed=result)
     yield
+    from app.core import llm
+    await llm.close()
     logger.info("app.stopped")
 
 

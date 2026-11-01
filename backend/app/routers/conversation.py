@@ -71,12 +71,26 @@ async def chat(req: ChatRequest, user: dict = Depends(auth_user)):
                       f"已通知部门管理员与系统管理员（{severity}）"],
         )
 
-    # 3. 正常回复（M0 骨架：回显意图 + 消息；LLM 接入后续批次）
-    return ChatResponse(
-        reply=f"已收到您的消息（意图: {intent['intent']}）。",
-        intent=intent["intent"],
-        thinking=["意图分类", f"结果: {intent['intent']}"],
-    )
+    # 3. 正常回复（LLM 优先，未启用/失败降级为意图回执）
+    from app.core.llm import llm_available, llm_chat
+
+    thinking = ["意图分类", f"结果: {intent['intent']}"]
+    reply = None
+    if llm_available():
+        system = (f"你是企业数字化大脑的智能助手，当前用户 {user['username']}"
+                  f"（{user.get('display_name', '')}，角色 {user.get('role', '')}，"
+                  f"部门 {user.get('department', '')}）。"
+                  "请用简洁专业的中文回答企业办公相关问题；"
+                  "涉及时请基于用户角色与部门谨慎作答，不越权承诺。")
+        reply = await llm_chat([{"role": "user", "content": req.message}],
+                               system=system)
+        if reply is None:
+            thinking.append("LLM 调用失败，已降级")
+    else:
+        thinking.append("LLM 未启用")
+    if reply is None:
+        reply = f"已收到您的消息（意图: {intent['intent']}）。"
+    return ChatResponse(reply=reply, intent=intent["intent"], thinking=thinking)
 
 
 async def _send_dual_admin_alert(session, user: dict, kinds: list,

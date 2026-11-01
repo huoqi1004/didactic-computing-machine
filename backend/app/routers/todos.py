@@ -1,7 +1,8 @@
 """待办路由（首页对话框下方卡片）。"""
 from __future__ import annotations
 
-from fastapi import Depends, APIRouter
+from fastapi import Depends, APIRouter, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.core.deps import auth_user

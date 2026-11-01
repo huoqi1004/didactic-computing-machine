@@ -16,6 +16,7 @@ _THREAT_PATTERNS = [
     (r"(套取|窃取|导出|下载).{0,10}(他人|别的部门|全公司|所有).{0,8}(工资|薪酬|合同|客户|数据)", "data_exfiltration"),
     (r"(假装|扮演|你现在是).{0,10}(管理员|总经理|董事长|系统)", "role_impersonation"),
     (r"(忽略|无视|忘记)(之前|以上|所有|前面的)?(指令|规则|提示|设定)", "prompt_injection"),
+    (r"(系统提示词|system prompt|你的?(指令|提示词|prompt|内部设定))", "prompt_injection"),
     (r"(诱导|引导|教我).{0,8}(绕过|规避|违反).{0,8}(审批|流程|制度)", "policy_bypass"),
     (r"(窃|偷|泄露).{0,6}(密码|密钥|token|凭证)", "credential_theft"),
 ]
@@ -29,8 +30,9 @@ _SEVERITY = {"privilege_escalation": "high", "data_exfiltration": "critical",
 def classify(message: str) -> dict:
     """规则路径意图分类（确定性；LLM 路径由对话网关叠加）。"""
     lower = message.lower()
-    if any(re.search(p, message) or re.search(p, lower) for p, _ in
-           [(r"(写|生成|编制|起草).{0,20}(大纲|方案|报告|纪要|文档)", 0)]):
+    if (re.search(r"(写|生成|编制|起草|撰写|拟定).{0,20}"
+                  r"(大纲|方案|报告|纪要|文档|通知|邮件|计划|总结|申请|合同|公告|稿|函)", message)
+            or re.search(r"(起草|撰写|拟定|写一份|生成一份|帮我写)", message)):
         return {"intent": "creation", "source": "rules"}
     if re.search(r"(查|看|统计|多少|状态|进展|列表|余额|报表)", message):
         return {"intent": "query", "source": "rules"}

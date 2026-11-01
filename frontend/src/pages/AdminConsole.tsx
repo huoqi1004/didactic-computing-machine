@@ -13,7 +13,8 @@ const STATUS_LABELS: Record<string, string> = {
   active: '已激活', pending: '待审核', disabled: '已停用',
 }
 const TABS = [
-  ['users', '用户管理'], ['models', '模型接入'], ['quotas', '额度管理'], ['logs', '审计日志'],
+  ['users', '用户管理'], ['models', '模型接入'], ['quotas', '额度管理'],
+  ['market', '市场审核'], ['logs', '审计日志'],
 ] as const
 
 export default function AdminConsole() {
@@ -23,6 +24,7 @@ export default function AdminConsole() {
   const [logs, setLogs] = useState<LogRow[]>([])
   const [models, setModels] = useState<ModelRow[]>([])
   const [quotas, setQuotas] = useState<QuotaRow[]>([])
+  const [pending, setPending] = useState<any[]>([])
   const [msg, setMsg] = useState('')
 
   const load = useCallback(async (t = tab) => {
@@ -31,6 +33,7 @@ export default function AdminConsole() {
       if (t === 'logs') { const r = await api.get('/admin/logs'); setLogs(r.items || []) }
       if (t === 'models') { const r = await api.get('/admin/models'); setModels(r.items || []) }
       if (t === 'quotas') { const r = await api.get('/admin/quotas'); setQuotas(r.items || []) }
+      if (t === 'market') { const r = await api.get('/admin/market-pending'); setPending(r.items || []) }
     } catch {}
   }, [tab])
   useEffect(() => { load() }, [load])
@@ -60,6 +63,7 @@ export default function AdminConsole() {
       {tab === 'users' && <UsersTab users={users} me={me} setStatus={setStatus} />}
       {tab === 'models' && <ModelsTab models={models} reload={() => load('models')} setMsg={setMsg} />}
       {tab === 'quotas' && <QuotasTab quotas={quotas} reload={() => load('quotas')} setMsg={setMsg} />}
+      {tab === 'market' && <MarketReviewTab pending={pending} reload={() => load('market')} setMsg={setMsg} />}
       {tab === 'logs' && (
         <div className="bg-card border border-border rounded-xl p-3 max-h-96 overflow-y-auto">
           {logs.length === 0 && <p className="text-xs text-slate2">暂无日志</p>}
@@ -275,6 +279,52 @@ function QuotasTab({ quotas, reload, setMsg }: any) {
           })}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+
+/* ============ 市场上架审核（含安全扫描结论，M10） ============ */
+const KIND_CN: Record<string, string> = { expert: '专家', team: '专家团', skill: 'Skill', mcp: 'MCP' }
+const VERDICT_STYLE: Record<string, string> = {
+  clean: 'bg-emerald-50 text-ok', suspicious: 'bg-amber-50 text-warn',
+  malicious: 'bg-red-50 text-alert', unknown: 'bg-canvas text-slate2',
+}
+function MarketReviewTab({ pending, reload, setMsg }: any) {
+  const act = async (id: number, action: 'approve' | 'reject') => {
+    try {
+      await api.post(`/market/${id}/${action}`)
+      setMsg(`条目 #${id} 已${action === 'approve' ? '批准上架' : '驳回'}`)
+      reload()
+    } catch (e: any) { setMsg(e?.response?.data?.detail || '操作失败') }
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate2">
+        所有上传条目均经过内容安全扫描（病毒/后门/钓鱼/凭据窃取等）；风险条目已自动向管理员待办推送告警。批准后才会上架。
+      </p>
+      {pending.length === 0 && <p className="text-sm text-slate2">暂无待审核条目</p>}
+      {pending.map((r: any) => (
+        <div key={r.id} className="bg-card border border-border rounded-xl shadow-soft p-4">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className="font-medium text-sm text-ink">{r.name}</span>
+            <span className="text-[10px] bg-blue-50 text-navy rounded px-1.5 py-0.5">{KIND_CN[r.kind] || r.kind}</span>
+            <span className={`text-[10px] rounded px-1.5 py-0.5 ${VERDICT_STYLE[r.scan_verdict] || VERDICT_STYLE.unknown}`}>
+              扫描: {r.scan_verdict === 'clean' ? '通过' : r.scan_verdict === 'suspicious' ? '可疑' :
+                    r.scan_verdict === 'malicious' ? '恶意' : '未扫描'}
+            </span>
+            {r.risk_types?.length > 0 && (
+              <span className="text-[10px] text-alert">风险类型: {r.risk_types.join('、')}</span>
+            )}
+          </div>
+          <p className="text-xs text-slate2">{r.description || '（无描述）'}</p>
+          <p className="text-[11px] text-slate2 mt-1">上传者: {r.uploader}（{r.department || '-'}） · {r.created}</p>
+          <div className="flex gap-3 mt-2 text-xs">
+            <button onClick={() => act(r.id, 'approve')} className="text-accent underline">批准上架</button>
+            <button onClick={() => act(r.id, 'reject')} className="text-alert underline">驳回</button>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

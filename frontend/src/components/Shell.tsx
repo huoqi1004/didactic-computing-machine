@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
-import { BarChart3, BookOpen, Brain, ChevronUp, FolderOpen, History,
+import { BarChart3, Bell, BookOpen, Brain, Check, ChevronUp, FolderOpen, History,
          LogOut, MessageSquare, MessageSquarePlus, Settings,
          Shield, Store, Trash2, UserCog, X } from 'lucide-react'
 import api, { clearToken } from '../lib/api'
@@ -40,6 +40,19 @@ export default function Shell() {
     api.get('/conversation').then(r => setConvs(r.items || [])).catch(() => {})
   }, [])
   useEffect(() => { loadConvs() }, [loadConvs, convVersion])
+
+  // 待办事项（含安全告警推送，M10）
+  const [todos, setTodos] = useState<any[]>([])
+  const [todosOpen, setTodosOpen] = useState(false)
+  const loadTodos = useCallback(() => {
+    api.get('/todos').then(r => setTodos(r.items || [])).catch(() => {})
+  }, [])
+  useEffect(() => { loadTodos() }, [loadTodos, convVersion])
+
+  const finishTodo = async (id: number) => {
+    try { await api.post(`/todos/${id}/done`) } catch {}
+    loadTodos()
+  }
 
   // 今日 token 额度
   useEffect(() => {
@@ -120,6 +133,39 @@ export default function Shell() {
           </div>
         )}
         {!historyOpen && <div className="flex-1" />}
+
+        {/* ===== 待办事项（含安全告警推送） ===== */}
+        <div className="relative px-3 pb-1">
+          <button onClick={() => setTodosOpen(v => !v)}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-white/60 hover:text-white">
+            <Bell size={13} /> 待办事项
+            {todos.length > 0 && (
+              <span className="ml-1 min-w-4 h-4 px-1 rounded-full bg-alert text-white text-[10px] flex items-center justify-center">
+                {todos.length}
+              </span>
+            )}
+            <ChevronUp size={13} className={`ml-auto transition-transform ${todosOpen ? '' : 'rotate-180'}`} />
+          </button>
+          {todosOpen && (
+            <div className="mt-1 space-y-0.5 max-h-44 overflow-y-auto">
+              {todos.length === 0 && <p className="text-[11px] text-white/40 px-2 py-1">暂无待办</p>}
+              {todos.slice(0, 8).map(t => (
+                <div key={t.id} className="flex items-start gap-1.5 px-2 py-1.5 rounded-lg hover:bg-white/10 group">
+                  <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${t.source === '安全告警' ? 'bg-alert' : 'bg-steel-light'}`} />
+                  <button onClick={() => t.link && nav(t.link)}
+                          className="flex-1 min-w-0 text-left" title={t.title}>
+                    <span className="block text-[11px] leading-snug text-white/85 break-all line-clamp-2">{t.title}</span>
+                    <span className="block text-[10px] text-white/45">{t.source}</span>
+                  </button>
+                  <button onClick={() => finishTodo(t.id)} title="标记完成"
+                          className="opacity-0 group-hover:opacity-100 text-white/50 hover:text-ok shrink-0">
+                    <Check size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* ===== 下方：功能导航 ===== */}
         <nav className="relative border-t border-white/10 px-3 py-2 space-y-0.5">

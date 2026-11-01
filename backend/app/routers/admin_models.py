@@ -194,3 +194,45 @@ async def my_quota(user: dict = Depends(auth_user)):
     async with session as s:
         info = await get_quota(s, user["username"])
     return info
+
+
+# ============ 市场上架审核（M10 安全审查闭环） ============
+
+@router.get("/admin/market-pending")
+async def market_pending(user: dict = Depends(auth_user)):
+    """待审核条目（含安全扫描结论）：sys_admin 全量，dept_admin 限本部门上传。"""
+    if user["role"] not in ("sys_admin", "dept_admin"):
+        raise HTTPException(403, "仅管理员可审核")
+    import json as _json
+
+    from app.models import MarketItem, User
+
+    session = get_session()
+    async with session as s:
+        rows = (await s.execute(
+            select(MarketItem).where(MarketItem.status == "pending")
+            .order_by(MarketItem.id.desc()))).scalars().all()
+        users = {u.username: u for u in (await s.execute(
+            select(User))).scalars().all()}
+        items = []
+        for r in rows:
+            owner = users.get(r.uploader)
+            if (user["role"] == "dept_admin"
+                    and (owner is None
+                         or owner.department != user.get("department", ""))):
+                continue
+            try:
+                payload = _json.loads(r.payload or "{}")
+            except Exception:
+                payload = {}
+            scan = payload.get("scan") or {}
+            if isinstance(scan, str):  # 爬虫种子条目存的是结论字符串
+                scan = {"verdict": scan}
+            items.append({"id": r.id, "kind": r.kind, "name": r.name,
+                          "description": r.description[:200],
+                          "uploader": r.uploader,
+                          "department": owner.department if owner else "",
+                          "scan_verdict": scan.get("verdict", "unknown"),
+                          "risk_types": scan.get("risk_types", []),
+                          "created": str(r.created_at)[:19]})
+    return {"items": items}

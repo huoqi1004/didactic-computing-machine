@@ -20,6 +20,8 @@ export default function Market() {
   const [domain, setDomain] = useState('')
   const [showUpload, setShowUpload] = useState(false)
   const [form, setForm] = useState({ name: '', description: '' })
+  const [scanResult, setScanResult] = useState<any>(null)
+  const [uploadErr, setUploadErr] = useState('')
 
   const load = useCallback(async (k = kind) => {
     try { const r = await api.get(`/market/${k}`); setItems(r.items || []) } catch {}
@@ -27,7 +29,12 @@ export default function Market() {
   useEffect(() => { load() }, [load])
 
   const doUpload = async () => {
-    try { await api.post(`/market/${kind}/upload`, form); setShowUpload(false); load() } catch {}
+    setUploadErr('')
+    try {
+      const r = await api.post(`/market/${kind}/upload`, form)
+      setScanResult(r)   // 弹窗内展示安全扫描结果（M10）
+      load()
+    } catch (e: any) { setUploadErr(e?.response?.data?.detail || '上传失败') }
   }
 
   const domains = Array.from(new Set(items.map(i => i.domain_label).filter(Boolean)))
@@ -113,14 +120,48 @@ export default function Market() {
         <p className="text-sm text-slate2 text-center py-16">暂无{KIND_LABELS[kind]}条目</p>
       )}
       {showUpload && (
-        <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowUpload(false)}>
+        <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => { setShowUpload(false); setScanResult(null) }}>
           <div className="bg-card rounded-2xl shadow-lift border border-border p-6 w-full max-w-md space-y-3" onClick={e => e.stopPropagation()}>
             <h3 className="font-semibold">上传{KIND_LABELS[kind]}（提交后待管理员审核）</h3>
-            <input value={form.name} onChange={e => setForm({...form, name: e.target.value})}
-                   placeholder="名称" className="w-full border border-border rounded-lg px-3 py-2 text-sm"/>
-            <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})}
-                      placeholder="描述（能力说明、适用场景）" rows={3} className="w-full border border-border rounded-lg px-3 py-2 text-sm"/>
-            <button onClick={doUpload} className="w-full bg-gradient-brand text-white rounded-lg py-2 text-sm shadow-glow">提交审核</button>
+            {!scanResult ? (
+              <>
+                <input value={form.name} onChange={e => setForm({...form, name: e.target.value})}
+                       placeholder="名称" className="w-full border border-border rounded-lg px-3 py-2 text-sm"/>
+                <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})}
+                          placeholder="描述（能力说明、适用场景）" rows={3} className="w-full border border-border rounded-lg px-3 py-2 text-sm"/>
+                {uploadErr && <p className="text-xs text-alert">{uploadErr}</p>}
+                <button onClick={doUpload} className="w-full bg-gradient-brand text-white rounded-lg py-2 text-sm shadow-glow">提交审核</button>
+              </>
+            ) : (
+              /* M10：安全扫描结果回执 */
+              <div className="space-y-3">
+                <div className={`rounded-xl border p-4 ${
+                  scanResult.scan?.verdict === 'clean' ? 'border-emerald-200 bg-emerald-50'
+                  : scanResult.scan?.verdict === 'suspicious' ? 'border-amber-200 bg-amber-50'
+                  : 'border-red-200 bg-red-50'}`}>
+                  <p className="text-sm font-semibold">
+                    {scanResult.scan?.verdict === 'clean' ? '✅ 安全扫描通过'
+                     : scanResult.scan?.verdict === 'suspicious' ? '⚠️ 扫描发现可疑内容'
+                     : '⛔ 扫描发现恶意内容'}
+                  </p>
+                  {scanResult.scan?.risk_types?.length > 0 && (
+                    <p className="text-xs mt-1.5">风险类型：<b>{scanResult.scan.risk_types.join('、')}</b></p>
+                  )}
+                  <p className="text-xs text-slate2 mt-1">{scanResult.message}</p>
+                </div>
+                {scanResult.risk_notice && (
+                  <div className="text-xs text-slate2 bg-canvas rounded-lg p-3">
+                    <p className="font-medium text-ink mb-1">命中详情（已同步告知管理员）：</p>
+                    {scanResult.risk_notice.findings.map((f: string, i: number) => (
+                      <p key={i} className="font-mono truncate">{f}</p>
+                    ))}
+                    <p className="mt-1.5">{scanResult.risk_notice.advice}</p>
+                  </div>
+                )}
+                <button onClick={() => { setShowUpload(false); setScanResult(null); setForm({ name: '', description: '' }) }}
+                        className="w-full bg-navy text-white rounded-lg py-2 text-sm">知道了</button>
+              </div>
+            )}
           </div>
         </div>
       )}

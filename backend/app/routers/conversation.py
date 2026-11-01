@@ -465,6 +465,32 @@ async def chat(conv_id: int, req: ChatRequest, user: dict = Depends(auth_user)):
                     lambda path: path.write_text(reply, encoding="utf-8"))
                 file_ops.append(op); steps.append(op)
 
+        # 4.5 首轮对话自动生成会话标题（AI 命名，失败回退消息前缀）
+        if provider is not None and conv.title in ("新对话", ""):
+            first_user = (await s.execute(
+                select(ConversationMessage.id).where(
+                    ConversationMessage.conversation_id == conv_id,
+                    ConversationMessage.role == "user"))).scalars().all()
+            if len(first_user) <= 1:
+                try:
+                    title_text, _tt = await provider_chat(
+                        s, provider,
+                        [{"role": "user",
+                          "content": "为以下对话生成一个不超过12字的中文会话标题，"
+                                     "直接输出标题本身，不要引号和标点：\n"
+                                     f"用户：{req.message[:150]}\n"
+                                     f"助手：{str(reply)[:150]}"}],
+                        system="你是标题生成器，只输出标题文本。",
+                        username=user["username"])
+                    new_title = title_text.strip().strip('"“” ').split("\n")[0][:24]
+                except Exception:
+                    new_title = ""
+                if not new_title:
+                    new_title = req.message.strip().replace("\n", " ")[:12]
+                conv.title = new_title
+                steps.append({"kind": "title", "status": "done",
+                              "detail": f"已自动生成会话标题：{new_title}"})
+
         # 5. 助手消息落库 + 记忆沉淀
         bot = ConversationMessage(
             conversation_id=conv_id, role="assistant",
@@ -603,8 +629,17 @@ async def _assemble_capabilities(s, user: dict, caps: dict,
     used: dict[str, int] = {}
     kb_ids = [int(i) for i in (caps.get("knowledge") or [])][:8]
     if kb_ids:
-        rows = (await s.execute(select(KnowledgeEntry).where(
-            KnowledgeEntry.id.in_(kb_ids)))).scalars().all()
+        # 知识权限过滤（M9）：个人条目仅所有者可引用，部门条目限同部门，公司全员
+        dept = user.get("department", "")
+        uname = user["username"]
+        rows = (await s.execute(
+            select(KnowledgeEntry).where(
+                KnowledgeEntry.id.in_(kb_ids),
+                (KnowledgeEntry.scope == "company")
+                | ((KnowledgeEntry.scope == "department")
+                   & (KnowledgeEntry.department == dept))
+                | ((KnowledgeEntry.scope == "personal")
+                   & (KnowledgeEntry.owner_id == uname))))).scalars().all()
         if rows:
             snippets = "\n".join(f"【{r.title}】{r.content[:300]}" for r in rows)
             system_parts.append(f"以下是与本请求相关的知识库条目（仅限当前用户可见范围）：\n{snippets}")

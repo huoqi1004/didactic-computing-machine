@@ -5,7 +5,6 @@ import './styles.css'
 import Login from './pages/Login'
 import Shell from './components/Shell'
 import Chat from './pages/Chat'
-import NewConversationModal from './pages/NewConversationModal'
 import Knowledge from './pages/Knowledge'
 import Records from './pages/Records'
 import IM from './pages/IM'
@@ -26,7 +25,7 @@ createRoot(document.getElementById('root')!).render(
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route element={<RequireAuth><Shell /></RequireAuth>}>
-          <Route path="/" element={<><Chat /><NewConversationModal /></>} />
+          <Route path="/" element={<Chat />} />
           <Route path="/knowledge" element={<Knowledge />} />
           <Route path="/records" element={<Records />} />
           <Route path="/im" element={<IM />} />

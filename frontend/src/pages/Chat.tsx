@@ -68,7 +68,20 @@ export default function Chat() {
   }, [])
 
   if (!convId) {
-    return <EmptyState openNew={() => nav('/?new=1')} />
+    // 草稿态：模式/工作区/模型在输入框周围直接选择，首条消息发送时自动创建会话
+    return (
+      <div className="h-full flex">
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+            <EmptyState />
+          </div>
+          <Composer convId={0} conv={null} models={models}
+                    onCreated={(id: number) => { nav(`/?c=${id}`, { replace: true }); bumpConv() }}
+                    onSent={() => { load(); bumpConv() }}
+                    setLoading={setLoading} />
+        </div>
+      </div>
+    )
   }
   return (
     <div className="h-full flex">
@@ -113,7 +126,7 @@ export default function Chat() {
 }
 
 /* ============ 空态（未选会话） ============ */
-function EmptyState({ openNew }: { openNew: () => void }) {
+function EmptyState() {
   return (
     <div className="h-full flex flex-col items-center justify-center gap-4 tech-grid">
       <span className="w-16 h-16 rounded-2xl bg-gradient-brand shadow-glow flex items-center justify-center">
@@ -121,13 +134,10 @@ function EmptyState({ openNew }: { openNew: () => void }) {
       </span>
       <h1 className="font-display text-xl font-bold text-ink">开启一个新的智能体会话</h1>
       <p className="text-sm text-slate2 max-w-md text-center leading-relaxed">
-        创建会话时将指定<b>工作区</b>（会话与生成文件的存储目录），并选择智能体权限模式与模型；
-        支持挂载附件、引用知识库/资料库/专家/Skill/MCP 等能力。
+        在下方输入框旁选择<b>智能体模式</b>、<b>工作区</b>与<b>模型</b>，
+        直接发送第一条消息即可开始；支持挂载附件、引用知识库/资料库/专家/Skill/MCP 等能力，
+        会话标题将由 AI 自动生成。
       </p>
-      <button onClick={openNew}
-              className="flex items-center gap-2 bg-gradient-brand text-white px-5 py-2.5 rounded-lg text-sm font-medium shadow-glow hover:opacity-90">
-        <MessageSquarePlus size={16} /> 新建对话
-      </button>
     </div>
   )
 }
@@ -247,7 +257,7 @@ function ApproveBtn({ convId, msgId, idx, approve, onDecided }: any) {
 }
 
 /* ============ 输入区：附件/能力/模式内提示/发送 ============ */
-function Composer({ convId, conv, onSent, setLoading }: any) {
+function Composer({ convId, conv, models, onSent, onCreated, setLoading }: any) {
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<any[]>([])
   const [caps, setCaps] = useState<{ knowledge: number[]; records: number[]; market: number[]; avatar: string }>({
@@ -259,6 +269,12 @@ function Composer({ convId, conv, onSent, setLoading }: any) {
   const [genFile, setGenFile] = useState(false)
   const [sending, setSending] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  // 草稿态配置（会话框周围直接选择，首条消息时创建会话）
+  const [draftWs, setDraftWs] = useState('')
+  const [draftMode, setDraftMode] = useState('approve_risky')
+  const [draftModelId, setDraftModelId] = useState(0)
+  const isDraft = !convId
 
   const toggleCap = (tab: string, id: number) => {
     setCaps((c: any) => {
@@ -278,6 +294,11 @@ function Composer({ convId, conv, onSent, setLoading }: any) {
 
   const uploadFiles = async (list: FileList | null) => {
     if (!list) return
+    if (isDraft) {
+      // 草稿态先本地暂存，会话创建后再上传
+      setPendingFiles(pf => [...pf, ...Array.from(list)])
+      return
+    }
     for (const f of Array.from(list)) {
       const fd = new FormData()
       fd.append('file', f)
@@ -293,11 +314,32 @@ function Composer({ convId, conv, onSent, setLoading }: any) {
     if (!text.trim() || sending) return
     setSending(true); setLoading(true)
     try {
-      await api.post(`/conversation/${convId}/chat`, {
-        message: text, attachments, capabilities: caps, generate_file: genFile,
+      let targetId = convId
+      let sentAttachments = attachments
+      if (isDraft) {
+        // 首条消息：以草稿配置懒创建会话，再补传暂存附件
+        const conv = await api.post('/conversation', {
+          title: '新对话',
+          workspace: draftWs.trim() || `工作区-${Date.now().toString().slice(-6)}`,
+          agent_mode: draftMode, model_id: draftModelId,
+        })
+        targetId = conv.id
+        for (const f of pendingFiles) {
+          const fd = new FormData()
+          fd.append('file', f)
+          try {
+            const r = await api.post(`/conversation/${targetId}/upload`, fd,
+              { headers: { 'Content-Type': 'multipart/form-data' } })
+            sentAttachments = [...sentAttachments, r]
+          } catch { /* 单文件失败跳过 */ }
+        }
+      }
+      await api.post(`/conversation/${targetId}/chat`, {
+        message: text, attachments: sentAttachments, capabilities: caps, generate_file: genFile,
       })
-      setText(''); setAttachments([]); setGenFile(false)
-      onSent()
+      setText(''); setAttachments([]); setPendingFiles([]); setGenFile(false)
+      if (isDraft) onCreated(targetId)
+      else onSent()
     } catch (e: any) {
       alert(e?.response?.data?.detail || '发送失败')
     } finally { setSending(false); setLoading(false) }
@@ -313,10 +355,12 @@ function Composer({ convId, conv, onSent, setLoading }: any) {
   return (
     <div className="shrink-0 border-t border-border bg-card px-5 py-3 space-y-2">
       {/* 已选能力与附件 chips */}
-      {(attachments.length > 0 || caps.knowledge.length || caps.records.length || caps.market.length || caps.avatar) && (
+      {(attachments.length > 0 || pendingFiles.length > 0 || caps.knowledge.length || caps.records.length || caps.market.length || caps.avatar) && (
         <div className="flex flex-wrap gap-1.5">
           {attachments.map((a, i) => capChip(`📎 ${a.filename}`, () =>
             setAttachments(list => list.filter((_, j) => j !== i))))}
+          {pendingFiles.map((f, i) => capChip(`📎 ${f.name}（待上传）`, () =>
+            setPendingFiles(pf => pf.filter((_, j) => j !== i))))}
           {caps.knowledge.map(id => capChip(`📖 知识#${id}`, () => toggleCap('knowledge', id)))}
           {caps.records.map(id => capChip(`🗂 资料#${id}`, () => toggleCap('records', id)))}
           {caps.market.map(id => capChip(`🧩 能力#${id}`, () => toggleCap('market', id)))}
@@ -365,6 +409,27 @@ function Composer({ convId, conv, onSent, setLoading }: any) {
           </div>
         </div>
       )}
+      {/* 草稿态：模式/工作区/模型 内联选择（首条消息发送时创建会话） */}
+      {isDraft && (
+        <div className="flex flex-wrap items-center gap-2 text-xs bg-canvas border border-border rounded-xl px-3 py-2">
+          <span className="text-slate2">新会话配置：</span>
+          <select value={draftMode} onChange={e => setDraftMode(e.target.value)}
+                  className="border border-border rounded-lg px-2 py-1.5 bg-card text-ink">
+            {MODES.map(m => <option key={m.key} value={m.key}>{m.label}模式</option>)}
+          </select>
+          <span className="text-slate2 flex items-center gap-1">
+            <Files size={12} />
+            <input value={draftWs} onChange={e => setDraftWs(e.target.value)}
+                   placeholder="工作区名称（选填）"
+                   className="border border-border rounded-lg px-2 py-1.5 bg-card w-36"/>
+          </span>
+          <select value={draftModelId} onChange={e => setDraftModelId(Number(e.target.value))}
+                  className="border border-border rounded-lg px-2 py-1.5 bg-card text-ink max-w-48">
+            <option value={0}>系统默认模型</option>
+            {models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </div>
+      )}
       {/* 主输入行 */}
       <div className="flex items-end gap-2">
         <input ref={fileRef} type="file" multiple hidden
@@ -379,7 +444,7 @@ function Composer({ convId, conv, onSent, setLoading }: any) {
         </button>
         <textarea value={text} onChange={e => setText(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-                  rows={2} placeholder={`以${MODE_LABEL[conv?.agent_mode] || ''}模式与智能体对话…（Enter 发送，Shift+Enter 换行）`}
+                  rows={2} placeholder={`以${MODE_LABEL[conv?.agent_mode || draftMode] || ''}模式与智能体对话…（Enter 发送，Shift+Enter 换行）`}
                   className="flex-1 border border-border rounded-xl px-3.5 py-2.5 text-sm resize-none bg-white transition-shadow focus:shadow-glow focus:border-steel-light"/>
         <button title="将回复保存为工作区文件" onClick={() => setGenFile(v => !v)}
                 className={`p-2.5 rounded-lg border transition-colors ${genFile ? 'bg-accent text-white border-accent' : 'border-border text-slate2 hover:text-accent hover:border-accent'}`}>
@@ -391,10 +456,10 @@ function Composer({ convId, conv, onSent, setLoading }: any) {
         </button>
       </div>
       <p className="text-[10px] text-slate2">
-        当前模式：{MODE_LABEL[conv?.agent_mode] || '-'} ·
-        {conv?.agent_mode === 'full_auto' && ' 智能体自主执行，工作区可增删改查'}
-        {conv?.agent_mode === 'approve_risky' && ' 普通写入自动执行，高风险动作需审批'}
-        {conv?.agent_mode === 'sandbox' && ' 所有操作先沙箱执行，审批后落盘'}
+        当前模式：{MODE_LABEL[conv?.agent_mode || draftMode] || '-'} ·
+        {(conv?.agent_mode || draftMode) === 'full_auto' && ' 智能体自主执行，工作区可增删改查'}
+        {(conv?.agent_mode || draftMode) === 'approve_risky' && ' 普通写入自动执行，高风险动作需审批'}
+        {(conv?.agent_mode || draftMode) === 'sandbox' && ' 所有操作先沙箱执行，审批后落盘'}
       </p>
     </div>
   )

@@ -74,6 +74,20 @@ class KnowledgeEntry(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class KnowledgeShareRequest(Base):
+    """个人知识条目共享申请（M9：→部门由 dept_admin 审批，→公司由 sys_admin 审批）。"""
+    __tablename__ = "knowledge_share_requests"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    entry_id: Mapped[int] = mapped_column(Integer)
+    requester: Mapped[str] = mapped_column(String(64))
+    requester_department: Mapped[str] = mapped_column(String(64), default="")
+    target_scope: Mapped[str] = mapped_column(String(16))   # department / company
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending/approved/rejected
+    reviewer: Mapped[str] = mapped_column(String(64), default="")
+    review_comment: Mapped[str] = mapped_column(String(256), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 # ========== 实时资料库（定稿防篡改 + 版本链，D-R3） ==========
 
 class BusinessDocument(Base):

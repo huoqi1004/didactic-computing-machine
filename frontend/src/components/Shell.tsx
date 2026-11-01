@@ -7,13 +7,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
 import { BarChart3, BookOpen, Brain, ChevronUp, FolderOpen, History,
-         Home, LogOut, MessageSquare, MessageSquarePlus, Settings,
+         LogOut, MessageSquare, MessageSquarePlus, Settings,
          Shield, Store, Trash2, UserCog, X } from 'lucide-react'
 import api, { clearToken } from '../lib/api'
 import { useAppStore, ROLE_LABELS } from '../store'
 
 const NAV_ITEMS = [
-  { to: '/', label: '对话', icon: Home, roles: null, exact: true },
   { to: '/knowledge', label: '知识库', icon: BookOpen, roles: null },
   { to: '/records', label: '资料库', icon: FolderOpen, roles: null },
   { to: '/im', label: '消息', icon: MessageSquare, roles: null },
@@ -65,7 +64,7 @@ export default function Shell() {
     if (activeConv === id) nav('/')
   }
 
-  const newConversation = () => nav('/?new=1')
+  const newConversation = () => nav('/')
 
   const items = NAV_ITEMS.filter(n => !n.roles || n.roles.includes(user?.role || ''))
   const quotaPct = quota && quota.limit > 0
@@ -124,8 +123,8 @@ export default function Shell() {
 
         {/* ===== 下方：功能导航 ===== */}
         <nav className="relative border-t border-white/10 px-3 py-2 space-y-0.5">
-          {items.map(({ to, label, icon: Icon, ...rest }) => (
-            <NavLink key={to} to={to} end={'exact' in rest ? true : false}
+          {items.map(({ to, label, icon: Icon }) => (
+            <NavLink key={to} to={to}
                      className={({ isActive }) =>
                        `flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition-all ${
                          isActive ? 'bg-gradient-pill shadow-glow font-medium text-white'

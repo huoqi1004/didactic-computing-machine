@@ -8,10 +8,18 @@ interface AppState {
   clearUser: () => void
 }
 
+const savedUser = sessionStorage.getItem('erp-user')
+
 export const useAppStore = create<AppState>(set => ({
-  user: null,
-  setUser: u => set({ user: u }),
-  clearUser: () => set({ user: null }),
+  user: savedUser ? JSON.parse(savedUser) : null,
+  setUser: u => {
+    sessionStorage.setItem('erp-user', JSON.stringify(u))
+    set({ user: u })
+  },
+  clearUser: () => {
+    sessionStorage.removeItem('erp-user')
+    set({ user: null })
+  },
 }))
 
 export const ROLE_LABELS: Record<string, string> = {

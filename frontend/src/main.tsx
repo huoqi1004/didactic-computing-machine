@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './styles.css'
 import Login from './pages/Login'
+import Shell from './components/Shell'
 import Home from './pages/Home'
 import Knowledge from './pages/Knowledge'
 import Records from './pages/Records'
@@ -10,6 +11,7 @@ import IM from './pages/IM'
 import Market from './pages/Market'
 import Dashboard from './pages/Dashboard'
 import AdminConsole from './pages/AdminConsole'
+import Settings from './pages/Settings'
 import { getToken } from './lib/api'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -22,13 +24,16 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
-        <Route path="/knowledge" element={<RequireAuth><Knowledge /></RequireAuth>} />
-        <Route path="/records" element={<RequireAuth><Records /></RequireAuth>} />
-        <Route path="/im" element={<RequireAuth><IM /></RequireAuth>} />
-        <Route path="/market" element={<RequireAuth><Market /></RequireAuth>} />
-        <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
-        <Route path="/admin" element={<RequireAuth><AdminConsole /></RequireAuth>} />
+        <Route element={<RequireAuth><Shell /></RequireAuth>}>
+          <Route path="/" element={<Home />} />
+          <Route path="/knowledge" element={<Knowledge />} />
+          <Route path="/records" element={<Records />} />
+          <Route path="/im" element={<IM />} />
+          <Route path="/market" element={<Market />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/admin" element={<AdminConsole />} />
+          <Route path="/settings" element={<Settings />} />
+        </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

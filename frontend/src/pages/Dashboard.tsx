@@ -16,7 +16,7 @@ export default function Dashboard() {
   }, [user?.role])
 
   return (
-    <div className="min-h-screen bg-canvas p-6">
+    <div className="p-6">
       <h1 className="text-lg font-bold text-ink mb-4">
         {user?.role === 'chairman' ? '全域驾驶舱' : '分管看板'}
       </h1>

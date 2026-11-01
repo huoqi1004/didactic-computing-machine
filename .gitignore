@@ -33,3 +33,4 @@ dist/
 # 构建产物
 *.egg-info/
 .next/
+frontend/.vite/

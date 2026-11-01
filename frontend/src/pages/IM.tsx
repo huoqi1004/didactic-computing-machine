@@ -33,17 +33,23 @@ export default function IM() {
   }
 
   return (
-    <div className="min-h-screen bg-canvas flex">
-      <div className="w-64 bg-navy text-white p-3 space-y-1 overflow-y-auto">
-        <h2 className="font-semibold text-sm px-2 py-1">消息</h2>
+    <div className="h-full bg-canvas flex">
+      <div className="w-64 bg-card border-r border-border p-3 space-y-1 overflow-y-auto">
+        <h2 className="font-semibold text-sm px-2 py-1 text-ink">频道</h2>
         {channels.map(ch => (
           <button key={ch.id} onClick={() => openChannel(ch.id)}
-                  className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-navy-light">
-            [{TYPE_LABELS[ch.type] || ch.type}] {ch.name || `频道#${ch.id}`}
+                  className={`w-full text-left px-2 py-1.5 rounded text-xs ${active === ch.id ? 'bg-navy text-white' : 'text-ink hover:bg-canvas'}`}>
+            <span className="text-slate2">[{TYPE_LABELS[ch.type] || ch.type}]</span>{' '}
+            {ch.name || `频道#${ch.id}`}
           </button>
         ))}
       </div>
       <div className="flex-1 flex flex-col">
+        {active === null && (
+          <div className="flex-1 flex items-center justify-center text-sm text-slate2">
+            从左侧选择一个频道开始会话
+          </div>
+        )}
         {active !== null && (
           <>
             <div className="flex-1 p-4 space-y-2 overflow-y-auto bg-card">

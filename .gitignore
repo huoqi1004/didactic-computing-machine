@@ -40,3 +40,4 @@ backend/workspaces/
 backend/*.png
 legacy/frontend/_tmp_*.log
 .trae-html-share-packages/
+backend/*.pdf

@@ -248,3 +248,19 @@ class Project(Base):
     progress: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
     owner: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+# ========== 智能体长期记忆（M8 · AgentScope 式抽取/检索/注入） ==========
+
+class AgentMemory(Base):
+    """用户级长期记忆：偏好/事实/结论，供后续会话召回注入。"""
+    __tablename__ = "agent_memories"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(16), default="fact")   # preference / fact / conclusion
+    content: Mapped[str] = mapped_column(Text, default="")
+    importance: Mapped[int] = mapped_column(Integer, default=3)     # 1-5
+    source_conv_id: Mapped[int] = mapped_column(Integer, default=0)
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

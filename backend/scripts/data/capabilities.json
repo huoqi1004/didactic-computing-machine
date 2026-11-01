@@ -1,0 +1,2650 @@
+{
+ "skills": [
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "steipete/gog",
+   "name": "Gog",
+   "description": "Google Workspace CLI for Gmail, Calendar, Drive, Contacts, Sheets, and Docs.",
+   "metrics": "downloads:198535",
+   "url": "https://clawhub.ai/steipete/skills/gog",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "jacky1n7/openclaw-tavily-search",
+   "name": "Tavily Search",
+   "description": "Search the public web through Tavily and return structured results with URLs and snippets. Use when an agent needs current information, source discovery, link lookup, news or finance search, or a fallback for unavailable built-in web search. Do not use for private or authenticated pages.",
+   "metrics": "downloads:109690",
+   "url": "https://clawhub.ai/jacky1n7/skills/openclaw-tavily-search",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "ivangdavila/word-docx",
+   "name": "Word / DOCX",
+   "description": "Create, inspect, and edit Microsoft Word documents and DOCX files with reliable styles, numbering, tracked changes, tables, sections, and compatibility check...",
+   "metrics": "downloads:95996",
+   "url": "https://clawhub.ai/ivangdavila/skills/word-docx",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "awspace/pdf",
+   "name": "Pdf",
+   "description": "Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging/splitting documents, and handling forms. When Claude needs to fill in a PDF form or programmatically process, generate, or analyze PDF documents at scale.",
+   "metrics": "downloads:51496",
+   "url": "https://clawhub.ai/awspace/skills/pdf",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "asleep123/caldav-calendar",
+   "name": "Caldav Calendar",
+   "description": "Sync and query CalDAV calendars (iCloud, Google, Fastmail, Nextcloud, etc.) using vdirsyncer + khal. Works on Linux.",
+   "metrics": "downloads:34135",
+   "url": "https://clawhub.ai/asleep123/skills/caldav-calendar",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "ndcccccc/calendar",
+   "name": "Calendar",
+   "description": "Calendar management and scheduling. Create events, manage meetings, and sync across calendar providers.",
+   "metrics": "downloads:24538",
+   "url": "https://clawhub.ai/ndcccccc/skills/calendar",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "ivangdavila/image",
+   "name": "Image",
+   "description": "Create, inspect, process, and optimize image files and visual assets with reliable format choice, resizing, compression, color-profile, metadata, and platfor...",
+   "metrics": "downloads:23393",
+   "url": "https://clawhub.ai/ivangdavila/skills/image",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "wscats/resume-assistant",
+   "name": "Resume Assistant",
+   "description": "Assist job seekers by polishing, customizing, scoring, and exporting resumes with detailed checklist reviews and multi-format support.",
+   "metrics": "downloads:21848",
+   "url": "https://clawhub.ai/wscats/skills/resume-assistant",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "cellcog/image-generation-cellcog",
+   "name": "Image Generation",
+   "description": "AI image generation and photo editing powered by CellCog. Text-to-image, image-to-image, consistent characters, product photography, reference-based generation, style transfer, sets of images, social media visuals, brand assets, stickers, comics, GIFs. Professional image creation with multiple AI mo",
+   "metrics": "downloads:16671",
+   "url": "https://clawhub.ai/cellcog/skills/image-generation-cellcog",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "byungkyu/zoho-crm",
+   "name": "Zoho CRM",
+   "description": "Zoho CRM API integration with managed OAuth. Manage leads, contacts, accounts, deals, and other CRM records. Use this skill when users want to read, create, update, or delete CRM records, search contacts, manage sales pipelines, access organization settings, manage users, or retrieve module metadata",
+   "metrics": "downloads:15131",
+   "url": "https://clawhub.ai/byungkyu/skills/zoho-crm",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "zhangqixin9527/web-scraping",
+   "name": "Web Scraping",
+   "description": "Extract structured information from websites using web_fetch for simple pages and browser automation for dynamic sites, login-gated flows, pagination, infini...",
+   "metrics": "downloads:14382",
+   "url": "https://clawhub.ai/zhangqixin9527/skills/web-scraping",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "anton-roos/finance",
+   "name": "finance",
+   "description": "Track stocks, ETFs, indices, crypto (where available), and FX pairs with caching + provider fallbacks.",
+   "metrics": "downloads:14255",
+   "url": "https://clawhub.ai/anton-roos/skills/finance",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "ivangdavila/translate",
+   "name": "Translate",
+   "description": "Translates and localizes text, software strings, documents, subtitles, and marketing copy between any language pair. Use when translating anything, when fixing a translation that reads machine-made, or when localizing a product: ICU plurals and gender, placeholders that must survive, string catalogs",
+   "metrics": "downloads:14090",
+   "url": "https://clawhub.ai/ivangdavila/skills/translate",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "byungkyu/google-calendar-api",
+   "name": "Google Calendar",
+   "description": "Google Calendar API integration with managed OAuth. Create events, list calendars, check availability, and manage schedules. Use this skill when users want to interact with Google Calendar. For other third party apps, use the api-gateway skill (https://clawhub.ai/byungkyu/api-gateway). Calls run thr",
+   "metrics": "downloads:12577",
+   "url": "https://clawhub.ai/byungkyu/skills/google-calendar-api",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "porteden/email-gmail-outlook",
+   "name": "Email",
+   "description": "Email Management - Secure Gmail, Outlook & Exchange - multi account support. Read, search, or triage inbox/email; send, reply, forward, delete; view email, a...",
+   "metrics": "downloads:10617",
+   "url": "https://clawhub.ai/porteden/skills/email-gmail-outlook",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "boyangwang/lark-calendar",
+   "name": "Lark Calendar & Tasks",
+   "description": "Create, update, and delete calendar events and tasks in Lark (Feishu). Includes employee directory for automatic name-to-user_id resolution.",
+   "metrics": "downloads:10246",
+   "url": "https://clawhub.ai/boyangwang/skills/lark-calendar",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "byungkyu/google-docs",
+   "name": "google-docs",
+   "description": "Google Docs API integration with managed OAuth. Create documents, insert text, apply formatting, and manage content. Use this skill when users want to interact with Google Docs. For other third party apps, use the api-gateway skill (https://clawhub.ai/byungkyu/api-gateway). Calls run through the `ma",
+   "metrics": "downloads:9880",
+   "url": "https://clawhub.ai/byungkyu/skills/google-docs",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "hith3sh/google-docs-documents",
+   "name": "Google Docs",
+   "description": "Google Docs API integration with managed OAuth. Search, read, create, and update Google Docs documents. Use this skill when users want to read document text,...",
+   "metrics": "downloads:7427",
+   "url": "https://clawhub.ai/hith3sh/skills/google-docs-documents",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "tinyfish/tinyfish",
+   "name": "Tinyfish",
+   "description": "Use TinyFish for web search, fetching URLs, reading pages, current information, source-backed answers, research, docs, pricing/product pages, extraction, scr...",
+   "metrics": "downloads:5833",
+   "url": "https://clawhub.ai/tinyfish/skills/tinyfish",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "ivangdavila/accounting",
+   "name": "Accounting",
+   "description": "Support accounting understanding from basic bookkeeping to professional practice and research.",
+   "metrics": "downloads:5708",
+   "url": "https://clawhub.ai/ivangdavila/skills/accounting",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "yang1002378395-cmyk/pdf-processor-cn",
+   "name": "Pdf",
+   "description": "Use this skill whenever the user wants to do anything with PDF files. This includes reading or extracting text/tables from PDFs, combining or merging multipl...",
+   "metrics": "downloads:5587",
+   "url": "https://clawhub.ai/yang1002378395-cmyk/skills/pdf-processor-cn",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "zhengxinjipai/scrapling-web-scraper",
+   "name": "Scrapling Web Scraping",
+   "description": "Zero-bot-detection web scraping for OpenClaw. Bypass Cloudflare, handle JavaScript-heavy sites, and adapt to website changes automatically. Use when you need...",
+   "metrics": "downloads:5269",
+   "url": "https://clawhub.ai/zhengxinjipai/skills/scrapling-web-scraper",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "xejrax/brainz-calendar",
+   "name": "Calendar",
+   "description": "Manage Google Calendar events using `gcalcli`. Create, list, and delete calendar events from the CLI.",
+   "metrics": "downloads:5189",
+   "url": "https://clawhub.ai/xejrax/skills/brainz-calendar",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "ivangdavila/crm",
+   "name": "CRM",
+   "description": "Runs a CRM: contacts, companies, deals, pipeline stages, follow-ups, and the data hygiene that keeps it usable. Use when setting up, rescuing, or operating a CRM (personal, freelance, sales, donor, or job-search); when the pipeline needs review, a deal has gone quiet, a forecast has to be defended, ",
+   "metrics": "downloads:5171",
+   "url": "https://clawhub.ai/ivangdavila/skills/crm",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "jimliu/baoyu-translate",
+   "name": "Baoyu Translate",
+   "description": "This skill should be used when the user asks to \"translate\", \"翻译\", \"精翻\", \"translate article\", \"translate to Chinese\", \"translate to English\", \"改成中文\", \"改成英文\",...",
+   "metrics": "downloads:5153",
+   "url": "https://clawhub.ai/jimliu/skills/baoyu-translate",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "ivangdavila/legal",
+   "name": "Legal",
+   "description": "Think through any legal situation like a lawyer. Issue spotting, jurisdiction, risk assessment, actionable conclusions.",
+   "metrics": "downloads:5147",
+   "url": "https://clawhub.ai/ivangdavila/skills/legal",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "sdk-team/alibabacloud-odps-maxframe-coding",
+   "name": "Alibabacloud Odps Maxframe Coding",
+   "description": "Use this skill for MaxFrame SDK development and documentation navigation on Alibaba Cloud MaxCompute (ODPS). Helps answer MaxFrame API, concept, official exa...",
+   "metrics": "downloads:4387",
+   "url": "https://clawhub.ai/sdk-team/skills/alibabacloud-odps-maxframe-coding",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "vanthienha199/universal-translate",
+   "name": "Universal Translate",
+   "description": "Translate text, files, and conversations between any languages. Auto-detects source language. Preserves formatting (markdown, code blocks, tables). Use when...",
+   "metrics": "downloads:3953",
+   "url": "https://clawhub.ai/vanthienha199/skills/universal-translate",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "awspace/email-skill",
+   "name": "Email",
+   "description": "Email management and automation. Send, read, search, and organize emails across multiple providers.",
+   "metrics": "downloads:3568",
+   "url": "https://clawhub.ai/awspace/skills/email-skill",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "candor/candor-finance",
+   "name": "candor-finance",
+   "description": "Use Candor for personal finance: organize the user's accounts and spending, remember budgets and goals, review investments, investigate possible savings, and keep evidence and follow-up together. Use when a task touches the user's money, financial records, prior decisions, or saved plans.",
+   "metrics": "downloads:3428",
+   "url": "https://clawhub.ai/candor/skills/candor-finance",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "agenticio/hr",
+   "name": "HR",
+   "description": "Complete human resources intelligence system for founders, managers, and HR professionals. Trigger whenever someone needs help with hiring, onboarding, perfo...",
+   "metrics": "downloads:3395",
+   "url": "https://clawhub.ai/agenticio/skills/hr",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "paulgnz/xpr-web-scraping",
+   "name": "XPR Web Scraping",
+   "description": "Tools for fetching and extracting cleaned text, metadata, and links from single or multiple web pages with format options and link filtering.",
+   "metrics": "downloads:3372",
+   "url": "https://clawhub.ai/paulgnz/skills/xpr-web-scraping",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "ivangdavila/report",
+   "name": "Report",
+   "description": "Configure custom recurring reports. User defines data sources, skill handles scheduling and formatting.",
+   "metrics": "downloads:3244",
+   "url": "https://clawhub.ai/ivangdavila/skills/report",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "ivangdavila/financial-literacy",
+   "name": "Finance",
+   "description": "Support financial understanding from personal budgeting to professional analysis and research.",
+   "metrics": "downloads:3238",
+   "url": "https://clawhub.ai/ivangdavila/skills/financial-literacy",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "tseng71/image-deck",
+   "name": "image-deck: PPT Presentation & Slides",
+   "description": "Create visual PPT and PowerPoint decks with GPT Image 2.",
+   "metrics": "downloads:3214",
+   "url": "https://clawhub.ai/tseng71/skills/image-deck",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "cellcog/resume-cover-letter-cellcog",
+   "name": "Resume",
+   "description": "AI resume and cover letter generation powered by CellCog. ATS-optimized resumes, CVs, cover letters, LinkedIn profiles, career documents — PDF or DOCX. Research-first approach that analyzes target roles before writing.",
+   "metrics": "downloads:2984",
+   "url": "https://clawhub.ai/cellcog/skills/resume-cover-letter-cellcog",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "vivalavida-say-hi/yoooclaw-work-report",
+   "name": "yoooclaw-work-report",
+   "description": "从工作相关的消息通知中自动提取当天或本周的工作进展、沟通要点和待办，生成一份工作日报或周报。触发：日报 / 周报 / 工作汇报 / 今天干了啥 / 这周做了什么 / 帮我写日报 / 帮我整理周报 / 工作简报 / 工作总结。",
+   "metrics": "downloads:2970",
+   "url": "https://clawhub.ai/vivalavida-say-hi/skills/yoooclaw-work-report",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "1kalin/afrexai-web-scraping-engine",
+   "name": "Web Scraping & Data Extraction Engine",
+   "description": "Complete web scraping methodology — legal compliance, architecture design, anti-detection, data pipelines, and production operations. Use when building scrap...",
+   "metrics": "downloads:2895",
+   "url": "https://clawhub.ai/1kalin/skills/afrexai-web-scraping-engine",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "zhbgyj/knowledge",
+   "name": "Knowledge",
+   "description": "本地知识库集成 - 文档检索、投喂、双轨模式切换",
+   "metrics": "downloads:2861",
+   "url": "https://clawhub.ai/zhbgyj/skills/knowledge",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "tobewin/china-legal-query",
+   "name": "China Legal Query",
+   "description": "中国法律法规查询工具。Use when user needs to search Chinese laws, regulations, judicial interpretations. Supports criminal law, civil law, labor law, contract law, inte...",
+   "metrics": "downloads:2813",
+   "url": "https://clawhub.ai/tobewin/skills/china-legal-query",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "ivangdavila/resume",
+   "name": "Resume",
+   "description": "Analyze and optimize resumes for ATS compatibility, tailor to specific jobs, highlight achievements, and address career level and transition challenges to bo...",
+   "metrics": "downloads:2673",
+   "url": "https://clawhub.ai/ivangdavila/skills/resume",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "porteden/calendar-skill",
+   "name": "Calendar",
+   "description": "Calendar Management - secure Google Calendar, Microsoft Outlook & Exchange. Use when the user wants to list, search, or read calendar events; creating, updat...",
+   "metrics": "downloads:2652",
+   "url": "https://clawhub.ai/porteden/skills/calendar-skill",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "ivangdavila/invoice",
+   "name": "Invoice",
+   "description": "Create and send professional invoices with automatic numbering, tax calculation, templates, and payment tracking.",
+   "metrics": "downloads:2457",
+   "url": "https://clawhub.ai/ivangdavila/skills/invoice",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "tobewin/china-legal-analysis",
+   "name": "China Legal Analysis",
+   "description": "中国法律场景解析工具。Use when user needs to analyze legal scenarios, understand legal implications, or get legal guidance for specific situations. Supports contract di...",
+   "metrics": "downloads:2394",
+   "url": "https://clawhub.ai/tobewin/skills/china-legal-analysis",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "xz-cn/clawdbot-crm-skill",
+   "name": "Crm",
+   "description": "Personal CRM for managing contacts, relationships, and follow-ups using markdown files. Use when the user wants to add contacts, track relationships, set fol...",
+   "metrics": "downloads:2314",
+   "url": "https://clawhub.ai/xz-cn/skills/clawdbot-crm-skill",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "openclaw/graincrawl",
+   "name": "Graincrawl",
+   "description": "Search local Granola notes and transcripts",
+   "metrics": "downloads:2220",
+   "url": "https://clawhub.ai/openclaw/skills/graincrawl",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "fhbillwer/ws-calendar",
+   "name": "Calendar",
+   "description": "日程管理。创建日程、设置提醒、查看安排。",
+   "metrics": "downloads:2208",
+   "url": "https://clawhub.ai/fhbillwer/skills/ws-calendar",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "taylorhou/crm-in-a-box",
+   "name": "CRM-in-a-Box",
+   "description": "Bootstrap and manage an open, file-based CRM using the CRM-in-a-Box protocol (contacts, pipeline, interactions as NDJSON). Use when setting up a new CRM for...",
+   "metrics": "downloads:2198",
+   "url": "https://clawhub.ai/taylorhou/skills/crm-in-a-box",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "sweihub/spider",
+   "name": "Web scraping skill using Chrome + WebMCP",
+   "description": "Web scraping using Chrome + WebMCP. Primary method for all web crawling tasks.",
+   "metrics": "downloads:2016",
+   "url": "https://clawhub.ai/sweihub/skills/spider",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "smyx-sunjinhui/smyx-employee-emotion-fluctuation-hr-analysis",
+   "name": "Employee Emotion Fluctuation HR Report | 员工入职/离职情绪波动预警（HR方向）",
+   "description": "Using fixed cameras in enterprise office areas (with employee consent and anonymization), the system performs long-term monitoring of employees' facial expressions and posture features, building per-person historical baselines (smile frequency, sigh count, frown level, etc.). | 通过企业办公区固定摄像头（需征得员工同意并",
+   "metrics": "downloads:1909",
+   "url": "https://clawhub.ai/smyx-sunjinhui/skills/smyx-employee-emotion-fluctuation-hr-analysis",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "bytesagain3/hr-toolkit",
+   "name": "Hr Toolkit",
+   "description": "HR工具包。招聘流程、入职办理、离职管理、制度规范、员工手册、HR模板库。HR toolkit with recruitment, onboarding, offboarding, policy, handbook.",
+   "metrics": "downloads:1877",
+   "url": "https://clawhub.ai/bytesagain3/skills/hr-toolkit",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "chuhemiao/openclaw-accounting",
+   "name": "Accounting",
+   "description": "Local AI assistant for recording income/expenses, querying transactions, generating reports, and analyzing stats with secure, offline data storage.",
+   "metrics": "downloads:1811",
+   "url": "https://clawhub.ai/chuhemiao/skills/openclaw-accounting",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "ryanlee-gemini/cn-resume-optimizer",
+   "name": "CN Resume Optimizer 简历优化师",
+   "description": "简历优化师，专为职场人士提供简历优化、求职文案、面试准备全流程支持。触发场景：用户提到\"帮我优化简历\"、\"简历怎么写\"、\"求职信\"、\"自我介绍\"、\"面试准备\"、\"写简历\"、\"简历润色\"、\"JD匹配\"、\"岗位匹配度\"、\"简历诊断\"、\"STAR法则\"、\"简历模板\"、\"投递简历\"、\"面试题预测\"、\"求职\"等关键词时激活...",
+   "metrics": "downloads:1793",
+   "url": "https://clawhub.ai/ryanlee-gemini/skills/cn-resume-optimizer",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "rithythul/koompi-finance",
+   "name": "Finance",
+   "description": "Use for finance and accounting operations — AP/AR tracking, invoicing, bank reconciliation, budgeting, financial reporting, expense management, tax prep, pay...",
+   "metrics": "downloads:1773",
+   "url": "https://clawhub.ai/rithythul/skills/koompi-finance",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "codefarmerman/legal-doc-writer",
+   "name": "Legal Doc Writer",
+   "description": "中国财税法律文书起草助手。当用户需要起草、审查或修改法律文书时应使用本 Skill，包括：税务筹划报告、法律意见书、合同税务条款、税务行政复议申请书、税务行政诉讼状、税务咨询报告、客户尽职调查报告、税务处理意见函等各类涉税法律文书。",
+   "metrics": "downloads:1714",
+   "url": "https://clawhub.ai/codefarmerman/skills/legal-doc-writer",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "daimingvip-a11y/legal-compliance-bundle",
+   "name": "中国法律合规AI技能包",
+   "description": "提供50个面向中国企业的AI法律合规自动化技能，涵盖合同审查、法律问答、劳动合规、知识产权及数据保护等领域。",
+   "metrics": "downloads:1615",
+   "url": "https://clawhub.ai/daimingvip-a11y/skills/legal-compliance-bundle",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "zhengxinjipai/scrapling-web-scraper-openclaw",
+   "name": "Scrapling Web Scraping",
+   "description": "Zero-bot-detection web scraping for OpenClaw. Bypass Cloudflare, handle JavaScript-heavy sites, and adapt to website changes automatically. Use when you need...",
+   "metrics": "downloads:1608",
+   "url": "https://clawhub.ai/zhengxinjipai/skills/scrapling-web-scraper-openclaw",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "codekungfu/crm-management",
+   "name": "CRM",
+   "description": "提供CRM管理的可落地指南与SOP。在开展CRM管理相关工作时调用。",
+   "metrics": "downloads:1577",
+   "url": "https://clawhub.ai/codekungfu/skills/crm-management",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "gechengling/finance-data-analysis",
+   "name": "Finance Data Analysis",
+   "description": "Provides AI-driven financial data analysis including KPI tracking, financial statement evaluation, data visualization, and automated reporting for decision s...",
+   "metrics": "downloads:1529",
+   "url": "https://clawhub.ai/gechengling/skills/finance-data-analysis",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "kleberbaum/netsnek-invoice",
+   "name": "Invoice",
+   "description": "Creates and manages invoices as JSON files on GitHub with sequential numbering, preview, and upload.",
+   "metrics": "downloads:1520",
+   "url": "https://clawhub.ai/kleberbaum/skills/netsnek-invoice",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "binhuatochina/knowledge-precipitation",
+   "name": "知识自动沉淀引擎",
+   "description": "每日知识沉淀引擎（Knowledge Auto-Precipitation Engine，KAPE）。自动完成：下载昨日Get笔记内容 → 结合对话记录 → 深度分析用户学习、感悟、工作状态 → 生成含重点摘要的日志简报 → 同步归档到 Get笔记（带标签）+ 飞书知识库 + 飞书文档。触发场景：「整理昨天的日志...",
+   "metrics": "downloads:1512",
+   "url": "https://clawhub.ai/binhuatochina/skills/knowledge-precipitation",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "fangweifen2025-dotcom/email-inbox",
+   "name": "email",
+   "description": "summarize, triage, and draft actions for incoming email. use when the user wants chatgpt to check an inbox, identify important unread messages, group emails...",
+   "metrics": "downloads:1503",
+   "url": "https://clawhub.ai/fangweifen2025-dotcom/skills/email-inbox",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "zack-dev-cm/imagegen",
+   "name": "Image Gen",
+   "description": "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparen...",
+   "metrics": "downloads:1482",
+   "url": "https://clawhub.ai/zack-dev-cm/skills/imagegen",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "crawlora-org/finance-markets-research",
+   "name": "finance-markets-research",
+   "description": "Research stocks, crypto, SEC filings, insider/congressional trading, and private-market profiles through Crawlora. Use for one-ticker data, filing lookups, or market snapshots; for matched financial-statement comparisons across public-company peers, use company-fundamentals-comparison.",
+   "metrics": "downloads:1454",
+   "url": "https://clawhub.ai/crawlora-org/skills/finance-markets-research",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "chipmunkrpa/technical-accounting-research-skill",
+   "name": "Technical Accounting Research",
+   "description": "Research technical accounting treatment and financial statement disclosure for specific transactions using U.S. GAAP and SEC-focused sources. Use when a user...",
+   "metrics": "downloads:1443",
+   "url": "https://clawhub.ai/chipmunkrpa/skills/technical-accounting-research-skill",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "mvanhorn/supabase-db",
+   "name": "Supabase DB",
+   "description": "Connect to Supabase for SQL queries, CRUD, table management, and vector similarity search using pgvector extension and OpenAI embeddings.",
+   "metrics": "downloads:1433",
+   "url": "https://clawhub.ai/mvanhorn/skills/supabase-db",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "cloudmusiccio/hr-interview-evaluator",
+   "name": "HR面试评价助手",
+   "description": "🎯 智能面试评估助手 通过口令触发，自动结合JD文字+简历文档+面试记录文档，生成专业面试评估报告 【触发口令】 面试评估、生成评估报告、候选人评估、面试评价、评估候选人 【使用方式】 1. 发送触发口令（如'面试评估'） 2. 粘贴JD文字 3. 上传简历PDF/Word 4. 上传面试记录PDF/Word（...",
+   "metrics": "downloads:1419",
+   "url": "https://clawhub.ai/cloudmusiccio/skills/hr-interview-evaluator",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "vincent-chao-lang/tax-invoice-skill",
+   "name": "发票归集自动台账工具",
+   "description": "本地离线OCR识别图片/PDF发票，自动分类专票/普票/电子普票，生成月度报销台账，断网可用，财务数据不向外传输。采用「本地OCR取字为主 + 本地多模态大模型(VLM)辅助字段定位」的混合路线，兼顾数字准确率与版式适应性。",
+   "metrics": "downloads:1381",
+   "url": "https://clawhub.ai/vincent-chao-lang/skills/tax-invoice-skill",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "wenbozhao279-code/web-scraping-tool-selection-strategy",
+   "name": "Web Scraping Tool Selection Strategy",
+   "description": "如何选择合适的网页抓取工具进行数据采集。当用户提到网页抓取、数据采集、爬虫、自动化测试、浏览器自动化、网站监控、竞品分析、价格监控、评论抓取、社交媒体数据分析、电商数据采集、小红书/知乎/京东/淘宝/1688抓取、结构化数据提取、反爬绕过、浏览器复用、API抓取、实时数据监控等场景时使用此技能。包含opencli...",
+   "metrics": "downloads:1370",
+   "url": "https://clawhub.ai/wenbozhao279-code/skills/web-scraping-tool-selection-strategy",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "1970168137/hr-policy-generator",
+   "name": "Hr Policy Generator",
+   "description": "Comprehensive HR policy development covering attendance, time-off, overtime, remote work, and compliance. Generates structured policy documents, legal checkl...",
+   "metrics": "downloads:1342",
+   "url": "https://clawhub.ai/1970168137/skills/hr-policy-generator",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "jeroencorthout/salesflare",
+   "name": "Salesflare CRM",
+   "description": "Work with Salesflare CRM through its native OAuth MCP connection for accounts, contacts, opportunities, tasks, pipelines, users, tags, and account feeds.",
+   "metrics": "downloads:1315",
+   "url": "https://clawhub.ai/jeroencorthout/skills/salesflare",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "sdk-team/alibabacloud-quickbi-smartq",
+   "name": "alibabacloud-quickbi-smartq",
+   "description": "Quick BI-SmartQ skill with multiple data analysis capabilities:\n1. **File Q&A**: Upload Excel/CSV files for intelligent analysis via Quick BI API\n2. **Dataset Q&A**: Natural language queries on Quick BI platform datasets, with automatic intelligent table selection and matching\n3. **Document Parsing*",
+   "metrics": "downloads:1245",
+   "url": "https://clawhub.ai/sdk-team/skills/alibabacloud-quickbi-smartq",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "chipmunkrpa/accounting-finance-system-skill",
+   "name": "Accounting Finance System Research Skill",
+   "description": "Research and solve \"how do I do this?\" questions inside accounting and finance software systems (ERP, GL, AP/AR, billing, close, and reporting tools). Use wh...",
+   "metrics": "downloads:1233",
+   "url": "https://clawhub.ai/chipmunkrpa/skills/accounting-finance-system-skill",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "genortg/grill-docs",
+   "name": "Grill With Docs",
+   "description": "Full design grilling session. I interview you relentlessly about every aspect of your plan until we reach shared understanding. At the end, I generate CONTEX...",
+   "metrics": "downloads:1225",
+   "url": "https://clawhub.ai/genortg/skills/grill-docs",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "wallacerao/cutrix-video-translate",
+   "name": "Cutrix Video Translate",
+   "description": "Translate your video into another language, keep the original timbre and emotion with advanced voice clone LLM. Enough free quota every month for beginners,...",
+   "metrics": "downloads:1113",
+   "url": "https://clawhub.ai/wallacerao/skills/cutrix-video-translate",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "haidiantoutou/calendar",
+   "name": "Calendar",
+   "description": "Calendar management and scheduling. Create events, manage meetings, and sync across calendar providers.",
+   "metrics": "downloads:1107",
+   "url": "https://clawhub.ai/haidiantoutou/skills/calendar",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "rithythul/koompi-legal",
+   "name": "Legal",
+   "description": "Use for law firm and legal practice operations — case management, document drafting, client communication, billing, court deadlines, discovery workflows, com...",
+   "metrics": "downloads:1060",
+   "url": "https://clawhub.ai/rithythul/skills/koompi-legal",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "tobeyrebecca/toby-image",
+   "name": "image",
+   "description": "Run local ComfyUI workflows via the HTTP API. Use when the user asks to run ComfyUI, execute a workflow by file path/name, or supply raw API-format JSON; sup...",
+   "metrics": "downloads:1056",
+   "url": "https://clawhub.ai/tobeyrebecca/skills/toby-image",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "sdk-team/alibabacloud-dms-skill",
+   "name": "Alibabacloud Dms Skill",
+   "description": "Alibaba Cloud DMS Database Read/Write Skill. Use this skill to search for target databases in DMS and execute SQL queries and data modifications. Triggers: \"...",
+   "metrics": "downloads:1040",
+   "url": "https://clawhub.ai/sdk-team/skills/alibabacloud-dms-skill",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "panting09266-ai/cue-legal-practice-cases",
+   "name": "疑难法律实操案例库",
+   "description": "疑难法律实操案例库 — 遇到民事、刑事纠纷拿不准怎么办？围绕你的争议点检索公开裁判文书、监管问答与实务案例，看同类案子法院怎么判、赔多少、争议焦点在哪。普通人预判官司胜算，律师办案更快更有据。 Triggers: 疑难法律、实操案例、裁判口径、类案检索、裁判规则、实务案例、争议焦点、法律实操、监管问答、判例检索、离婚、继承、劳动仲裁、借贷纠纷、交通事故、刑事辩护、legal practice cases",
+   "metrics": "downloads:1028",
+   "url": "https://clawhub.ai/panting09266-ai/skills/cue-legal-practice-cases",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "sdk-team/alibabacloud-odps-sql-generation",
+   "name": "Alibabacloud Odps Sql Generation",
+   "description": "Provides MaxCompute SQL intelligent generation capabilities for AI agents, covering text2sql conversion principles, dialect syntax differences (DQL/DDL/DML),...",
+   "metrics": "downloads:1026",
+   "url": "https://clawhub.ai/sdk-team/skills/alibabacloud-odps-sql-generation",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "wu-uk/latex-formula-extraction-pdf",
+   "name": "pdf",
+   "description": "Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging/splitting documents, and handling forms. When Claude needs...",
+   "metrics": "downloads:1010",
+   "url": "https://clawhub.ai/wu-uk/skills/latex-formula-extraction-pdf",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "sdk-team/alibabacloud-emr-spark-manage",
+   "name": "Alibabacloud Emr Spark Manage",
+   "description": "Manage the full lifecycle of Alibaba Cloud EMR Serverless Spark workspaces—create workspaces, submit jobs, Kyuubi interactive queries, resource queue scaling...",
+   "metrics": "downloads:1004",
+   "url": "https://clawhub.ai/sdk-team/skills/alibabacloud-emr-spark-manage",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "fatmind/webclaw3-browser-automation",
+   "name": "浏览器自动化 · Browser Automation & Web Scraping — 用你自己的 Chrome 登录态干活",
+   "description": "浏览器自动化 & 网页抓取（Browser Automation & Web Scraping）——用你自己的 Chrome 和已登录状态干活：搜索、看网页、抓列表、导表格、下载内容、点按钮、填表单、发内容，必须登录才能看的页面也能抓。跑通一次即可提炼成零 token、可定时自动运行的本地 skill，网站改版本地修。English: browser automation & web scraping with your own logged-in Chrome — no re-login, no shared passwords. 中文：浏览器自动化工具 / 网页抓取 / 登录态 / 定时任",
+   "metrics": "downloads:1001",
+   "url": "https://clawhub.ai/fatmind/skills/webclaw3-browser-automation",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "sdk-team/alibabacloud-das-agent",
+   "name": "Alibabacloud Das Agent",
+   "description": "Diagnose and manage Alibaba Cloud databases through natural language. Use when users need to troubleshoot database performance issues (high CPU, slow queries...",
+   "metrics": "downloads:998",
+   "url": "https://clawhub.ai/sdk-team/skills/alibabacloud-das-agent",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "sdk-team/alibabacloud-polardbx-sql",
+   "name": "Alibabacloud Polardbx Sql",
+   "description": "Design partition schemes, select partition keys, create GSI, and write SQL for PolarDB-X 2.0 Enterprise Edition AUTO mode databases, handling PolarDB-X vs My...",
+   "metrics": "downloads:958",
+   "url": "https://clawhub.ai/sdk-team/skills/alibabacloud-polardbx-sql",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "tobeyrebecca/toby-translate",
+   "name": "translate",
+   "description": "Translate text accurately — preserve formatting, handle plurals, and adapt tone per locale.",
+   "metrics": "downloads:947",
+   "url": "https://clawhub.ai/tobeyrebecca/skills/toby-translate",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "godferylindsay/martin-image",
+   "name": "image",
+   "description": "Run and customize local ComfyUI workflows via HTTP API to generate images from prompts, run user workflows, or download model weights for use.",
+   "metrics": "downloads:919",
+   "url": "https://clawhub.ai/godferylindsay/skills/martin-image",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "jzw6/personal-accounting",
+   "name": "个人记账",
+   "description": "个人记账技能，支持文字输入和图片账单识别。当用户提到记账、记录花费、添加支出/收入、上传账单图片、查看账单、统计消费时必须使用此技能。用户单独发送图片（无任何文字）时也必须触发此技能，直接看图判断金额并记账，不要等待用户补充说明。所有账单按天存储在 bills/ 文件夹中，同一天的账单累加到同一文件。",
+   "metrics": "downloads:917",
+   "url": "https://clawhub.ai/jzw6/skills/personal-accounting",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "sdk-team/alibabacloud-sls-index-config-management",
+   "name": "alibabacloud-sls-index-config-management",
+   "description": "Alibaba Cloud SLS (Simple Log Service) index configuration manager skill. Use this skill to help users inspect, create, update, or delete a Logstore index, generate an index configuration from user-provided structured log samples, and optimize an existing index configuration for given query/SQL work",
+   "metrics": "downloads:915",
+   "url": "https://clawhub.ai/sdk-team/skills/alibabacloud-sls-index-config-management",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "thcjp/accounting-and-finance-free",
+   "name": "Finance LITE",
+   "description": "基础财务分析工具,提供偿债能力/盈利能力比率分析、DuPont拆解、现金流结构分析。Use when 需要数据分析、报表生成、统计洞察、数据可视化时使用。不适用于实时流数据处理。适用于独立开发者、企业团队和自动化工作流场景。支持中文交互，无需复杂配置即开即用。输出结果可直接使用，减少二次加工成本。提供结构化输出和错误处理机制。",
+   "metrics": "downloads:911",
+   "url": "https://clawhub.ai/thcjp/skills/accounting-and-finance-free",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "chijiang/resume-editor",
+   "name": "Resume Editor",
+   "description": "Build, edit, and format professional resumes with PDF import, styled HTML/PDF export, and multi-language support. Use this skill whenever a user mentions res...",
+   "metrics": "downloads:904",
+   "url": "https://clawhub.ai/chijiang/skills/resume-editor",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "elisabeth15501/ai-weekly",
+   "name": "AI Weekly Report",
+   "description": "把「本周 AI 行业动态」做成一个可搜索、可筛选、支持暗色模式的单文件 HTML 周报。 用户用日常说法就能触发，例如「这周 AI 有什么大事」「给我看个 AI 简报」「做个 AI 周报」。 数据来自 14 个公开 RSS 源（国内 7 + 国外 7，国内优先），默认不调用任何付费或商业 API。 适合：AI 周报 / AI 新闻汇总 / AI 行业动态速览 / 模型排行榜与市场融资数据整理。 不适合以下情形，请勿触发： - 用户要的是「即时单条新闻」或「回答一个 AI 领域问题」，而非一份成体系的周报/简报； - 用户指定了非AI 主题（时政、体育、财经等）； - 用户只想要纯文本对话输出—",
+   "metrics": "downloads:873",
+   "url": "https://clawhub.ai/elisabeth15501/skills/ai-weekly",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "superagnt/attio-crm",
+   "name": "Attio Integration",
+   "description": "Manage Attio CRM records, lists, notes, tasks, and meetings through the superagnt unified API.",
+   "metrics": "downloads:863",
+   "url": "https://clawhub.ai/superagnt/skills/attio-crm",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "sdk-team/alibabacloud-flink-instance-manage",
+   "name": "Alibabacloud Flink Instance Manage",
+   "description": "Manage Alibaba Cloud Flink VVP instances and namespaces through create/query operations only. Use when user asks to create or query Flink instances, namespac...",
+   "metrics": "downloads:861",
+   "url": "https://clawhub.ai/sdk-team/skills/alibabacloud-flink-instance-manage",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "godferylindsay/godfery-translate",
+   "name": "translate",
+   "description": "Translate text precisely preserving formatting, plurals, tone, and cultural context while adapting idioms, units, and formality per target locale.",
+   "metrics": "downloads:850",
+   "url": "https://clawhub.ai/godferylindsay/skills/godfery-translate",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "sdk-team/alibabacloud-emr-starrocks-manage",
+   "name": "Alibabacloud Emr Starrocks Manage",
+   "description": "Manage the full lifecycle of Alibaba Cloud EMR Serverless StarRocks instances — create, scale, configure, maintain and diagnose. Use this Skill when operatio...",
+   "metrics": "downloads:799",
+   "url": "https://clawhub.ai/sdk-team/skills/alibabacloud-emr-starrocks-manage",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "elisabeth15501/agent-analytics-report",
+   "name": "agent-analytics-report",
+   "description": "Agent 用量分析报告生成器（支持日/周/月/年）。从本地数据源（traces、workbuddy.db、usage-log.json、会话目录）采集 Agent 使用数据，一键生成可读、可分享的多格式报告。数据源用 --source 切换：workbuddy（默认，读 ~/.workbuddy/）/ claude-code（读 ~/.claude/projects/ 的 JSONL 会话日志）/ codex（读 ~/.codex/sessions/ 的 rollout JSONL）/ qwenwork（读千问办公 ~/.qwenworkcn/ 的转录 + 调用日志 + agents.db，",
+   "metrics": "downloads:705",
+   "url": "https://clawhub.ai/elisabeth15501/skills/agent-analytics-report",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "chenqg618/invoice-consistency-check-free",
+   "name": "票据一致性AI核对（免费版）",
+   "description": "把票据里能被算出来、指出来证明是错的地方找出来，每条都带原文证据，不需要付款，也不需要注册。 本免费版执行 行内算术、分项加总、税额计算、价税合计、大小写金额一致、抬头主体一致、日期逻辑、重复票检测、占位符与空白残留。触发词包括 票据一致性AI核对、发票核对、报销自查、金额对不上、重复报销、价税合计不对。",
+   "metrics": "downloads:678",
+   "url": "https://clawhub.ai/chenqg618/skills/invoice-consistency-check-free",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "clawhub",
+   "kind": "skill",
+   "ref": "mwclaw/hr-decision-packet",
+   "name": "HR Decision Packet",
+   "description": "HR decision briefs: clarify the problem, ownership and evidence for one accountable human decision; not a weekly roundup.",
+   "metrics": "downloads:641",
+   "url": "https://clawhub.ai/mwclaw/skills/hr-decision-packet",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  }
+ ],
+ "mcps": [
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "headroomlabs-ai/headroom",
+   "name": "headroom",
+   "description": "Compress tool outputs, logs, files, and RAG chunks before they reach the LLM. 20% fewer tokens for coding agents, 60-95% fewer tokens for JSON, same answers. Library, proxy, MCP server.",
+   "metrics": "stars:78536",
+   "url": "https://github.com/headroomlabs-ai/headroom",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: … it:\n\n```bash\n# macOS / Linux\ncurl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | …"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "heygen-com/hyperframes",
+   "name": "hyperframes",
+   "description": "Write HTML. Render video. Built for agents.",
+   "metrics": "stars:76992",
+   "url": "https://github.com/heygen-com/hyperframes",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "ChromeDevTools/chrome-devtools-mcp",
+   "name": "chrome-devtools-mcp",
+   "description": "Chrome DevTools for coding agents",
+   "metrics": "stars:54611",
+   "url": "https://github.com/ChromeDevTools/chrome-devtools-mcp",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "microsoft/playwright-mcp",
+   "name": "playwright-mcp",
+   "description": "Playwright MCP server",
+   "metrics": "stars:38943",
+   "url": "https://github.com/microsoft/playwright-mcp",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "github/github-mcp-server",
+   "name": "github-mcp-server",
+   "description": "GitHub's official MCP Server",
+   "metrics": "stars:34138",
+   "url": "https://github.com/github/github-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "t8y2/dbx",
+   "name": "dbx",
+   "description": "25 MB lightweight cross-platform database client for 100+ databases, including MySQL, PostgreSQL, SQLite, Redis, MongoDB, DuckDB, SQL Server, and Dameng. Built-in AI, MCP Server, CLI, desktop and Docker. | 轻量级跨平台数据库管理工具，支持 MySQL、PostgreSQL、SQLite、Redis、MongoDB、达梦等 100+ 数据库，提供桌面端、Docker、CLI、内置 AI 助手和",
+   "metrics": "stars:28452",
+   "url": "https://github.com/t8y2/dbx",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "PrefectHQ/fastmcp",
+   "name": "fastmcp",
+   "description": "🚀 The fast, Pythonic way to build MCP servers and clients.",
+   "metrics": "stars:28263",
+   "url": "https://github.com/PrefectHQ/fastmcp",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "modelcontextprotocol/python-sdk",
+   "name": "python-sdk",
+   "description": "The official Python SDK for Model Context Protocol servers and clients",
+   "metrics": "stars:24728",
+   "url": "https://github.com/modelcontextprotocol/python-sdk",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "rocketride-org/rocketride-server",
+   "name": "rocketride-server",
+   "description": "High-performance AI pipeline engine with a C++ core and 50+ Python-extensible nodes. Build, debug, and scale LLM workflows with 13+ model providers, 8+ vector databases, and agent orchestration, all from your IDE. Includes VS Code extension, TypeScript/Python SDKs, and Docker deployment.",
+   "metrics": "stars:19494",
+   "url": "https://github.com/rocketride-org/rocketride-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "xerj-org/xerj",
+   "name": "xerj",
+   "description": "AI search engine and MCP server for bots and agents. One Rust binary indexes code, docs, logs, JSONL/CSV and PDFs for BM25 full-text, vector and hybrid search, code search without grep, agent memory and RAG. Elasticsearch-compatible API; Corpus Hub serves hundreds of reference memory corpora.",
+   "metrics": "stars:18628",
+   "url": "https://github.com/xerj-org/xerj",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: …`\n\nOr run it yourself:\n\n```sh\ncurl -fsSL https://xerj.org/get | sh\nxerj --insecure --data-…"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "googleapis/mcp-toolbox",
+   "name": "mcp-toolbox",
+   "description": "MCP Toolbox for Databases is an open source MCP server for databases.",
+   "metrics": "stars:16769",
+   "url": "https://github.com/googleapis/mcp-toolbox",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "liketrek/TREK",
+   "name": "TREK",
+   "description": "The most complete open-source travel planner: real-time collaboration, bookings, budgets, packing lists, journals, offline PWA, SSO and an AI-ready MCP server, with planet-wide place search and routing built in.",
+   "metrics": "stars:15297",
+   "url": "https://github.com/liketrek/TREK",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "apify/apify-mcp-server",
+   "name": "apify-mcp-server",
+   "description": "The Apify MCP server enables your AI agents to extract data from social media, search engines, maps, e-commerce sites, or any other website using thousands of ready-made scrapers, crawlers, and automation tools available on the Apify Store.",
+   "metrics": "stars:14214",
+   "url": "https://github.com/apify/apify-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "ccfos/nightingale",
+   "name": "nightingale",
+   "description": "Open-source, self-hosted alerting for metrics, logs, and databases. Includes a built-in AI agent and MCP server.",
+   "metrics": "stars:13422",
+   "url": "https://github.com/ccfos/nightingale",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "seleniumbase/SeleniumBase",
+   "name": "SeleniumBase",
+   "description": "📊 The best API for Web Automation, Testing, and Scraping. CDP Mode launches a stealth browser that bypasses bot-detection/CAPTCHAs. Adds stealth to Playwright. Includes an MCP server for AI agents.",
+   "metrics": "stars:13218",
+   "url": "https://github.com/seleniumbase/SeleniumBase",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "hangwin/mcp-chrome",
+   "name": "mcp-chrome",
+   "description": "Chrome MCP Server is a Chrome extension-based Model Context Protocol (MCP) server that exposes your Chrome browser functionality to AI assistants like Claude, enabling complex browser automation, content analysis, and semantic search.",
+   "metrics": "stars:12525",
+   "url": "https://github.com/hangwin/mcp-chrome",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "wonderwhy-er/DesktopCommanderMCP",
+   "name": "DesktopCommanderMCP",
+   "description": "This is MCP server for Claude that gives it terminal control, file system search and diff file editing capabilities",
+   "metrics": "stars:10190",
+   "url": "https://github.com/wonderwhy-er/DesktopCommanderMCP",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: …if needed)</b></summary>\n\n```\ncurl -fsSL https://raw.githubusercontent.com/wonderwhy-er/De…",
+     "[高] PowerShell 动态执行: …s PowerShell:**\n```powershell\niex ((New-Object System.Net.WebClient).Downlo…"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "idosal/git-mcp",
+   "name": "git-mcp",
+   "description": "Put an end to code hallucinations! GitMCP is a free, open-source, remote MCP server for any GitHub project",
+   "metrics": "stars:8498",
+   "url": "https://github.com/idosal/git-mcp",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "Gentleman-Programming/gentle-ai",
+   "name": "gentle-ai",
+   "description": "Gentle-AI configures the AI coding agents you already use: Claude Code, Cursor, OpenCode, Codex, Pi, and more. Choose persistent memory, Organic-Driven Development, curated skills, MCP servers, personas, and optional bounded review. Open source, no agent lock-in.",
+   "metrics": "stars:8167",
+   "url": "https://github.com/Gentleman-Programming/gentle-ai",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: …p/gentle-ai\n\n# macOS / Linux (curl)\ncurl -fsSL https://raw.githubusercontent.com/Gentleman…"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "firecrawl/firecrawl-mcp-server",
+   "name": "firecrawl-mcp-server",
+   "description": "Official Firecrawl MCP server, the context API for AI agents: search, scrape, and interact with the web, plus parse, crawl, map, Agent and Monitor, from any MCP client.",
+   "metrics": "stars:7740",
+   "url": "https://github.com/firecrawl/firecrawl-mcp-server",
+   "scan": {
+    "verdict": "suspicious",
+    "findings": [
+     "[中] 凭据外发组合"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "Gentleman-Programming/engram",
+   "name": "engram",
+   "description": "Persistent memory system for AI coding agents. Agent-agnostic Go binary with SQLite + FTS5, MCP server, HTTP API, CLI, and TUI.",
+   "metrics": "stars:7729",
+   "url": "https://github.com/Gentleman-Programming/engram",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "BrowserMCP/mcp",
+   "name": "mcp",
+   "description": "Browser MCP is a Model Context Provider (MCP) server that allows AI applications to control your browser",
+   "metrics": "stars:7266",
+   "url": "https://github.com/BrowserMCP/mcp",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "kucherenko/jscpd",
+   "name": "jscpd",
+   "description": "Copy/paste detector for source code. 220+ languages, Rust engine, SARIF/HTML/badge reporters, GitHub Action, MCP server for AI agents.",
+   "metrics": "stars:6479",
+   "url": "https://github.com/kucherenko/jscpd",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: …tart\n\n```bash\n# macOS / Linux\ncurl -fsSL https://jscpd.dev/install.sh | bash\n\n# Windows (P…"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "agent-infra/sandbox",
+   "name": "sandbox",
+   "description": "All-in-One Sandbox for AI Agents that combines Browser, Shell, File, MCP and VSCode Server in a single Docker container.",
+   "metrics": "stars:6258",
+   "url": "https://github.com/agent-infra/sandbox",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "epiral/bb-browser",
+   "name": "bb-browser",
+   "description": "Your browser is the API. CLI + MCP server for AI agents to control Chrome with your login state.",
+   "metrics": "stars:6257",
+   "url": "https://github.com/epiral/bb-browser",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "bethington/ghidra-mcp",
+   "name": "ghidra-mcp",
+   "description": "Ghidra MCP Server — 200+ MCP tools for AI-powered reverse engineering. GUI plugin + headless server, lazy tool loading, convention enforcement, batch operations, Ghidra Server integration, and Docker deployment.",
+   "metrics": "stars:6042",
+   "url": "https://github.com/bethington/ghidra-mcp",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: … use):\n   >\n   > ```bash\n   > curl -LsSf https://astral.sh/uv/install.sh | sh\n   > uv run …",
+     "[中] 凭据外发组合"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "executeautomation/mcp-playwright",
+   "name": "mcp-playwright",
+   "description": "Playwright Model Context Protocol Server - Tool to automate Browsers and APIs in Claude Desktop, Cline, Cursor IDE and More 🔌",
+   "metrics": "stars:5676",
+   "url": "https://github.com/executeautomation/mcp-playwright",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "TabularisDB/tabularis",
+   "name": "tabularis",
+   "description": "Open-source desktop SQL workspace with 3 built-in database drivers and 26 shipped driver plugins, including SQL Server, DuckDB, ClickHouse and Redis. Built-in MCP server for Claude, Cursor and Devin, SQL notebooks and visual EXPLAIN.",
+   "metrics": "stars:5352",
+   "url": "https://github.com/TabularisDB/tabularis",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "Manavarya09/design-extract",
+   "name": "design-extract",
+   "description": "Extract any website's complete design system with one command. DTCG tokens, semantic+primitive+composite, MCP server for Claude Code/Cursor/Windsurf, multi-platform emitters (iOS SwiftUI, Android Compose, Flutter, WordPress), Tailwind v4, Figma variables, shadcn/ui, CSS health audit, WCAG remediatio",
+   "metrics": "stars:4448",
+   "url": "https://github.com/Manavarya09/design-extract",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "haris-musa/excel-mcp-server",
+   "name": "excel-mcp-server",
+   "description": "Excel MCP server: let AI (Claude, Cursor, Codex) create and edit Excel files with charts, PivotTables, slicers and formulas. No Excel required.",
+   "metrics": "stars:4269",
+   "url": "https://github.com/haris-musa/excel-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "bytebase/dbhub",
+   "name": "dbhub",
+   "description": "Token conscious database MCP server for Postgres, MySQL, SQL Server, Oracle, MariaDB, SQLite.",
+   "metrics": "stars:3765",
+   "url": "https://github.com/bytebase/dbhub",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "taylorwilsdon/google_workspace_mcp",
+   "name": "google_workspace_mcp",
+   "description": "Control Gmail, Google Calendar, Docs, Sheets, Slides, Chat, Forms, Tasks, Search & Drive with AI - Comprehensive Google Workspace MCP Server & CLI Tool",
+   "metrics": "stars:3456",
+   "url": "https://github.com/taylorwilsdon/google_workspace_mcp",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "browserbase/mcp-server-browserbase",
+   "name": "mcp-server-browserbase",
+   "description": "Allow LLMs to control a browser with Browserbase and Stagehand",
+   "metrics": "stars:3398",
+   "url": "https://github.com/browserbase/mcp-server-browserbase",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "moltis-org/moltis",
+   "name": "moltis",
+   "description": "A secure persistent personal agent server in Rust. One binary, sandboxed execution, multi-provider LLMs, voice, memory, Telegram, WhatsApp, Discord, Teams, and MCP tools. Secure by design, runs on your hardware.",
+   "metrics": "stars:2939",
+   "url": "https://github.com/moltis-org/moltis",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: …nstall script (macOS / Linux)\ncurl -fsSL https://www.moltis.org/install.sh | sh\n\n# macOS /…"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "crbnos/carbon",
+   "name": "carbon",
+   "description": "Open-source manufacturing ERP, MES and QMS. Quoting, MRP, inventory, shop floor, quality and lot/serial traceability on one Postgres schema, with a REST API and MCP server. Self-host or use Carbon Cloud.",
+   "metrics": "stars:2787",
+   "url": "https://github.com/crbnos/carbon",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: …eps** (macOS):\n\n   ```bash\n   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | …"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "duty1g/x64dbg-mcp-server",
+   "name": "x64dbg-mcp-server",
+   "description": "x64dbg-MCP Server is a native MCP (Model Context Protocol) plugin for x64dbg that exposes the debugger's full functionality over HTTP. Connect any MCP-compatible AI assistant and control x64dbg programmatically: set breakpoints, step through code, read memory, dump registers, and more.  Built with Z",
+   "metrics": "stars:2710",
+   "url": "https://github.com/duty1g/x64dbg-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "isair/jarvis",
+   "name": "jarvis",
+   "description": "Private local AI assistant for your desktop. Voice and text chat, personal memory, dictation and MCP tools. Runs offline with Ollama or OpenAI-compatible servers on macOS, Windows and Linux.",
+   "metrics": "stars:2170",
+   "url": "https://github.com/isair/jarvis",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "cyberagiinc/DevDocs",
+   "name": "DevDocs",
+   "description": "Completely free, private, UI based Tech Documentation MCP server. Designed for coders and software developers in mind. Easily integrate into Cursor, Windsurf, Cline, Roo Code, Claude Desktop App ",
+   "metrics": "stars:2104",
+   "url": "https://github.com/cyberagiinc/DevDocs",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "korotovsky/slack-mcp-server",
+   "name": "slack-mcp-server",
+   "description": "The most powerful MCP Slack Server with no permission requirements, Apps support, GovSlack, DMs, Group DMs and smart history fetch logic.",
+   "metrics": "stars:1882",
+   "url": "https://github.com/korotovsky/slack-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "timescale/pg-aiguide",
+   "name": "pg-aiguide",
+   "description": "MCP server and Claude plugin for Postgres skills and documentation. Helps AI coding tools generate better PostgreSQL code.",
+   "metrics": "stars:1877",
+   "url": "https://github.com/timescale/pg-aiguide",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "ghostwright/phantom",
+   "name": "phantom",
+   "description": "An AI co-worker with its own computer. Self-evolving, persistent memory, MCP server, secure credential collection, email identity. Built on the Claude Agent SDK.",
+   "metrics": "stars:1487",
+   "url": "https://github.com/ghostwright/phantom",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "justrach/codedb",
+   "name": "codedb",
+   "description": "Zig code intelligence server and MCP toolset for AI agents. Fast tree, outline, symbol, search, read, edit, deps, snapshot, and remote GitHub repo queries.",
+   "metrics": "stars:1402",
+   "url": "https://github.com/justrach/codedb",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: …\n### macOS and Linux\n\n```bash\ncurl -fsSL https://codedb.codegraff.com/install.sh | bash\n``…"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "affaan-m/agentshield",
+   "name": "agentshield",
+   "description": "AI agent security scanner. Detect vulnerabilities in agent configurations, MCP servers, and tool permissions. Available as CLI, GitHub Action, ECC plugin, and GitHub App integration. 🛡️",
+   "metrics": "stars:1345",
+   "url": "https://github.com/affaan-m/agentshield",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: …. `spawnSync(\"bash\", [\"-lc\", \"curl ... | bash\"])` is high-signal; ordinary `spawnSync…",
+     "[高] 下载并执行: …stricted network | `curl *`, `wget`, `ssh *`, `scp *` in allow list without scope…",
+     "[高] 云凭据窃取: …r hardening checks also scan `.npmrc`, `.yarnrc.yml`, and\n`pnpm-workspace.ya…",
+     "[中] 高危权限修改",
+     "[中] 系统账户文件读取"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "codewithMUHILAN/Lightswind-UI-Library",
+   "name": "Lightswind-UI-Library",
+   "description": "The AI-native CLI-first React component library. 160+ animated, accessible, production-ready components with MCP Server support for Cursor, Claude & GitHub Copilot. Copy-paste architecture — you own the code.",
+   "metrics": "stars:1252",
+   "url": "https://github.com/codewithMUHILAN/Lightswind-UI-Library",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "SylphxAI/anymd",
+   "name": "anymd",
+   "description": "Any file → clean Markdown for AI agents: PDF, Word, PowerPoint, Excel, EPUB, HTML and web pages, images (OCR), audio and video (metadata, subtitles, transcripts). A fast Rust MCP server and CLI that runs on your machine. No API key.",
+   "metrics": "stars:1059",
+   "url": "https://github.com/SylphxAI/anymd",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "negokaz/excel-mcp-server",
+   "name": "excel-mcp-server",
+   "description": "A Model Context Protocol (MCP) server that reads and writes MS Excel data",
+   "metrics": "stars:1045",
+   "url": "https://github.com/negokaz/excel-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "xing5/mcp-google-sheets",
+   "name": "mcp-google-sheets",
+   "description": "This MCP server integrates with your Google Drive and Google Sheets, to enable creating and modifying spreadsheets.",
+   "metrics": "stars:1016",
+   "url": "https://github.com/xing5/mcp-google-sheets",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: …      # macOS / Linux\n        curl -LsSf https://astral.sh/uv/install.sh | sh\n        # Wi…"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "sbroenne/mcp-server-excel",
+   "name": "mcp-server-excel",
+   "description": "Automate real Microsoft Excel with AI via MCP Server or CLI — Power Query, DAX, VBA, PivotTables, and charts.",
+   "metrics": "stars:838",
+   "url": "https://github.com/sbroenne/mcp-server-excel",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "LingCore/WinShun",
+   "name": "WinShun",
+   "description": "Win顺：免费开源的 Windows 快速搜索启动器。双击 Ctrl，拼音秒搜文件、全文搜索 Word/Excel/PDF、剪贴板历史（代替 Win+V）、对话框搜索、任务栏搜索、插件、AI 助手 MCP。Free Windows search launcher: pinyin file search, full-text search, clipboard history, MCP server. Everything/Listary alternative.",
+   "metrics": "stars:785",
+   "url": "https://github.com/LingCore/WinShun",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "alash3al/stash",
+   "name": "stash",
+   "description": "Stash — persistent memory layer for AI agents. Episodes, facts, and working context stored in Postgres. MCP server included. Self-hosted, single binary, no cloud required.",
+   "metrics": "stars:771",
+   "url": "https://github.com/alash3al/stash",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "HelpCode-ai/anythingmcp",
+   "name": "anythingmcp",
+   "description": "Self-hosted MCP gateway and company brain for AI agents: connect Claude, ChatGPT and Copilot to your ERP, APIs, databases and file servers, with company memory, skills, knowledge graph, SSO/RBAC and audit. 691 connectors (SAP, Odoo, SQL…). Open source, EU cloud.",
+   "metrics": "stars:769",
+   "url": "https://github.com/HelpCode-ai/anythingmcp",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "use-novamira/novamira",
+   "name": "novamira",
+   "description": "MCP server that gives AI agents full access to WordPress through PHP execution and filesystem operations",
+   "metrics": "stars:751",
+   "url": "https://github.com/use-novamira/novamira",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "mark3labs/mcp-filesystem-server",
+   "name": "mcp-filesystem-server",
+   "description": "Go server implementing Model Context Protocol (MCP) for filesystem operations.",
+   "metrics": "stars:693",
+   "url": "https://github.com/mark3labs/mcp-filesystem-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "nirholas/XActions",
+   "name": "XActions",
+   "description": "⚡ The Complete X/Twitter Automation Toolkit — Scrapers, MCP server for AI agents (Claude/GPT), CLI, browser scripts. No API fees. Open source. Unfollow people who don't follow back. Monitor real-time analytics. Auto follow, like, comment, scrape, without API. Follow Bot. Like bot. Grow your account ",
+   "metrics": "stars:639",
+   "url": "https://github.com/nirholas/XActions",
+   "scan": {
+    "verdict": "suspicious",
+    "findings": [
+     "[中] 凭据外发组合"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "marianfoo/sap-ai-mcp-servers",
+   "name": "sap-ai-mcp-servers",
+   "description": "A complete list of SAP MCP Servers and SAP AI Skills",
+   "metrics": "stars:555",
+   "url": "https://github.com/marianfoo/sap-ai-mcp-servers",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "subnetmarco/pgmcp",
+   "name": "pgmcp",
+   "description": "An MCP server to query any Postgres database in natural language.",
+   "metrics": "stars:541",
+   "url": "https://github.com/subnetmarco/pgmcp",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "erikdarlingdata/PerformanceMonitor",
+   "name": "PerformanceMonitor",
+   "description": "Free, open-source SQL Server and Postgres performance monitoring. Collectors, real-time alerts, graphical plan viewer, MCP server for AI analysis. Supports SQL 2016-2025, Azure SQL, AWS RDS, Postgres, Aurora Postgres.",
+   "metrics": "stars:526",
+   "url": "https://github.com/erikdarlingdata/PerformanceMonitor",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "merajmehrabi/puppeteer-mcp-server",
+   "name": "puppeteer-mcp-server",
+   "description": "This MCP server provides browser automation capabilities through Puppeteer, allowing interaction with both new browser instances and existing Chrome windows.",
+   "metrics": "stars:489",
+   "url": "https://github.com/merajmehrabi/puppeteer-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "salesforcecli/mcp",
+   "name": "mcp",
+   "description": "MCP Server for interacting with Salesforce instances",
+   "metrics": "stars:487",
+   "url": "https://github.com/salesforcecli/mcp",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "ivnvxd/mcp-server-odoo",
+   "name": "mcp-server-odoo",
+   "description": "Model Context Protocol (MCP) server that enables AI assistants to securely interact with Odoo ERP systems through standardized resources and tools for data retrieval and manipulation.",
+   "metrics": "stars:410",
+   "url": "https://github.com/ivnvxd/mcp-server-odoo",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: …acOS/Linux</summary>\n\n```bash\ncurl -LsSf https://astral.sh/uv/install.sh | sh\n```\n</detail…"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "OyadotAI/oya-browser",
+   "name": "oya-browser",
+   "description": "The browser control plane for AI agents. One API over Oya Cloud, Browserbase, Steel, Anchor, Browser Use and your own Chrome, with persistent personas, CAPTCHA and MFA handling, and live human takeover.",
+   "metrics": "stars:351",
+   "url": "https://github.com/OyadotAI/oya-browser",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: …elf-hosted instance:\n\n```bash\ncurl -fsSL https://raw.githubusercontent.com/OyadotAI/oya-br…"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "isaacphi/mcp-gdrive",
+   "name": "mcp-gdrive",
+   "description": "Model Context Protocol (MCP) Server for reading from Google Drive and editing Google Sheets",
+   "metrics": "stars:282",
+   "url": "https://github.com/isaacphi/mcp-gdrive",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "GeLi2001/shopify-mcp",
+   "name": "shopify-mcp",
+   "description": "MCP server for Shopify api, usable on mcp hosts such as Claude and Cursor",
+   "metrics": "stars:239",
+   "url": "https://github.com/GeLi2001/shopify-mcp",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "piotr-agier/google-drive-mcp",
+   "name": "google-drive-mcp",
+   "description": "A Model Context Protocol (MCP) server that provides secure integration with Google Drive, Docs, Sheets, Slides and Calendar. It allows Claude Desktop and other MCP clients to manage files in Google Drive through a standardized interface.",
+   "metrics": "stars:230",
+   "url": "https://github.com/piotr-agier/google-drive-mcp",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "mario-andreschak/mcp-abap-abap-adt-api",
+   "name": "mcp-abap-abap-adt-api",
+   "description": "MCP-Server for SAP ABAP wrapping abap-adt-api",
+   "metrics": "stars:211",
+   "url": "https://github.com/mario-andreschak/mcp-abap-abap-adt-api",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "sv-grid/sv-grid",
+   "name": "sv-grid",
+   "description": "Native Svelte 5 data grid. Headless-first engine + drop-in render component. Row + column virtualization (1M rows), Excel-style filters, inline editing, grouping, pivot, server-side data. MIT core (@svgrid/grid), MCP server for Claude / Cursor. https://svgrid.com",
+   "metrics": "stars:185",
+   "url": "https://github.com/sv-grid/sv-grid",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "rust-mcp-stack/rust-mcp-filesystem",
+   "name": "rust-mcp-filesystem",
+   "description": "Blazing-fast, asynchronous MCP server for seamless filesystem operations.",
+   "metrics": "stars:184",
+   "url": "https://github.com/rust-mcp-stack/rust-mcp-filesystem",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "smn2gnt/MCP-Salesforce",
+   "name": "MCP-Salesforce",
+   "description": "MCP Salesforce connector",
+   "metrics": "stars:180",
+   "url": "https://github.com/smn2gnt/MCP-Salesforce",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "tuannvm/slack-mcp-client",
+   "name": "slack-mcp-client",
+   "description": "A Slack bot and MCP client acts as a bridge between Slack and Model Context Protocol (MCP) servers. Using Slack as the interface, it enables large language models (LLMs) to connect and interact with various MCP servers through standardized MCP tools.",
+   "metrics": "stars:172",
+   "url": "https://github.com/tuannvm/slack-mcp-client",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "tanaikech/ggsrun",
+   "name": "ggsrun",
+   "description": "High-performance Google Drive CLI and Model Context Protocol (MCP) Server for LLM/AI agents. Natively execute Google Apps Script (GAS) under a secure whitelisted runtime sandbox, automate transfers, and manage Drive infrastructure.",
+   "metrics": "stars:172",
+   "url": "https://github.com/tanaikech/ggsrun",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "dynamics365ninja/d365fo-mcp-server",
+   "name": "d365fo-mcp-server",
+   "description": "Exposes MCP tools that prove every method, field, label and form pattern against your real metadata before the AI writes code.",
+   "metrics": "stars:167",
+   "url": "https://github.com/dynamics365ninja/d365fo-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "tsmztech/mcp-server-salesforce",
+   "name": "mcp-server-salesforce",
+   "description": "Salesforce MCP Server",
+   "metrics": "stars:165",
+   "url": "https://github.com/tsmztech/mcp-server-salesforce",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "slackapi/slack-skills-plugin",
+   "name": "slack-skills-plugin",
+   "description": "Claude Code, Codex, Cursor, and npx skills plugin that enables your AI tools with a Slack MCP Server and Slack Developer Skills.",
+   "metrics": "stars:163",
+   "url": "https://github.com/slackapi/slack-skills-plugin",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "githejie/mcp-server-calculator",
+   "name": "mcp-server-calculator",
+   "description": "A Model Context Protocol server for calculating.",
+   "metrics": "stars:161",
+   "url": "https://github.com/githejie/mcp-server-calculator",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: …-server-calculator*.\n\n```bash\ncurl -LsSf https://astral.sh/uv/install.sh | sh\n```\n\n### Usi…"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "aws-samples/sample-aws-pricing-calculator-mcp",
+   "name": "sample-aws-pricing-calculator-mcp",
+   "description": "MCP server for creating, reading, updating AWS Pricing Calculator estimates through natural language.",
+   "metrics": "stars:153",
+   "url": "https://github.com/aws-samples/sample-aws-pricing-calculator-mcp",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "mario-andreschak/mcp-sap-gui",
+   "name": "mcp-sap-gui",
+   "description": "MCP server that allows simple SAP GUI interaction for LLM models using simulated mouse clicks and keyboard input.",
+   "metrics": "stars:144",
+   "url": "https://github.com/mario-andreschak/mcp-sap-gui",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "lemaiwo/btp-sap-odata-to-mcp-server",
+   "name": "btp-sap-odata-to-mcp-server",
+   "description": "BTP CloudFoundry Node.js MCP server for SAP OData services integration",
+   "metrics": "stars:143",
+   "url": "https://github.com/lemaiwo/btp-sap-odata-to-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "forcedotcom/mcp-hosted",
+   "name": "mcp-hosted",
+   "description": "Salesforce Hosted MCP Servers",
+   "metrics": "stars:136",
+   "url": "https://github.com/forcedotcom/mcp-hosted",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "answerlink/MCP-Workspace-Server",
+   "name": "MCP-Workspace-Server",
+   "description": "🚀 Beyond Filesystem - Complete AI Development Environment - One MCP Server provides full Agent capability stack: web development, code execution, data processing, image generation. No need for multiple tools, configure once. Perfect support for Dify, FastGPT, Cherry Studio.       文件操作、Python/Node.js",
+   "metrics": "stars:133",
+   "url": "https://github.com/answerlink/MCP-Workspace-Server",
+   "scan": {
+    "verdict": "suspicious",
+    "findings": [
+     "[中] 系统账户文件读取"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "Cicatriiz/healthcare-mcp-public",
+   "name": "healthcare-mcp-public",
+   "description": "A Model Context Protocol (MCP) server providing AI assistants with access to healthcare data and medical information tools, including FDA drug info, PubMed, medRxiv, NCBI Bookshelf, clinical trials, ICD-10, DICOM metadata, and a medical calculator.",
+   "metrics": "stars:132",
+   "url": "https://github.com/Cicatriiz/healthcare-mcp-public",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "baryhuang/mcp-hubspot",
+   "name": "mcp-hubspot",
+   "description": "A Model Context Protocol (MCP) server that enables AI assistants to interact with HubSpot CRM data, providing built-in vector storage and caching mechanisms help overcome HubSpot API limitations while improving response times.",
+   "metrics": "stars:131",
+   "url": "https://github.com/baryhuang/mcp-hubspot",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "WaHaiLong/KingdeeMCP",
+   "name": "KingdeeMCP",
+   "description": "金蝶云星空 MCP Server：让 Claude/Cursor 等 AI 助手用自然语言直接查询、操作 ERP（采购/销售/库存/财务/附件等 101 个工具）",
+   "metrics": "stars:128",
+   "url": "https://github.com/WaHaiLong/KingdeeMCP",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "rakeshgangwar/erpnext-mcp-server",
+   "name": "erpnext-mcp-server",
+   "description": "Connect AI assistants to your ERPNext instance via the Model Context Protocol (MCP) using the official Frappe API.",
+   "metrics": "stars:127",
+   "url": "https://github.com/rakeshgangwar/erpnext-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "unchase/antigravity-storage-manager",
+   "name": "antigravity-storage-manager",
+   "description": "Unified AI Gateway with visual dashboard, secure Google Drive sync, Telegram notifications, multi-account profiles, real-time quota monitoring, Proxy support, MCP server, and advanced backup tools.",
+   "metrics": "stars:115",
+   "url": "https://github.com/unchase/antigravity-storage-manager",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "ubie-oss/slack-mcp-server",
+   "name": "slack-mcp-server",
+   "description": "A Slack MCP server",
+   "metrics": "stars:110",
+   "url": "https://github.com/ubie-oss/slack-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "hlpun/Train-in-Silence",
+   "name": "Train-in-Silence",
+   "description": "The first Task-Aware MCP server and automated VRAM calculator for LLM fine-tuning. Instantly snipe the cheapest, fastest GPUs across 10+ cloud providers.",
+   "metrics": "stars:104",
+   "url": "https://github.com/hlpun/Train-in-Silence",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "fr0ster/mcp-abap-adt",
+   "name": "mcp-abap-adt",
+   "description": "MCP server for SAP BTP ABAP Cloud and On-Premise ECC/S/4HANA ABAP ADT with full CRUD, JWT/XSUAA, and service-key auth.",
+   "metrics": "stars:102",
+   "url": "https://github.com/fr0ster/mcp-abap-adt",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "UpstageAI/korean-tax-calc-mcp",
+   "name": "korean-tax-calc-mcp",
+   "description": "한국 세금 계산·세무조정 MCP — 원장 항목을 넣으면 항목 판단→세법상 조정→세무조정(소득처분)까지, 근거 조문·산식 포함 | Korean tax calculator MCP server: ledger-style facts in, item judgments, adjustments and VAT/income/corporate tax out, with statute citations",
+   "metrics": "stars:95",
+   "url": "https://github.com/UpstageAI/korean-tax-calc-mcp",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "shariqriazz/vertex-ai-mcp-server",
+   "name": "vertex-ai-mcp-server",
+   "description": "MCP server for Vertex AI and Gemini tools, including grounded answers, documentation research, and filesystem workflows.",
+   "metrics": "stars:88",
+   "url": "https://github.com/shariqriazz/vertex-ai-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "zencoderai/slack-mcp-server",
+   "name": "slack-mcp-server",
+   "description": "",
+   "metrics": "stars:75",
+   "url": "https://github.com/zencoderai/slack-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "MentionNetwork/awesome-agentic-commerce",
+   "name": "awesome-agentic-commerce",
+   "description": "A curated list of awesome agentic commerce resources — protocols, MCP servers, tools, apps, APIs and services for AI agents that shop, sell and transact. For store owners, developers, agencies and marketers.",
+   "metrics": "stars:65",
+   "url": "https://github.com/MentionNetwork/awesome-agentic-commerce",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "huhabla/calculator-mcp-server",
+   "name": "calculator-mcp-server",
+   "description": "A Model Context Protocol (MCP) server that provides Claude with advanced mathematical calculation capabilities",
+   "metrics": "stars:63",
+   "url": "https://github.com/huhabla/calculator-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "rosenvladimirov/odoo-claude-mcp",
+   "name": "odoo-claude-mcp",
+   "description": "Self-hosted MCP server connecting Claude to Odoo 15→19 — 197+ tools, multi-tenant, Bulgaria l10n",
+   "metrics": "stars:51",
+   "url": "https://github.com/rosenvladimirov/odoo-claude-mcp",
+   "scan": {
+    "verdict": "malicious",
+    "findings": [
+     "[高] 远程脚本管道执行: …\n\n**Linux / macOS:**\n\n```bash\ncurl -fsSL https://raw.githubusercontent.com/rosenvladimirov…"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "hachecito/odoo-mcp-improved",
+   "name": "odoo-mcp-improved",
+   "description": "Odoo MCP Server with advanced tools for sales, stock, and more.",
+   "metrics": "stars:49",
+   "url": "https://github.com/hachecito/odoo-mcp-improved",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "kablewy/salesforce-mcp-server",
+   "name": "salesforce-mcp-server",
+   "description": "Model Context Protocol server for Salesforce REST API integration",
+   "metrics": "stars:45",
+   "url": "https://github.com/kablewy/salesforce-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "marcfargas/odoo-toolbox",
+   "name": "odoo-toolbox",
+   "description": "TypeScript SDK for Odoo; CLI; Skill modules and MCP server for AI agents. CI-tested against v17 and v18.",
+   "metrics": "stars:44",
+   "url": "https://github.com/marcfargas/odoo-toolbox",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "jaworjar95/salesforce-mcp-server",
+   "name": "salesforce-mcp-server",
+   "description": "A comprehensive Model Context Protocol (MCP) server that provides seamless Salesforce integration for AI development tools like Claude Desktop, Cline, and other MCP-compatible clients.",
+   "metrics": "stars:42",
+   "url": "https://github.com/jaworjar95/salesforce-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "infovpcs/odoo18_mcp_project",
+   "name": "odoo18_mcp_project",
+   "description": "Odoo 18 MCP Integration - A robust integration server that connects MCP with Odoo 18.0 ERP system",
+   "metrics": "stars:36",
+   "url": "https://github.com/infovpcs/odoo18_mcp_project",
+   "scan": {
+    "verdict": "suspicious",
+    "findings": [
+     "[中] 高危权限修改"
+    ]
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "antoineschaller/shopify-mcp-server",
+   "name": "shopify-mcp-server",
+   "description": "A comprehensive Model Context Protocol (MCP) server for Shopify Admin API integration",
+   "metrics": "stars:20",
+   "url": "https://github.com/antoineschaller/shopify-mcp-server",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  },
+  {
+   "source": "github",
+   "kind": "mcp",
+   "ref": "kiwoongeom/gmc-mcp",
+   "name": "gmc-mcp",
+   "description": "The first free, open-source, self-hosted MCP server for Google Merchant Center (GMC). 126 tools over Merchant API v1 — products, inventory, reports, promotions, returns, account config, audit log + rollback, dry-run. Free alternative to paid SaaS (Adzviser, Catchr, Windsor.ai, Pipedream).",
+   "metrics": "stars:19",
+   "url": "https://github.com/kiwoongeom/gmc-mcp",
+   "scan": {
+    "verdict": "clean",
+    "findings": []
+   }
+  }
+ ]
+}

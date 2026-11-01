@@ -24,8 +24,11 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
+import structlog
 
 from app.core.deps import auth_user
+
+logger = structlog.get_logger()
 from app.core.intent_guard import detect_threats
 from app.models import (BusinessDocument, Conversation, ConversationMessage,
                         IMChannel, IMMessage, KnowledgeEntry, MarketItem, User)
@@ -364,7 +367,7 @@ async def chat(conv_id: int, req: ChatRequest, user: dict = Depends(auth_user)):
         s.add(user_msg)
         await s.flush()
 
-        # 2. 思考流：意图 → 能力装配
+        # 2. 思考流：意图 → 能力装配 → 记忆召回
         steps: list[dict[str, Any]] = [
             {"kind": "intent", "status": "done",
              "detail": f"解析请求（模式：{_MODE_LABELS[conv.agent_mode]}）"}]
@@ -375,6 +378,17 @@ async def chat(conv_id: int, req: ChatRequest, user: dict = Depends(auth_user)):
 
         caps = req.capabilities or {}
         caps_used = await _assemble_capabilities(s, user, caps, system_parts, steps)
+
+        # 记忆召回（AgentScope 式长期记忆注入）
+        from app.core.memory import memory_context, retrieve_memories, touch_memory
+        memories = await retrieve_memories(s, user["username"], req.message)
+        if memories:
+            system_parts.append(memory_context(memories))
+            for m in memories:
+                await touch_memory(s, m.id)
+            steps.append({"kind": "memory", "status": "done",
+                          "detail": f"召回 {len(memories)} 条长期记忆："
+                                    + "；".join(m.content[:30] for m in memories[:3])})
         if req.attachments:
             names = [a.get("filename", "?") for a in req.attachments]
             steps.append({"kind": "attachments", "status": "done",
@@ -407,32 +421,51 @@ async def chat(conv_id: int, req: ChatRequest, user: dict = Depends(auth_user)):
                 reply = None
             await s.flush()
 
-        # 4. 工作区产物（按模式）
+        # 4. 工作区产物（按模式）：Office 格式走结构化生成，其余 Markdown
         file_ops: list[dict] = []
         if reply and (req.generate_file or _wants_file(req.message)):
             ws = _ensure_ws(conv, user["username"])
-            fname = f"产物_{datetime.now().strftime('%m%d_%H%M')}.md"
-            if conv.agent_mode == "sandbox":
-                staged_rel = f"_sandbox/{fname}"
-                (ws / staged_rel).write_text(reply, encoding="utf-8")
-                file_ops.append({"kind": "file_write", "status": "pending",
-                                 "staged": staged_rel, "path": staged_rel,
-                                 "detail": f"沙箱已生成 {fname}，等待人工审批后写入工作区"})
-                steps.append(file_ops[-1])
-            elif conv.agent_mode == "approve_risky":
-                (ws / fname).write_text(reply, encoding="utf-8")
-                file_ops.append({"kind": "file_write", "status": "auto",
-                                 "path": fname,
-                                 "detail": f"普通写入已自动完成：{fname}（工作区内自主权限）"})
-                steps.append(file_ops[-1])
-            else:  # full_auto
-                (ws / fname).write_text(reply, encoding="utf-8")
-                file_ops.append({"kind": "file_write", "status": "auto",
-                                 "path": fname,
-                                 "detail": f"完全权限模式：已直接写入工作区 {fname}"})
-                steps.append(file_ops[-1])
+            office_fmt = _detect_office_format(req.message)
+            if office_fmt:
+                from app.core import office_gen
+                try:
+                    spec_text, _spec_tokens = await provider_chat(
+                        s, provider,
+                        [{"role": "user",
+                          "content": f"请根据以下要求生成{office_fmt.upper()}文档内容。\n"
+                                     f"用户要求：{req.message}\n"
+                                     f"你的初步回复（供参考提取内容）：{reply[:2000]}\n"
+                                     f"{office_gen.FORMAT_PROMPTS[office_fmt]}\n只输出 JSON。"}],
+                        system="你是文档结构化引擎，只输出合法 JSON，不要任何解释或代码块标记。",
+                        username=user["username"])
+                    spec = _parse_json_safe(spec_text)
+                    if spec is None:
+                        raise ValueError("模型未返回合法 JSON")
+                    fname = re.sub(r'[\\/:*?"<>|]', "_",
+                                   f"{spec.get('title', '文档')[:30]}_{datetime.now().strftime('%m%d_%H%M')}"
+                                   f"{office_gen.SUFFIX[office_fmt]}")
+                    op = _persist_artifact(conv, ws, fname,
+                                           lambda path: office_gen.BUILDERS[office_fmt](path, spec))
+                    if op["status"] == "auto":
+                        reply = reply + f"\n\n📎 已生成文件：{op['path']}"
+                    file_ops.append(op); steps.append(op)
+                except Exception as e:
+                    logger.warning("chat.office_gen_failed", error=str(e))
+                    err_step = {"kind": "file_write", "status": "error", "path": "",
+                                "detail": f"Office 生成失败（{e}），已回退为 Markdown 文本"}
+                    md_name = f"产物_{datetime.now().strftime('%m%d_%H%M')}.md"
+                    md_op = _persist_artifact(
+                        conv, ws, md_name,
+                        lambda path: path.write_text(reply, encoding="utf-8"))
+                    file_ops += [err_step, md_op]; steps += [err_step, md_op]
+            else:
+                fname = f"产物_{datetime.now().strftime('%m%d_%H%M')}.md"
+                op = _persist_artifact(
+                    conv, ws, fname,
+                    lambda path: path.write_text(reply, encoding="utf-8"))
+                file_ops.append(op); steps.append(op)
 
-        # 5. 助手消息落库
+        # 5. 助手消息落库 + 记忆沉淀
         bot = ConversationMessage(
             conversation_id=conv_id, role="assistant",
             content=reply or "本次请求未能完成：请查看上方执行步骤中的错误提示。",
@@ -448,11 +481,81 @@ async def chat(conv_id: int, req: ChatRequest, user: dict = Depends(auth_user)):
                      "model": provider.name if provider else "none",
                      "capabilities": caps_used})
         await s.commit()
+    # 记忆抽取（回复后沉淀，独立事务）
+    mined = []
+    if reply:
+        from app.core.memory import extract_memories
+        try:
+            session2 = get_session()
+            async with session2 as s2:
+                mined = await extract_memories(s2, user["username"],
+                                               req.message, conv_id)
+                await s2.commit()
+        except Exception as e:
+            logger.warning("memory.extract_failed", error=str(e))
+    if mined:
+        steps.append({"kind": "memory", "status": "done",
+                      "detail": f"沉淀 {len(mined)} 条长期记忆（{mined[0]['kind']}）"})
+        try:
+            session3 = get_session()
+            async with session3 as s3:
+                row = (await s3.execute(select(ConversationMessage).where(
+                    ConversationMessage.id == bot.id))).scalar_one_or_none()
+                if row is not None:
+                    row.thinking = json.dumps(steps, ensure_ascii=False)
+                    await s3.commit()
+        except Exception as e:
+            logger.warning("memory.thinking_update_failed", error=str(e))
     return {"reply": bot.content, "blocked": False, "message_id": bot.id,
             "thinking": steps, "file_ops": file_ops}
 
 
 _MODE_LABELS = {"full_auto": "完全权限", "approve_risky": "审批+自主", "sandbox": "沙箱"}
+
+
+def _persist_artifact(conv: Conversation, ws: Path, fname: str,
+                      writer) -> dict:
+    """按会话模式把产物写入工作区：沙箱先落 _sandbox/ 待审批，其余直接落盘。"""
+    if conv.agent_mode == "sandbox":
+        staged_rel = f"_sandbox/{fname}"
+        writer(ws / staged_rel)
+        return {"kind": "file_write", "status": "pending",
+                "staged": staged_rel, "path": staged_rel,
+                "detail": f"沙箱已生成 {fname}，等待人工审批后写入工作区"}
+    writer(ws / fname)
+    if conv.agent_mode == "approve_risky":
+        return {"kind": "file_write", "status": "auto", "path": fname,
+                "detail": f"普通写入已自动完成：{fname}（工作区内自主权限）"}
+    return {"kind": "file_write", "status": "auto", "path": fname,
+            "detail": f"完全权限模式：已直接写入工作区 {fname}"}
+
+
+_OFFICE_PAT = re.compile(r"(word|docx|excel|xlsx|表格|ppt|幻灯片|演示文稿)", re.IGNORECASE)
+
+
+def _detect_office_format(message: str) -> Optional[str]:
+    m = message.lower()
+    if re.search(r"(word|docx|公文|红头)", m):
+        return "docx"
+    if re.search(r"(excel|xlsx|表格)", m):
+        return "xlsx"
+    if re.search(r"(ppt|幻灯片|演示文稿)", m):
+        return "pptx"
+    if _OFFICE_PAT.search(message):
+        return "docx"  # 泛指 office 文档时默认 Word
+    return None
+
+
+def _parse_json_safe(text: str) -> Optional[dict]:
+    """从模型输出中稳健解析 JSON（剥代码围栏、截取首尾花括号）。"""
+    text = re.sub(r"```(?:json)?|```", "", text or "").strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        return None
+    try:
+        return json.loads(text[start:end + 1])
+    except Exception:
+        return None
 
 
 async def _send_dual_admin_alert(session, user: dict, kinds: list) -> None:
@@ -483,7 +586,7 @@ async def _send_dual_admin_alert(session, user: dict, kinds: list) -> None:
 
 
 def _wants_file(message: str) -> bool:
-    return bool(re.search(r"(起草|撰写|写一份|生成一份|写个|生成.*文档|输出.*报告|导出)", message))
+    return bool(re.search(r"(起草|撰写|写一份|做一份|来一份|制作|生成一份|写个|生成.{0,12}(文档|表格|演示|报告|文件)|输出.{0,12}(报告|文档)|导出)", message))
 
 
 def _team_members(payload: str) -> list[str]:

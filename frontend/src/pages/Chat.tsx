@@ -30,6 +30,7 @@ const MODE_LABEL: Record<string, string> = Object.fromEntries(MODES.map(m => [m.
 const STEP_ICON: Record<string, any> = {
   intent: Target, capability: Puzzle, model: Cpu, attachments: Paperclip,
   file_write: FileText, quota: AlertTriangle, guard: ShieldAlert, blocked: Ban,
+  artifact_decision: FileText, memory: Sparkles, title: Sparkles, web: Sparkles,
 }
 const STATUS_COLOR: Record<string, string> = {
   done: 'text-ok', running: 'text-navy', error: 'text-alert',

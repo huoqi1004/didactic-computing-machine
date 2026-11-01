@@ -130,9 +130,92 @@ def build_md(path: str, spec: dict) -> None:
         f.write(body)
 
 
+def build_csv(path: str, spec: dict) -> None:
+    """CSV 生成（utf-8-sig BOM，Excel 直接打开不乱码）。"""
+    import csv as _csv
+
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        w = _csv.writer(f)
+        w.writerow(spec.get("headers", []))
+        for row in spec.get("rows", []):
+            w.writerow(row)
+
+
+_CJK_FONT_CACHE: str | None = None
+
+
+def _cjk_font() -> str | None:
+    """注册系统中文字体（微软雅黑→黑体→宋体），返回字体名或 None。"""
+    global _CJK_FONT_CACHE
+    if _CJK_FONT_CACHE is not None:
+        return _CJK_FONT_CACHE
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    for name, f, idx in [("MSYaHei", "C:/Windows/Fonts/msyh.ttc", 0),
+                         ("SimHei", "C:/Windows/Fonts/simhei.ttf", 0),
+                         ("SimSun", "C:/Windows/Fonts/simsun.ttc", 0)]:
+        try:
+            if not __import__("os").path.exists(f):
+                continue
+            pdfmetrics.registerFont(TTFont(name, f, subfontIndex=idx))
+            _CJK_FONT_CACHE = name
+            return name
+        except Exception:
+            continue
+    _CJK_FONT_CACHE = ""
+    return None
+
+
+def build_pdf(path: str, spec: dict) -> None:
+    """PDF 生成（platypus 流式排版，中文字体自动注册）。"""
+    path = str(path)  # reportlab 不接受 Path 对象
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (Paragraph, SimpleDocTemplate, Spacer,
+                                    Table, TableStyle)
+
+    font = _cjk_font() or "Helvetica"
+    navy = colors.HexColor("#1D4ED8")
+    sky = colors.HexColor("#0EA5E9")
+    ink = colors.HexColor("#0F1F3D")
+
+    doc = SimpleDocTemplate(path, pagesize=A4,
+                            leftMargin=20 * mm, rightMargin=20 * mm,
+                            topMargin=18 * mm, bottomMargin=18 * mm,
+                            title=str(spec.get("title", "文档")))
+    title_style = ParagraphStyle("T", fontName=font, fontSize=20,
+                                 textColor=navy, leading=28, spaceAfter=6)
+    sub_style = ParagraphStyle("S", fontName=font, fontSize=11,
+                               textColor=sky, leading=16, spaceAfter=14)
+    head_style = ParagraphStyle("H", fontName=font, fontSize=14,
+                                textColor=ink, leading=20,
+                                spaceBefore=12, spaceAfter=6)
+    body_style = ParagraphStyle("B", fontName=font, fontSize=10.5,
+                                textColor=ink, leading=17, wordWrap="CJK")
+    story = [Paragraph(str(spec.get("title", "文档")), title_style)]
+    if spec.get("subtitle"):
+        story.append(Paragraph(str(spec["subtitle"]), sub_style))
+    for sec in spec.get("sections", []):
+        if sec.get("heading"):
+            story.append(Paragraph(str(sec["heading"]), head_style))
+        for para in str(sec.get("body", "")).split("\n"):
+            para = para.strip()
+            if not para:
+                continue
+            story.append(Paragraph(para, body_style))
+        story.append(Spacer(1, 4))
+    story.append(Spacer(1, 16))
+    story.append(Paragraph("—— 本文档由企业数字化大脑智能体生成", sub_style))
+    doc.build(story)
+
+
 BUILDERS = {"docx": build_docx, "xlsx": build_xlsx, "pptx": build_pptx,
-            "md": build_md}
-SUFFIX = {"docx": ".docx", "xlsx": ".xlsx", "pptx": ".pptx", "md": ".md"}
+            "md": build_md, "csv": build_csv, "pdf": build_pdf}
+SUFFIX = {"docx": ".docx", "xlsx": ".xlsx", "pptx": ".pptx", "md": ".md",
+          "csv": ".csv", "pdf": ".pdf"}
 
 # 各格式 → LLM 结构化产出要求
 FORMAT_PROMPTS = {
@@ -146,4 +229,9 @@ FORMAT_PROMPTS = {
              '"slides": [{"title": "页标题", "bullets": ["要点1", "要点2", "要点3"]}]},'
              '共 5-8 页（不含封面），每页 3-6 个要点。'),
     "md": ('输出 JSON：{"title": "标题", "body": "完整 Markdown 正文，可用标题/列表/表格"}。'),
+    "csv": ('输出 JSON：{"headers": ["列1","列2","列3"], "rows": [["值", ...], ...]}，'
+            '行数 10-30 行，数据贴合主题且数值合理。'),
+    "pdf": ('输出 JSON：{"title": "...", "subtitle": "...", '
+            '"sections": [{"heading": "章节标题", "body": "正文段落，用\\n分段，可用 - 表示要点"}]}，'
+            '章节 3-6 个，正文专业完整。'),
 }

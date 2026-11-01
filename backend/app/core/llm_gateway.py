@@ -102,19 +102,41 @@ async def provider_chat(session, provider: ModelProvider,
         body = {"model": provider.model_name, "messages": payload_messages}
         url = provider.base_url.rstrip("/") + "/chat/completions"
 
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=body, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.HTTPStatusError as e:
-        logger.warning("gateway.provider_http_error", status=e.response.status_code,
-                       provider=provider.name)
-        raise RuntimeError(f"模型服务返回错误（{e.response.status_code}）") from e
-    except Exception as e:
-        logger.warning("gateway.provider_call_failed", provider=provider.name,
-                       error=str(e))
-        raise RuntimeError("模型服务暂不可用，请稍后重试或切换模型") from e
+    import asyncio
+
+    max_retries = 2
+    last_error: Optional[Exception] = None
+    for attempt in range(max_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(url, json=body, headers=headers)
+                if resp.status_code == 429 and attempt < max_retries:
+                    wait = 3.0 * (attempt + 1)
+                    logger.warning("gateway.rate_limited_retry",
+                                   provider=provider.name, wait=wait)
+                    await asyncio.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                data = resp.json()
+            break
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code >= 500 and attempt < max_retries:
+                await asyncio.sleep(2.0 * (attempt + 1))
+                last_error = e
+                continue
+            logger.warning("gateway.provider_http_error", status=e.response.status_code,
+                           provider=provider.name)
+            raise RuntimeError(f"模型服务返回错误（{e.response.status_code}）") from e
+        except Exception as e:
+            if attempt < max_retries:
+                await asyncio.sleep(1.5 * (attempt + 1))
+                last_error = e
+                continue
+            logger.warning("gateway.provider_call_failed", provider=provider.name,
+                           error=str(e))
+            raise RuntimeError("模型服务暂不可用，请稍后重试或切换模型") from e
+    else:
+        raise RuntimeError("模型服务暂不可用（重试耗尽）") from last_error
 
     if provider.protocol == "claude":
         blocks = data.get("content") or []

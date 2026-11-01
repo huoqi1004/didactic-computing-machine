@@ -431,28 +431,48 @@ async def chat(conv_id: int, req: ChatRequest, user: dict = Depends(auth_user)):
                 reply = None
             await s.flush()
 
-        # 4. 工作区产物（按模式）：Office 格式走结构化生成，其余 Markdown
+        # 4. 工作区产物（M12：AI 意图自动判断是否生成文件与格式）
+        #    - 用户显式开启"生成文件"开关 → 直接按启发式格式生成（用户意图优先）
+        #    - 否则由 AI 单次决策：是否需要产物 + 格式（docx/pdf/pptx/xlsx/csv/md）+ 内容 spec
+        #    - 纯寒暄短消息短路跳过，避免无谓延迟
         file_ops: list[dict] = []
-        if reply and (req.generate_file or _wants_file(req.message)):
+        manual_request = bool(req.generate_file)
+        ai_decides = bool(reply and not manual_request
+                          and not _is_pure_chitchat(req.message))
+        if reply and (manual_request or ai_decides):
             ws = _ensure_ws(conv, user["username"])
-            office_fmt = _detect_office_format(req.message)
+            office_fmt: Optional[str] = None
+            spec: Optional[dict] = None
+            decision_reason = ""
+            if manual_request:
+                office_fmt = _detect_office_format(req.message) or "md"
+            else:
+                # AI 意图决策（一次调用同时给出 是否生成/格式/内容spec）
+                from app.core import office_gen
+                decision, office_fmt, spec, decision_reason = await _ai_decide_artifact(
+                    s, provider, user, req.message, reply)
+                steps.append({"kind": "artifact_decision", "status": "done",
+                              "detail": f"AI 意图判断：{'需要生成 ' + str(office_fmt).upper() + ' 文件' if decision else '无需生成文件'}"
+                                        + (f"（{decision_reason[:40]}）" if decision_reason else "")})
             if office_fmt:
                 from app.core import office_gen
                 try:
-                    spec_text, _spec_tokens = await provider_chat(
-                        s, provider,
-                        [{"role": "user",
-                          "content": f"请根据以下要求生成{office_fmt.upper()}文档内容。\n"
-                                     f"用户要求：{req.message}\n"
-                                     f"你的初步回复（供参考提取内容）：{reply[:2000]}\n"
-                                     f"{office_gen.FORMAT_PROMPTS[office_fmt]}\n只输出 JSON。"}],
-                        system="你是文档结构化引擎，只输出合法 JSON，不要任何解释或代码块标记。",
-                        username=user["username"])
-                    spec = _parse_json_safe(spec_text)
+                    if spec is None:
+                        spec_text, _spec_tokens = await provider_chat(
+                            s, provider,
+                            [{"role": "user",
+                              "content": f"请根据以下要求生成{office_fmt.upper()}文档内容。\n"
+                                         f"用户要求：{req.message}\n"
+                                         f"你的初步回复（供参考提取内容）：{reply[:2000]}\n"
+                                         f"{office_gen.FORMAT_PROMPTS[office_fmt]}\n只输出 JSON。"}],
+                            system="你是文档结构化引擎，只输出合法 JSON，不要任何解释或代码块标记。",
+                            username=user["username"])
+                        spec = _parse_json_safe(spec_text)
                     if spec is None:
                         raise ValueError("模型未返回合法 JSON")
+                    base_title = str(spec.get("title") or "产物")[:30]
                     fname = re.sub(r'[\\/:*?"<>|]', "_",
-                                   f"{spec.get('title', '文档')[:30]}_{datetime.now().strftime('%m%d_%H%M')}"
+                                   f"{base_title}_{datetime.now().strftime('%m%d_%H%M')}"
                                    f"{office_gen.SUFFIX[office_fmt]}")
                     op = _persist_artifact(conv, ws, fname,
                                            lambda path: office_gen.BUILDERS[office_fmt](path, spec))
@@ -468,12 +488,6 @@ async def chat(conv_id: int, req: ChatRequest, user: dict = Depends(auth_user)):
                         conv, ws, md_name,
                         lambda path: path.write_text(reply, encoding="utf-8"))
                     file_ops += [err_step, md_op]; steps += [err_step, md_op]
-            else:
-                fname = f"产物_{datetime.now().strftime('%m%d_%H%M')}.md"
-                op = _persist_artifact(
-                    conv, ws, fname,
-                    lambda path: path.write_text(reply, encoding="utf-8"))
-                file_ops.append(op); steps.append(op)
 
         # 4.5 首轮对话自动生成会话标题（AI 命名，失败回退消息前缀）
         if provider is not None and conv.title in ("新对话", ""):
@@ -547,6 +561,66 @@ async def chat(conv_id: int, req: ChatRequest, user: dict = Depends(auth_user)):
 
 
 _MODE_LABELS = {"full_auto": "完全权限", "approve_risky": "审批+自主", "sandbox": "沙箱"}
+
+
+_CHITCHAT_PAT = re.compile(
+    r"^(你好|您好|hi|hello|嗨|哈喽|谢谢|感谢|辛苦|再见|拜拜|晚安|早安|ok|好的|收到|嗯)[！!。.~\s]*$",
+    re.IGNORECASE)
+
+
+def _is_pure_chitchat(message: str) -> bool:
+    """纯寒暄短路（<20字且命中寒暄词），避免无谓的意图决策调用。"""
+    return len(message.strip()) < 20 and bool(_CHITCHAT_PAT.match(message.strip()))
+
+
+async def _ai_decide_artifact(s, provider, user: dict, message: str,
+                              reply: str) -> tuple[bool, Optional[str], Optional[dict], str]:
+    """AI 意图决策：根据会话内容判断是否需要生成文件及最佳格式。
+
+    单次调用同时返回 是否生成 / 格式 / 内容 spec / 理由。
+    决策失败或格式非法时按 (False, None, None, '') 处理（不生成）。
+    """
+    from app.core import office_gen
+    from app.core.llm_gateway import provider_chat
+
+    prompt = (
+        "请根据下面的用户请求与助手回复，判断本次对话是否应该把成果落成文件，"
+        "以及最合适的文件格式。\n"
+        "判断标准：内容是一份可交付的文档/表格/演示/数据/通知/报告/清单/纪要等"
+        "（哪怕用户没有明说'生成文件'），就应该生成；"
+        "纯咨询、解释、闲聊、单句问答则不需要。\n"
+        "格式选择：结构化数据/表格→xlsx 或 csv（纯数据交换用 csv）；"
+        "正式文档/通知/制度/报告→docx；演示汇报→pptx；"
+        "需要固定排版分发→pdf；轻量笔记/技术文档→md。\n"
+        "用户请求：" + message[:400] + "\n\n助手回复：" + reply[:1200] + "\n\n"
+        "只输出一个 JSON 对象：\n"
+        '{"generate": true/false, "format": "docx|pdf|pptx|xlsx|csv|md 或 null", '
+        '"reason": "简短理由", "spec": {…按格式要求…}}\n'
+        "各格式 spec 要求：\n"
+        + "\n".join(f"{k}: {v}" for k, v in office_gen.FORMAT_PROMPTS.items()))
+    try:
+        text, _tokens = await provider_chat(
+            s, provider, [{"role": "user", "content": prompt}],
+            system="你是文件产物决策引擎，只输出合法 JSON，不要任何解释或代码块标记。",
+            username=user["username"])
+        data = _parse_json_safe(text)
+        if data is None:
+            return False, None, None, ""
+        if not data.get("generate"):
+            return False, None, None, str(data.get("reason", ""))[:60]
+        fmt = str(data.get("format") or "").lower().strip()
+        if fmt == "ppt":
+            fmt = "pptx"
+        if fmt not in office_gen.BUILDERS:
+            return False, None, None, ""
+        spec = data.get("spec") if isinstance(data.get("spec"), dict) else None
+        if fmt in ("csv",) and spec is not None:
+            spec = {"headers": spec.get("headers", []),
+                    "rows": spec.get("rows", [])}
+        return True, fmt, spec, str(data.get("reason", ""))[:60]
+    except Exception as e:
+        logger.warning("chat.artifact_decision_failed", error=str(e))
+        return False, None, None, ""
 
 
 def _persist_artifact(conv: Conversation, ws: Path, fname: str,

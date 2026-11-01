@@ -2,6 +2,7 @@
 
 - **PRD 编号**：PRD-2026-10-04-expert-team-orchestration
 - **版本**：v1.0（甲方批准基线，tag `prd/expert-team-orchestration/v1.0`）
+- **状态更新（2026-10-05）**：**superseded**——需求已并入《full-rebuild v0.1》§5（专家/专家团/A2A 全量并入），开发随重构计划执行
 - **作者**：乙方产品
 - **关联**：[PRD 版本管理体系](README.md) · 上游：可观测与沙箱回滚路线图（已交付）、套件完善批次（已交付）
 

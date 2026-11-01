@@ -152,3 +152,115 @@ async def erp_readonly_query(ctx: ToolContext, table: str, columns: str = "*",
 
 def get_allowed_tables() -> set[str]:
     return set(_ALLOWED_TABLES)
+
+
+# ===========================================================================
+# D-H3：样例 code-exec 数据分析工具（write_high + 沙箱执行 + 影子首月）
+# 契约：dataset_json 为数据集；沙箱内变量 data 可用，代码须赋值 result
+# （JSON 可序列化）作为分析结论。无 ERP 副作用，补偿为确认性 no-op。
+# 注册闸门：sandbox_enabled=False 时拒绝注册（E2 守卫）——try 包裹使
+# 未启用沙箱的环境照常启动，仅缺少本工具。
+# ===========================================================================
+class DataAnalysisArgs(BaseModel):
+    """数据分析参数"""
+    dataset_json: str = Field(..., description="数据集 JSON（数组/对象，≤50KB）")
+    code: str = Field(..., description="分析代码（变量 data 可用；须赋值 result）")
+
+
+def _build_analysis_harness(dataset_json: str, code: str) -> str:
+    """构造沙箱执行脚本：注入 data 变量 + 回传 result 序列化。
+
+    dataset_json 先解析校验（非法 JSON 在此处拒绝），再以单次
+    ``json.dumps`` 后的 repr 作为字面量嵌入——避免双重编码导致
+    data 变成字符串（实测陷阱：对 JSON 文本再 !r 会多一层引号）。
+    """
+    import json as _json
+
+    dataset_obj = _json.loads(dataset_json)  # 非法 JSON 在此抛 ValueError
+    payload = _json.dumps(dataset_obj, ensure_ascii=False)
+
+    return (
+        "import json\n"
+        f"data = json.loads({payload!r})\n"
+        + code
+        + "\nimport json as _j\n"
+          "print('__ANALYSIS_RESULT__' + _j.dumps(result, default=str))"
+    )
+
+
+def _parse_analysis_result(stdout: str) -> Any:
+    for line in stdout.splitlines():
+        if line.startswith("__ANALYSIS_RESULT__"):
+            import json as _json
+
+            return _json.loads(line[len("__ANALYSIS_RESULT__"):])
+    return None
+
+
+async def _analysis_compensation(ctx: ToolContext, args: dict, result) -> None:
+    """分析类无 ERP 副作用——补偿为确认性 no-op（写工具协议强制有补偿）。
+    幂等：重复调用无任何状态变化。"""
+    logger.debug("platform.analysis_compensation_noop", user=ctx.user_id)
+
+
+def _register_analysis_tool(registry=None) -> bool:
+    """注册 code-exec 工具（沙箱启用时）；未启用返回 False（E2 守卫语义）。
+
+    ``registry`` 可注入独立注册表（测试用，避免全局 reload 的跨循环重绑）。
+    注意：``erp_tool`` 是装饰器工厂——必须**应用**到处理器函数才会注册校验；
+    本函数在内部定义处理器并应用（实测曾漏应用导致闸门形同虚设）。
+    """
+    try:
+
+        @erp_tool(
+            name="python_data_analysis",
+            description=(
+                "在受限沙箱容器内执行 Python 数据分析代码：变量 data 为数据集，"
+                "代码须赋值 result（JSON 可序列化）作为分析结论。"
+                "高危：强制人审 + 沙箱隔离"
+            ),
+            args_model=DataAnalysisArgs,
+            risk_level=ToolRisk.WRITE_HIGH,
+            resource="platform", action="create",
+            agent_domain="platform",
+            idempotent=True,
+            tags=["code-exec"],
+            effects_fn=lambda a: (
+                f"在沙箱容器内执行数据分析代码（{len(a.get('code', ''))} 字符，"
+                f"数据集 {len(a.get('dataset_json', ''))} 字符），结果回传不落业务库"
+            ),
+            compensation=_analysis_compensation,
+            registry=registry,
+        )
+        async def _python_data_analysis(ctx: ToolContext, dataset_json: str, code: str):
+            from app.core.sandbox.executor import sandbox_executor
+
+            if len(dataset_json) > 51200:
+                raise ValueError("数据集超限（>50KB）")
+            harness = _build_analysis_harness(dataset_json, code)
+            r = await sandbox_executor.run(harness, timeout_s=20)
+            if not r.ok:
+                raise RuntimeError(f"沙箱执行失败: {r.error or r.stderr[:200]}")
+            parsed = _parse_analysis_result(r.stdout)
+            return {
+                "result": parsed,
+                "stdout": r.stdout.replace("__ANALYSIS_RESULT__", "").strip()[:4000],
+                "duration_ms": r.duration_ms,
+                "sandbox": True,
+            }
+
+        # 注册成功后暴露处理器引用（模块别名，供直接调用方使用）
+        globals()["python_data_analysis"] = _python_data_analysis
+        return True
+    except ValueError as e:
+        logger.warning("platform.code_exec_registration_deferred", error=str(e))
+        # 闸门拒绝时保留一个"未注册"占位语义：调用即报错，防止静默旁路
+        async def python_data_analysis(ctx: ToolContext, dataset_json: str, code: str):
+            raise RuntimeError("python_data_analysis 未注册（沙箱未启用）")
+
+        globals()["python_data_analysis"] = python_data_analysis
+        return False
+
+
+_registration_ok = _register_analysis_tool()
+

@@ -282,6 +282,81 @@ async def _h_contract_approve(state: dict, params: dict) -> dict:
     return {"result": {**(state.get("result") or {}), "status": "approved"}}
 
 
+@register_handler("supdoc.draft")
+async def _h_supdoc_draft(state: dict, params: dict) -> dict:
+    """监理文档草稿：实时监理数据 + LLM 大纲（LLM 失败降级骨架，不臆造数值）。"""
+    inp = state.get("input") or {}
+    agent = _get_agent_by_name("项目监理agent")
+    if agent is None:
+        return {"error": "项目监理Agent 未启动"}
+    # 实时监理快照（_supervision 记录含 project_id/name/stage/里程碑/预算）
+    realtime = [dict(rec) for rec in getattr(agent, "_supervision", {}).values()]
+    try:
+        compliance = agent.check_compliance(inp.get("project_id"))
+    except Exception:  # noqa: BLE001
+        compliance = {"stages": {}, "high_risk": False, "risks": []}
+    outline_prompt = (
+        "请为以下项目生成监理文档大纲，返回 JSON："
+        '{"title": "...", "summary": "...", '
+        '"sections": [{"heading": "...", "content": "..."}], "conclusion": "..."}。'
+        "按五大监理阶段（立项审批/实施过程/测试验证/上线发布/关闭审计）组织章节。"
+    )
+    outline = await agent.llm_analyze(
+        outline_prompt,
+        {"project_id": inp.get("project_id", ""), "doc_type": inp.get("doc_type", "监理大纲"),
+         "compliance": compliance, "realtime_count": len(realtime)},
+    )
+    if "error" in outline:
+        # LLM 失败降级：骨架齐备 + 待人工补充（不臆造）
+        outline = {
+            "title": f"{inp.get('project_id', '项目')}监理大纲",
+            "summary": "LLM 暂不可用，以下为标准监理骨架，请人工补充。",
+            "sections": [{"heading": h, "content": "待人工补充"}
+                         for h in ("监理范围与依据", "监理阶段与检查点",
+                                   "风险与应对措施")],
+            "conclusion": "",
+        }
+    outline["doc_amount"] = 1  # gate：amount_from → 恒 ≥ 阈值 0 → 必经人审
+    await _audit("workflow.supdoc.drafted", "project_supervisor",
+                 {"project_id": inp.get("project_id", "")})
+    return {"result": outline}
+
+
+@register_handler("supdoc.finalize")
+async def _h_supdoc_finalize(state: dict, params: dict) -> dict:
+    """人审定稿 → docx 生成（复用 conversation 创作装配 + 文档生成器）。"""
+    from app.api.routes.conversation import build_creative_doc_data
+    from app.core.document import document_generator
+    from app.core.observability.trace import get_trace_id
+
+    result = dict(state.get("result") or {})
+    agent = _get_agent_by_name("项目监理agent")
+    agent_config = {"name": agent.name if agent else "项目监理agent"}
+    doc_data = build_creative_doc_data(
+        agent_config, "监理文档定稿", result,
+        realtime=[],
+        trace_id=get_trace_id(), generated_at=datetime.now(timezone.utc).isoformat(),
+        user_id=str(state.get("input", {}).get("requested_by", "")),
+    )
+    filename = f"supervisor_doc_{uuid4().hex[:10]}.docx"
+    path = document_generator.generate(
+        format="docx", template_type="report", data=doc_data, filename=filename)
+    download_url = f"/api/v1/document/download/{filename}"
+    await _audit("workflow.supdoc.finalized", f"document:{filename}",
+                 {"download_url": download_url, "trace_id": get_trace_id()}, risk="medium")
+    return {"result": {**(state.get("result") or {}),
+                       "download_url": download_url, "filename": filename,
+                       "path": str(path)}}
+
+
+@register_handler("supdoc.reject")
+async def _h_supdoc_reject(state: dict, params: dict) -> dict:
+    """人审驳回：草稿作废（审计留痕，状态机闭环）。"""
+    await _audit("workflow.supdoc.rejected", "project_supervisor",
+                 {"reason": str(params.get("comment", ""))[:200] if isinstance(params, dict) else ""})
+    return {"result": {"status": "rejected"}}
+
+
 @register_handler("contract.reject_mark")
 async def _h_contract_reject_mark(state: dict, params: dict) -> dict:
     from app.db.repositories.treasury_contract_repository import contract_repository
@@ -337,6 +412,23 @@ BUILTIN_DSL: dict[str, dict] = {
              "next": "END"},
         ],
     },
+    "supervisor_doc_workflow": {
+        "name": "supervisor_doc_workflow",
+        "entry": "draft",
+        "nodes": [
+            {"id": "draft", "type": "task", "handler": "supdoc.draft",
+             "next": "gate"},
+            {"id": "gate", "type": "gate",
+             "threshold": {"key": "supervisor_doc_auto_approve", "default": 0},
+             "amount_from": "result.doc_amount",
+             "preview": "监理文档草稿《{title}》待人审定稿（AI 草稿须人工确认）",
+             "next_approved": "finalize", "next_rejected": "reject"},
+            {"id": "finalize", "type": "task", "handler": "supdoc.finalize",
+             "next": "END"},
+            {"id": "reject", "type": "task", "handler": "supdoc.reject",
+             "next": "END"},
+        ],
+    },
     "contract_approval": {
         "name": "contract_approval",
         "entry": "create",
@@ -367,6 +459,10 @@ WORKFLOW_CATALOG: dict[str, dict] = {
     "procure_to_pay": {
         "description": "采购到支付：PO校验→支付排程(net30)→大额人审(≥10万)→付款",
         "input_hint": "{po_id, total_amount, supplier_id?}",
+    },
+    "supervisor_doc_workflow": {
+        "description": "监理文档工作流：实时数据起草→AI 草稿人审定稿→docx 生成（D-H5）",
+        "input_hint": "{project_id, doc_type?(监理大纲/实施方案), requested_by?}",
     },
     "contract_approval": {
         "description": "合同审批流：创建→规则审查→人审→批准生效",

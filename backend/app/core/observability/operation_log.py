@@ -373,6 +373,7 @@ async def request_llm_fulltext(
 async def log_llm_interaction(
     domain: str, ctx, messages_in: int, tokens: int, latency_ms: float,
     reply_text: str = "", user_message: str = "",
+    extra: Optional[dict] = None,
 ) -> None:
     """LLM 交互日志：默认摘要；按域开关开启时附全文（带过期元数据）。
 
@@ -388,6 +389,8 @@ async def log_llm_interaction(
         "tokens": tokens,
         "latency_ms": round(latency_ms, 2),
     }
+    if extra:
+        details.update(extra)
     if llm_fulltext_enabled(domain):
         state = llm_fulltext_state()
         details["fulltext"] = True

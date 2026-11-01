@@ -246,6 +246,7 @@ def erp_tool(
     business_key_field: Optional[str] = None,
     rollback_precheck: Optional[ToolRollbackPrecheck] = None,
     impact_fn: Optional[ToolImpactFn] = None,
+    tags: Optional[list[str]] = None,
     registry: Optional[ToolRegistryV2] = None,
 ) -> Callable[[ToolHandler], ToolHandler]:
     """
@@ -292,6 +293,7 @@ def erp_tool(
                 business_key_field=business_key_field,
                 rollback_precheck=rollback_precheck,
                 impact_fn=impact_fn,
+                tags=tags or [],
             )
         )
         return fn

@@ -37,7 +37,7 @@ from datetime import datetime
 from typing import Any, AsyncIterator, Optional
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -569,6 +569,29 @@ def _precheck_agent(agent_id: str, agent_config: Optional[dict]) -> Optional[dic
 async def get_chat_agents():
     """获取可对话的 Agent 列表"""
     return {"agents": CHAT_AGENTS}
+
+
+@router.get("/intent", summary="意图分类调试面（意图识别输入层 · 计划 1.4）")
+async def debug_intent(
+    message: str = Query(..., min_length=1, max_length=2000,
+                         description="待分类的用户消息"),
+    agent_id: str = Query("", max_length=64),
+    current_user: dict = Depends(get_current_user),
+):
+    """意图分类调试：返回 双路分类结果（LLM 优先/规则兜底）与实体抽取。
+
+    供前端调试面板与运维排查意图误判使用——分类器本身永不执行业务动作。
+    """
+    try:
+        result = await classify_intent(message)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"意图分类失败: {e}")
+    return {
+        "agent_id": agent_id,
+        "message_len": len(message),
+        **result,
+        "note": "意图分类仅做路由，不执行任何业务动作；action 路径仍需治理面 RBAC/审批",
+    }
 
 
 @router.post("/chat")

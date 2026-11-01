@@ -56,6 +56,7 @@ THRESHOLD_DEFAULTS: dict[str, float] = {
     "reimbursement_auto_approve_limit": 5000.0,   # 报销免审线（workflows）
     "payment_human_gate_limit": 100_000.0,        # 大额付款人审线（workflows）
     "agent_daily_token_budget": 2_000_000.0,      # per-agent 日 token 预算（runtime）
+    "supervisor_doc_auto_approve": 0.0,           # 监理文档自动通过线（0=恒人审，D-H5）
 }
 
 # 管理端表单单据名（/meta 下发，前端不硬编码阈值键）
@@ -63,6 +64,7 @@ THRESHOLD_LABELS: dict[str, str] = {
     "reimbursement_auto_approve_limit": "报销免审线（元）",
     "payment_human_gate_limit": "大额付款人审线（元）",
     "agent_daily_token_budget": "单 Agent 日 token 预算",
+    "supervisor_doc_auto_approve": "监理文档自动通过线（0=恒人审）",
 }
 
 # gate 的可配 target 全集 = 阈值注册表 + 审批路由矩阵。

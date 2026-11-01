@@ -290,6 +290,12 @@ class AgentRuntime:
         from app.core.security.audit import audit_chain
         from app.core.security.guardrails import GuardrailAction, guardrails
 
+        # 意图识别接线（计划 3.1）：规则路径确定性分类（对话入口层已做 LLM 分类，
+        # 此处为执行层审计口径——intent 进操作日志与回复元数据）
+        from app.core.agent.intent import classify_intent as _classify
+
+        intent_result = await _classify(user_message, domain=domain)
+
         in_action, in_threats = guardrails.check_input(
             user_message, agent_did=ctx.agent_key or f"runtime:{domain}")
         if in_action in (GuardrailAction.BLOCK, GuardrailAction.ESCALATE):
@@ -329,7 +335,8 @@ class AgentRuntime:
         tokens = self._sum_tokens(result.get("messages", []))
         self._record_tokens(domain, tokens)
         await self._audit_tokens(domain, ctx, tokens)
-        await self._log_llm_op(domain, ctx, user_message, result.get("messages", []), tokens)
+        await self._log_llm_op(domain, ctx, user_message, result.get("messages", []), tokens,
+                               intent=intent_result.get("intent", ""))
 
         interrupts = result.get("__interrupt__") or []
         if interrupts:
@@ -426,7 +433,8 @@ class AgentRuntime:
 
     @staticmethod
     async def _log_llm_op(domain: str, ctx, user_message: str, messages: list,
-                          tokens: int, resumed: bool = False) -> None:
+                          tokens: int, resumed: bool = False,
+                          intent: str = "") -> None:
         """LLM 交互日志（G2.4，D6 裁决）：默认摘要，全文按域开关（≤7 天过期）。"""
         try:
             from app.core.observability.operation_log import log_llm_interaction
@@ -441,6 +449,7 @@ class AgentRuntime:
                 domain=domain, ctx=ctx,
                 messages_in=len(messages), tokens=tokens, latency_ms=0.0,
                 reply_text=reply, user_message=user_message,
+                extra={"intent": intent, "resumed": resumed},
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("runtime.llm_op_log_failed", error=str(e))

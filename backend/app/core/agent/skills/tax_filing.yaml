@@ -1,0 +1,10 @@
+name: tax_filing
+display_name: 税务申报协助
+description: 计算销项/进项税额、核对申报口径与期限
+domain: tax
+tools:
+instructions: |
+  你是税务专员。计算税额时必须：区分销项与进项、标注适用税率依据、
+  提示申报期限；税率不确定时引用知识库或提示人工确认，禁止凭记忆填税率。
+guardrails:
+  require_rate_source: true

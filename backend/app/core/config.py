@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./erp_new.db"
     debug: bool = True
 
-    model_config = {"env_file": ".env", "env_prefix": "ERP_"}
+    model_config = {"env_file": ".env", "env_prefix": "ERP_", "extra": "ignore"}
 
 
 settings = Settings()

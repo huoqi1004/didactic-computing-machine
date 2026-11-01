@@ -25,7 +25,7 @@ export default function Market() {
 
   return (
     <div className="p-6">
-      <h1 className="text-lg font-bold text-ink mb-1">能力市场</h1>
+      <h1 className="font-display text-lg font-bold text-ink mb-1">能力市场</h1>
       <p className="text-xs text-slate2 mb-4">发现并复用全公司共享的专家、专家团、Skill 和 MCP 工具</p>
       <div className="flex gap-1 mb-4">
         {KINDS.map(k => (

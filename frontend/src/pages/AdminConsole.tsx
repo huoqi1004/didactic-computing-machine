@@ -38,7 +38,7 @@ export default function AdminConsole() {
 
   return (
     <div className="p-6">
-      <h1 className="text-lg font-bold text-ink mb-4">系统管理台</h1>
+      <h1 className="font-display text-lg font-bold text-ink mb-4">系统管理台</h1>
       <div className="flex gap-2 mb-4">
         <button onClick={() => setTab('users')} className={`px-3 py-1.5 rounded text-sm ${tab === 'users' ? 'bg-navy text-white' : 'bg-card border border-border'}`}>用户管理</button>
         <button onClick={() => setTab('logs')} className={`px-3 py-1.5 rounded text-sm ${tab === 'logs' ? 'bg-navy text-white' : 'bg-card border border-border'}`}>审计日志</button>

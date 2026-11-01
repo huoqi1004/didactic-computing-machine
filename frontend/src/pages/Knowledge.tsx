@@ -36,7 +36,7 @@ export default function Knowledge() {
 
   return (
     <div className="p-6">
-      <h1 className="text-lg font-bold text-ink mb-4">知识库</h1>
+      <h1 className="font-display text-lg font-bold text-ink mb-4">知识库</h1>
       <div className="flex gap-2 mb-4">
         <input value={searchQ} onChange={e => setSearchQ(e.target.value)}
                onKeyDown={e => e.key === 'Enter' && doSearch()}

@@ -2,5 +2,41 @@
 @tailwind components;
 @tailwind utilities;
 
-body { background: #f4f6f9; color: #1f2937;
-  font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif; }
+body {
+  background: #edf3fc;
+  color: #0f1f3d;
+  font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+::selection { background: rgba(56, 189, 248, .35); }
+
+/* 统一聚焦光环（可访问性） */
+input:focus, textarea:focus, button:focus-visible, a:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, .55);
+  outline-offset: 1px;
+}
+input:focus, textarea:focus { outline: none; }
+
+/* 细窄蓝色滚动条 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, .3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(59, 130, 246, .55); }
+
+@layer utilities {
+  /* 登录页/空态的科技网格底纹 */
+  .tech-grid {
+    background-image:
+      linear-gradient(rgba(125, 211, 252, .07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(125, 211, 252, .07) 1px, transparent 1px);
+    background-size: 36px 36px;
+  }
+  /* 卡片悬停抬升 */
+  .card-lift {
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+  }
+  .card-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 4px rgba(16,49,110,.06), 0 12px 32px -12px rgba(29,78,216,.28);
+  }
+}

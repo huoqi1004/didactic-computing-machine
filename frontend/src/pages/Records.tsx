@@ -32,7 +32,7 @@ export default function Records() {
 
   return (
     <div className="p-6">
-      <h1 className="text-lg font-bold text-ink mb-4">实时资料库</h1>
+      <h1 className="font-display text-lg font-bold text-ink mb-4">实时资料库</h1>
       <div className="flex gap-2 mb-4">
         <select value={form.doc_type} onChange={e => setForm({...form, doc_type: e.target.value})}
                 className="border border-border rounded px-3 py-2 text-sm">

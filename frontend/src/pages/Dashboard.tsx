@@ -17,7 +17,7 @@ export default function Dashboard() {
 
   return (
     <div className="p-6">
-      <h1 className="text-lg font-bold text-ink mb-4">
+      <h1 className="font-display text-lg font-bold text-ink mb-4">
         {user?.role === 'chairman' ? '全域驾驶舱' : '分管看板'}
       </h1>
       {error && <p className="text-alert text-sm">{error}</p>}

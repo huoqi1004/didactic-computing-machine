@@ -30,10 +30,10 @@ export default function Settings() {
 
   return (
     <div className="p-6 max-w-2xl space-y-6">
-      <h1 className="text-lg font-semibold text-ink">个人设置</h1>
+      <h1 className="font-display text-xl font-bold text-ink">个人设置</h1>
 
       {/* 用户信息 */}
-      <section className="bg-card rounded-lg border border-border p-5">
+      <section className="bg-card rounded-2xl border border-border shadow-soft p-6">
         <h2 className="text-sm font-semibold text-ink mb-3">基本信息</h2>
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div><span className="text-slate2">用户名：</span>{user?.username}</div>
@@ -44,7 +44,7 @@ export default function Settings() {
       </section>
 
       {/* 修改密码 */}
-      <section className="bg-card rounded-lg border border-border p-5">
+      <section className="bg-card rounded-2xl border border-border shadow-soft p-6">
         <h2 className="text-sm font-semibold text-ink mb-3 flex items-center gap-1.5">
           <KeyRound size={15} /> 修改密码
         </h2>

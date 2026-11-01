@@ -6,6 +6,10 @@ interface AppState {
   user: User | null
   setUser: (u: User) => void
   clearUser: () => void
+  convVersion: number          // 会话列表刷新信号
+  bumpConv: () => void
+  quota: { used: number; limit: number; remaining: number; enabled: boolean } | null
+  setQuota: (q: AppState['quota']) => void
 }
 
 const savedUser = sessionStorage.getItem('erp-user')
@@ -20,6 +24,10 @@ export const useAppStore = create<AppState>(set => ({
     sessionStorage.removeItem('erp-user')
     set({ user: null })
   },
+  convVersion: 0,
+  bumpConv: () => set(s => ({ convVersion: s.convVersion + 1 })),
+  quota: null,
+  setQuota: q => set({ quota: q }),
 }))
 
 export const ROLE_LABELS: Record<string, string> = {

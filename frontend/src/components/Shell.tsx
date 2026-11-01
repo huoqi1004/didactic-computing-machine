@@ -1,17 +1,19 @@
 /**
  * 全局布局壳（WorkBuddy 风格 × 未来科技浅蓝）：
- * 深空蓝渐变侧边栏 + 右侧内容区；侧边栏底部为用户区弹出菜单。
+ * 上方：新对话按钮 + 会话历史（点击进入，右键删除）
+ * 下方：功能导航（知识库/资料库/消息/能力市场/看板/管理台）
+ * 最底：用户区弹出菜单（个人设置/切换账号注册/退出登录）+ 今日 token 额度
  */
-import { useEffect, useRef, useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { BarChart3, BookOpen, Brain, ChevronUp, FolderOpen,
-         Home, LogOut, MessageSquare, Settings, Shield,
-         Store, UserCog } from 'lucide-react'
-import { clearToken } from '../lib/api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
+import { BarChart3, BookOpen, Brain, ChevronUp, FolderOpen, History,
+         Home, LogOut, MessageSquare, MessageSquarePlus, Settings,
+         Shield, Store, Trash2, UserCog, X } from 'lucide-react'
+import api, { clearToken } from '../lib/api'
 import { useAppStore, ROLE_LABELS } from '../store'
 
 const NAV_ITEMS = [
-  { to: '/', label: '首页', icon: Home, roles: null },
+  { to: '/', label: '对话', icon: Home, roles: null, exact: true },
   { to: '/knowledge', label: '知识库', icon: BookOpen, roles: null },
   { to: '/records', label: '资料库', icon: FolderOpen, roles: null },
   { to: '/im', label: '消息', icon: MessageSquare, roles: null },
@@ -22,32 +24,57 @@ const NAV_ITEMS = [
     roles: ['sys_admin', 'dept_admin'] },
 ]
 
+interface Conv { id: number; title: string; workspace: string }
+
 export default function Shell() {
-  const { user, clearUser } = useAppStore()
+  const { user, clearUser, convVersion, bumpConv, quota, setQuota } = useAppStore()
   const nav = useNavigate()
+  const [search] = useSearchParams()
+  const activeConv = Number(search.get('c') || 0)
+  const [convs, setConvs] = useState<Conv[]>([])
+  const [historyOpen, setHistoryOpen] = useState(true)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [ctxMenu, setCtxMenu] = useState<{ id: number; x: number; y: number } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  const loadConvs = useCallback(() => {
+    api.get('/conversation').then(r => setConvs(r.items || [])).catch(() => {})
+  }, [])
+  useEffect(() => { loadConvs() }, [loadConvs, convVersion])
+
+  // 今日 token 额度
+  useEffect(() => {
+    api.get('/me/quota').then(r => setQuota(r)).catch(() => {})
+  }, [setQuota, convVersion])
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node))
         setMenuOpen(false)
+      setCtxMenu(null)
     }
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [])
 
-  const logout = () => {
-    clearToken(); clearUser(); nav('/login', { replace: true })
+  const logout = () => { clearToken(); clearUser(); nav('/login', { replace: true }) }
+
+  const deleteConv = async (id: number) => {
+    try { await api.delete(`/conversation/${id}`) } catch {}
+    bumpConv()
+    if (activeConv === id) nav('/')
   }
 
+  const newConversation = () => nav('/?new=1')
+
   const items = NAV_ITEMS.filter(n => !n.roles || n.roles.includes(user?.role || ''))
+  const quotaPct = quota && quota.limit > 0
+    ? Math.min(100, Math.round((quota.used / quota.limit) * 100)) : 0
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* ===== 左侧菜单栏：深空蓝渐变 ===== */}
-      <aside className="w-56 shrink-0 bg-gradient-brand-v text-white flex flex-col relative">
-        {/* 顶部青色光晕 */}
+    <div className="flex h-screen overflow-hidden" onClick={() => setMenuOpen(false)}>
+      {/* ===== 左侧菜单栏 ===== */}
+      <aside className="w-60 shrink-0 bg-gradient-brand-v text-white flex flex-col relative">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-40 tech-grid opacity-60"
              style={{ maskImage: 'linear-gradient(180deg, black, transparent)' }} />
 
@@ -59,24 +86,73 @@ export default function Shell() {
           <span className="font-display font-semibold tracking-wide text-[15px]">企业数字化大脑</span>
         </div>
 
-        {/* 中部导航 */}
-        <nav className="relative flex-1 overflow-y-auto px-3 py-4 space-y-1">
-          {items.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} end={to === '/'}
+        {/* ===== 上方：新对话 + 会话历史 ===== */}
+        <div className="relative px-3 pt-3">
+          <button onClick={newConversation}
+                  className="w-full flex items-center justify-center gap-2 bg-gradient-brand shadow-glow rounded-lg py-2.5 text-sm font-medium hover:opacity-90 transition-opacity">
+            <MessageSquarePlus size={16} /> 新对话
+          </button>
+          <button onClick={() => setHistoryOpen(v => !v)}
+                  className="w-full flex items-center gap-2 mt-3 px-2 py-1.5 text-xs text-white/60 hover:text-white">
+            <History size={13} /> 会话历史
+            <span className="ml-auto">{convs.length}</span>
+            <ChevronUp size={13} className={`transition-transform ${historyOpen ? '' : 'rotate-180'}`} />
+          </button>
+        </div>
+        {historyOpen && (
+          <div className="relative flex-1 min-h-0 overflow-y-auto px-3 pb-2 space-y-0.5">
+            {convs.length === 0 && (
+              <p className="text-xs text-white/40 px-2 py-2">暂无历史会话</p>
+            )}
+            {convs.map(c => (
+              <button key={c.id}
+                      onClick={() => nav(`/?c=${c.id}`)}
+                      onContextMenu={e => {
+                        e.preventDefault()
+                        setCtxMenu({ id: c.id, x: e.clientX, y: e.clientY })
+                      }}
+                      className={`w-full text-left px-2.5 py-2 rounded-lg text-xs group transition-colors ${
+                        activeConv === c.id ? 'bg-gradient-pill shadow-glow text-white'
+                                            : 'text-white/70 hover:bg-white/10'}`}>
+                <span className="block truncate">{c.title}</span>
+                <span className="block text-[10px] text-white/45 truncate">📁 {c.workspace}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {!historyOpen && <div className="flex-1" />}
+
+        {/* ===== 下方：功能导航 ===== */}
+        <nav className="relative border-t border-white/10 px-3 py-2 space-y-0.5">
+          {items.map(({ to, label, icon: Icon, ...rest }) => (
+            <NavLink key={to} to={to} end={'exact' in rest ? true : false}
                      className={({ isActive }) =>
-                       `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all ${
+                       `flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition-all ${
                          isActive ? 'bg-gradient-pill shadow-glow font-medium text-white'
                                   : 'text-white/70 hover:bg-white/10 hover:text-white'}`}>
-              <Icon size={17} />
+              <Icon size={15} />
               {label}
             </NavLink>
           ))}
         </nav>
 
-        {/* ===== 左下角：登录注册 + 设置 功能菜单按钮 ===== */}
-        <div ref={menuRef} className="relative border-t border-white/10 p-3">
+        {/* ===== 最底：用户区（登录注册+设置菜单） ===== */}
+        <div ref={menuRef} className="relative border-t border-white/10 p-3" onClick={e => e.stopPropagation()}>
+          {/* 今日额度 */}
+          {quota && (
+            <div className="px-2 pb-2">
+              <div className="flex justify-between text-[10px] text-white/50 mb-1">
+                <span>今日额度</span>
+                <span>{quota.used.toLocaleString()} / {quota.limit.toLocaleString()}</span>
+              </div>
+              <div className="h-1 rounded-full bg-white/15 overflow-hidden">
+                <div className={`h-full rounded-full ${quotaPct > 90 ? 'bg-alert' : 'bg-gradient-brand'}`}
+                     style={{ width: `${Math.max(quotaPct, 2)}%` }} />
+              </div>
+            </div>
+          )}
           {menuOpen && (
-            <div className="absolute bottom-full left-3 right-3 mb-2 rounded-lg bg-card text-ink shadow-lift border border-border overflow-hidden">
+            <div className="absolute bottom-full left-3 right-3 mb-2 rounded-lg bg-card text-ink shadow-lift border border-border overflow-hidden z-20">
               <div className="h-0.5 bg-gradient-brand" />
               <Link to="/settings" onClick={() => setMenuOpen(false)}
                     className="flex items-center gap-2.5 px-3 py-2.5 text-sm hover:bg-canvas">
@@ -92,7 +168,7 @@ export default function Shell() {
               </button>
             </div>
           )}
-          <button onClick={() => setMenuOpen(v => !v)}
+          <button onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}
                   className="w-full flex items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-white/10 transition-colors">
             <span className="w-8 h-8 rounded-full bg-gradient-brand shadow-glow flex items-center justify-center text-sm font-semibold shrink-0">
               {(user?.display_name || '用')[0]}
@@ -109,9 +185,20 @@ export default function Shell() {
       </aside>
 
       {/* ===== 右侧功能页面展示区 ===== */}
-      <main className="flex-1 overflow-y-auto bg-canvas">
+      <main className="flex-1 overflow-hidden bg-canvas">
         <Outlet />
       </main>
+
+      {/* 会话右键菜单 */}
+      {ctxMenu && (
+        <div className="fixed z-50 bg-card text-ink rounded-lg shadow-lift border border-border py-1 w-36"
+             style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+          <button onClick={() => { deleteConv(ctxMenu.id); setCtxMenu(null) }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-alert hover:bg-red-50 text-left">
+            <Trash2 size={14} /> 删除会话
+          </button>
+        </div>
+      )}
     </div>
   )
 }

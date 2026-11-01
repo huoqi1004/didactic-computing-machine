@@ -160,3 +160,91 @@ class MarketItem(Base):
     review_comment: Mapped[str] = mapped_column(String(512), default="")
     downloads: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+# ========== 智能体会话（工作区 + 三种模式，M6） ==========
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(64))          # 归属用户
+    title: Mapped[str] = mapped_column(String(128), default="新对话")
+    workspace: Mapped[str] = mapped_column(String(256), default="")  # 工作区目录名
+    agent_mode: Mapped[str] = mapped_column(String(16), default="approve_risky")
+    # full_auto / approve_risky / sandbox
+    model_id: Mapped[int] = mapped_column(Integer, default=0)  # 0=系统默认模型
+    capabilities: Mapped[str] = mapped_column(Text, default="{}")  # 能力引用 JSON
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class ConversationMessage(Base):
+    __tablename__ = "conversation_messages"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int] = mapped_column(Integer)
+    role: Mapped[str] = mapped_column(String(16))   # user / assistant
+    content: Mapped[str] = mapped_column(Text, default="")
+    thinking: Mapped[str] = mapped_column(Text, default="[]")       # 思考/执行步骤 JSON
+    attachments: Mapped[str] = mapped_column(Text, default="[]")    # 附件元数据 JSON
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+# ========== 模型接入与 token 额度（管理员管理，M6） ==========
+
+class ModelProvider(Base):
+    __tablename__ = "model_providers"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True)   # 展示名
+    protocol: Mapped[str] = mapped_column(String(16))            # openai / claude
+    base_url: Mapped[str] = mapped_column(String(256))
+    api_key: Mapped[str] = mapped_column(String(256), default="")
+    model_name: Mapped[str] = mapped_column(String(128))         # 供应商侧模型 ID
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class TokenQuota(Base):
+    __tablename__ = "token_quotas"
+    username: Mapped[str] = mapped_column(String(64), primary_key=True)
+    daily_limit: Mapped[int] = mapped_column(Integer, default=100000)  # tokens/日
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class TokenUsage(Base):
+    __tablename__ = "token_usage"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64))
+    model_name: Mapped[str] = mapped_column(String(128), default="")
+    tokens: Mapped[int] = mapped_column(Integer, default=0)
+    usage_date: Mapped[str] = mapped_column(String(10))          # YYYY-MM-DD（本地时区）
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+# ========== 财务与项目（看板图表数据，M6） ==========
+
+class FinanceRecord(Base):
+    """收支流水（demo 看板数据源）。"""
+    __tablename__ = "finance_records"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    month: Mapped[str] = mapped_column(String(7))        # YYYY-MM
+    department: Mapped[str] = mapped_column(String(64), default="")
+    kind: Mapped[str] = mapped_column(String(8))          # income / expense
+    category: Mapped[str] = mapped_column(String(64), default="")
+    amount: Mapped[int] = mapped_column(Integer, default=0)  # 万元
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class Project(Base):
+    """项目台账（现状/预算/进度）。"""
+    __tablename__ = "projects"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128))
+    department: Mapped[str] = mapped_column(String(64), default="")
+    status: Mapped[str] = mapped_column(String(16), default="running")
+    # planning / running / risk / done / paused
+    budget: Mapped[int] = mapped_column(Integer, default=0)    # 万元
+    spent: Mapped[int] = mapped_column(Integer, default=0)     # 万元
+    progress: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
+    owner: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

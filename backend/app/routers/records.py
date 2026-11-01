@@ -6,6 +6,7 @@ import json
 
 from fastapi import Depends, APIRouter, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from app.core.deps import auth_user
 from app.core.database import get_session
@@ -19,6 +20,23 @@ class RecordCreate(BaseModel):
     doc_type: str
     title: str
     payload: dict = {}
+
+
+@router.get("")
+async def list_records(user: dict = Depends(auth_user)):
+    """资料库列表（本人创建的 + 本部门的，供对话能力选择/资料页使用）。"""
+    from app.models import BusinessDocument
+
+    session = get_session()
+    async with session as s:
+        rows = (await s.execute(
+            select(BusinessDocument).where(
+                (BusinessDocument.owner == user["username"])
+                | (BusinessDocument.department == user["department"]))
+            .order_by(BusinessDocument.id.desc()).limit(100))).scalars().all()
+    return {"items": [{"id": r.id, "doc_type": r.doc_type, "title": r.title,
+                       "status": r.status, "department": r.department}
+                      for r in rows]}
 
 
 @router.post("")

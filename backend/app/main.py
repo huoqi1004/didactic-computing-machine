@@ -56,12 +56,13 @@ app.add_middleware(
 )
 
 # 路由
-from app.routers import (admin, auth, conversation, dashboard, health,  # noqa: E402
-                         im, knowledge, market, records, todos)
+from app.routers import (admin, admin_models, auth, conversation, dashboard,  # noqa: E402
+                         health, im, knowledge, market, records, todos)
 
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(conversation.router)
+app.include_router(admin_models.router)
 app.include_router(knowledge.router)
 app.include_router(records.router)
 app.include_router(im.router)

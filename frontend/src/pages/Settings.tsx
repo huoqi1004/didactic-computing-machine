@@ -1,8 +1,8 @@
 /**
  * 个人设置（用户信息展示 + 修改密码）。
  */
-import { useState } from 'react'
-import { KeyRound } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Gauge, KeyRound } from 'lucide-react'
 import api from '../lib/api'
 import { useAppStore, ROLE_LABELS } from '../store'
 
@@ -43,6 +43,9 @@ export default function Settings() {
         </div>
       </section>
 
+      {/* 今日 token 额度 */}
+      <QuotaCard />
+
       {/* 修改密码 */}
       <section className="bg-card rounded-2xl border border-border shadow-soft p-6">
         <h2 className="text-sm font-semibold text-ink mb-3 flex items-center gap-1.5">
@@ -66,5 +69,31 @@ export default function Settings() {
         </form>
       </section>
     </div>
+  )
+}
+
+/* ============ 今日 token 额度 ============ */
+function QuotaCard() {
+  const [quota, setQuota] = useState<any>(null)
+  useEffect(() => {
+    api.get('/me/quota').then(setQuota).catch(() => {})
+  }, [])
+  if (!quota) return null
+  const pct = quota.limit ? Math.min(100, Math.round(quota.used / quota.limit * 100)) : 0
+  return (
+    <section className="bg-card rounded-2xl border border-border shadow-soft p-6">
+      <h2 className="text-sm font-semibold text-ink mb-3 flex items-center gap-1.5">
+        <Gauge size={15} className="text-navy" /> 今日模型额度
+      </h2>
+      <div className="flex items-center justify-between text-xs text-slate2 mb-1.5">
+        <span>已用 {quota.used.toLocaleString()} tokens</span>
+        <span>剩余 {quota.remaining.toLocaleString()} / 总额 {quota.limit.toLocaleString()}</span>
+      </div>
+      <div className="h-2 rounded-full bg-canvas overflow-hidden">
+        <div className={`h-full rounded-full ${pct > 90 ? 'bg-alert' : 'bg-gradient-brand'}`}
+             style={{ width: `${Math.max(pct, 2)}%` }} />
+      </div>
+      {!quota.enabled && <p className="text-xs text-alert mt-2">额度已被停用，请联系系统管理员</p>}
+    </section>
   )
 }

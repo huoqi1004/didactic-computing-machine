@@ -34,3 +34,9 @@ dist/
 *.egg-info/
 .next/
 frontend/.vite/
+
+# M12 脱敏补充：运行时产物与本地工具导出
+backend/workspaces/
+backend/*.png
+legacy/frontend/_tmp_*.log
+.trae-html-share-packages/

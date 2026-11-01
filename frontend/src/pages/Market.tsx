@@ -10,8 +10,8 @@ interface Item {
   domain_label?: string; department?: string; skills?: string[]; members?: string[]
 }
 
-const KINDS = ['expert', 'team', 'skill', 'mcp']
-const KIND_LABELS: Record<string, string> = { expert: '专家', team: '专家团', skill: 'Skill', mcp: 'MCP' }
+const KINDS = ['expert', 'team', 'skill', 'mcp', 'plugin']
+const KIND_LABELS: Record<string, string> = { expert: '专家', team: '专家团', skill: 'Skill', mcp: 'MCP', plugin: '插件' }
 
 export default function Market() {
   const bumpConv = useAppStore(s => s.bumpConv)

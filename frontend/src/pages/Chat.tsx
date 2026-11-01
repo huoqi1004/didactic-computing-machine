@@ -261,10 +261,10 @@ function Composer({ convId, conv, models, onSent, onCreated, setLoading }: any) 
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<any[]>([])
   const [caps, setCaps] = useState<{ knowledge: number[]; records: number[]; market: number[]; avatar: string }>({
-    knowledge: [], records: [], market: [], skill: [], mcp: [], avatar: '',
+    knowledge: [], records: [], market: [], skill: [], mcp: [], plugin: [], avatar: '',
   })
   const [capsOpen, setCapsOpen] = useState(false)
-  const [capTab, setCapTab] = useState<'knowledge' | 'records' | 'market' | 'skill' | 'mcp' | 'avatar'>('knowledge')
+  const [capTab, setCapTab] = useState<'knowledge' | 'records' | 'market' | 'skill' | 'mcp' | 'plugin' | 'avatar'>('knowledge')
   const [capItems, setCapItems] = useState<any[]>([])
   const [genFile, setGenFile] = useState(false)
   const [sending, setSending] = useState(false)
@@ -288,6 +288,7 @@ function Composer({ convId, conv, models, onSent, onCreated, setLoading }: any) 
       : tab === 'records' ? '/records'
       : tab === 'skill' ? '/market/skill'
       : tab === 'mcp' ? '/market/mcp'
+      : tab === 'plugin' ? '/market/plugin'
       : '/market/expert'
     api.get(url).then(r => setCapItems(r.items || [])).catch(() => setCapItems([]))
   }
@@ -366,6 +367,7 @@ function Composer({ convId, conv, models, onSent, onCreated, setLoading }: any) 
           {caps.market.map(id => capChip(`🧩 能力#${id}`, () => toggleCap('market', id)))}
           {(caps.skill || []).map(id => capChip(`⚡ Skill#${id}`, () => toggleCap('skill', id)))}
           {(caps.mcp || []).map(id => capChip(`🔌 MCP#${id}`, () => toggleCap('mcp', id)))}
+          {(caps.plugin || []).map(id => capChip(`🌐 插件#${id}`, () => toggleCap('plugin', id)))}
           {caps.avatar && capChip(`🤖 分身:${caps.avatar}`, () => setCaps((c: any) => ({ ...c, avatar: '' })))}
         </div>
       )}
@@ -374,7 +376,7 @@ function Composer({ convId, conv, models, onSent, onCreated, setLoading }: any) 
         <div className="border border-border rounded-xl bg-card shadow-lift overflow-hidden">
           <div className="flex border-b border-border text-xs">
             {([['knowledge', '知识库'], ['records', '资料库'], ['market', '专家/专家团'],
-               ['skill', 'Skill'], ['mcp', 'MCP'], ['avatar', '数字分身']] as const).map(([k, label]) => (
+               ['skill', 'Skill'], ['mcp', 'MCP'], ['plugin', '插件'], ['avatar', '数字分身']] as const).map(([k, label]) => (
               <button key={k} onClick={() => k !== 'avatar' && openCaps(k)}
                       onDoubleClick={() => { if (k === 'avatar') setCaps(c => ({ ...c, avatar: '通用商务分身' })); setCapsOpen(false) }}
                       className={`px-3 py-2 ${capTab === k ? 'text-navy font-medium border-b-2 border-navy' : 'text-slate2 hover:text-ink'}`}>

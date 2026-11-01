@@ -396,6 +396,16 @@ async def chat(conv_id: int, req: ChatRequest, user: dict = Depends(auth_user)):
             system_parts.append(f"用户随消息附带了文件：{', '.join(names)}；"
                                 "如需分析请说明你将如何处理这些文件。")
 
+        # 2.5 Web 插件（M11）：消息含 URL 自动浏览 / 搜索意图联网检索
+        try:
+            from app.core.web_plugin import gather_web_context
+            web_ctx, web_steps = await gather_web_context(req.message)
+            if web_ctx:
+                system_parts.append(web_ctx)
+                steps.extend(web_steps)
+        except Exception as e:
+            logger.warning("chat.web_plugin_failed", error=str(e))
+
         # 3. 模型调用（额度校验在网关内）
         provider = await get_provider(s, conv.model_id)
         if provider is None:
@@ -661,7 +671,8 @@ async def _assemble_capabilities(s, user: dict, caps: dict,
     if market_ids:
         rows = (await s.execute(select(MarketItem).where(
             MarketItem.id.in_(market_ids)))).scalars().all()
-        kinds_cn = {"expert": "专家", "team": "专家团", "skill": "Skill", "mcp": "MCP"}
+        kinds_cn = {"expert": "专家", "team": "专家团", "skill": "Skill", "mcp": "MCP",
+                    "plugin": "浏览器插件"}
         for r in rows:
             if r.kind == "team":
                 members = _team_members(r.payload)

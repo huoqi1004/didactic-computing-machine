@@ -1,4 +1,11 @@
-"""IM 路由（全员群/部门群/数字分身私聊）。"""
+"""IM 路由（M11：公司全员群 / 部门全员群 / 员工单聊 / 数字分身私聊 / 安全告警）。
+
+- 频道可见性：company 全员；department 限本部门（领导层可见）；dm 与
+  avatar_private 仅成员可见（avatar_private 另对 dept_admin/sys_admin 开放
+  治理视角，D-R6）；admin_alert 仅对应管理员
+- 发言权限：dm/avatar_private 仅成员；company 全员；department 本部门；
+  admin_alert 仅管理员（系统告警为主）
+"""
 from __future__ import annotations
 
 import json
@@ -12,30 +19,113 @@ from app.core.database import get_session
 
 router = APIRouter(prefix="/api/v1/im", tags=["IM"])
 
+LEADERSHIP = ("dept_admin", "sys_admin", "leader", "chairman")
+
+
+def _members(ch) -> list[str]:
+    try:
+        return json.loads(ch.member_ids or "[]")
+    except Exception:
+        return []
+
+
+def _can_read(ch, user: dict) -> bool:
+    t, m = ch.type, _members(ch)
+    if t == "company":
+        return True
+    if t == "department":
+        return ch.department == user.get("department", "") or user["role"] in LEADERSHIP
+    if t in ("dm", "avatar_private"):
+        if user["username"] in m:
+            return True
+        return t == "avatar_private" and user["role"] in ("dept_admin", "sys_admin")
+    if t == "admin_alert":
+        return user["role"] in ("dept_admin", "sys_admin") or user["username"] in m
+    return False
+
+
+def _can_speak(ch, user: dict) -> bool:
+    t, m = ch.type, _members(ch)
+    if t == "company":
+        return True
+    if t == "department":
+        return ch.department == user.get("department", "")
+    if t in ("dm", "avatar_private"):
+        return user["username"] in m
+    if t == "admin_alert":
+        return user["role"] in ("dept_admin", "sys_admin")
+    return False
+
 
 @router.get("/channels")
 async def list_channels(user: dict = Depends(auth_user)):
-    session = get_session()
+    """当前用户可见的全部频道（按类别聚合给前端分组展示）。"""
     from app.models import IMChannel
 
+    session = get_session()
     async with session as s:
         rows = (await s.execute(select(IMChannel))).scalars().all()
-    visible = []
+    items = []
     for ch in rows:
-        members = json.loads(ch.member_ids or "[]")
-        if ch.type == "company" or \
-           (ch.type == "department" and ch.department == user["department"]) or \
-           (ch.type == "avatar_private" and user["username"] in members) or \
-           user["role"] in ("dept_admin", "sys_admin"):
-            visible.append({"id": ch.id, "type": ch.type, "name": ch.name})
-    return {"items": visible}
+        if not _can_read(ch, user):
+            continue
+        category = {"company": "群聊", "department": "群聊", "dm": "单聊",
+                    "avatar_private": "数字分身", "admin_alert": "安全告警"}.get(ch.type, "群聊")
+        name = ch.name
+        if ch.type == "dm":  # 单聊展示对方
+            others = [m for m in _members(ch) if m != user["username"]]
+            name = f"单聊 · {others[0] if others else ch.name}"
+        items.append({"id": ch.id, "type": ch.type, "name": name,
+                      "category": category, "department": ch.department})
+    return {"items": items}
+
+
+@router.get("/users")
+async def list_users(user: dict = Depends(auth_user)):
+    """可发起单聊的同事列表（active，除自己）。"""
+    from app.models import User
+
+    session = get_session()
+    async with session as s:
+        rows = (await s.execute(
+            select(User).where(User.status == "active").order_by(User.department))).scalars().all()
+    return {"items": [{"username": u.username, "display_name": u.display_name,
+                       "department": u.department, "role": u.role}
+                      for u in rows if u.username != user["username"]]}
+
+
+@router.post("/dm/{other_username}")
+async def find_or_create_dm(other_username: str, user: dict = Depends(auth_user)):
+    """与同事建立单聊（幂等：已存在则直接返回）。"""
+    from app.models import IMChannel, User
+
+    session = get_session()
+    async with session as s:
+        other = (await s.execute(
+            select(User).where(User.username == other_username,
+                               User.status == "active"))).scalar_one_or_none()
+        if other is None:
+            raise HTTPException(404, "对方不存在或未激活")
+        if other.username == user["username"]:
+            raise HTTPException(400, "不能与自己单聊")
+        pair = sorted([user["username"], other.username])
+        marker = f"dm:{pair[0]}:{pair[1]}"
+        ch = (await s.execute(
+            select(IMChannel).where(IMChannel.name == marker))).scalar_one_or_none()
+        if ch is None:
+            ch = IMChannel(type="dm", name=marker, department="",
+                           member_ids=json.dumps(pair))
+            s.add(ch)
+            await s.flush()
+        await s.commit()
+        return {"id": ch.id, "type": "dm", "name": f"单聊 · {other.username}",
+                "category": "单聊"}
 
 
 @router.get("/{channel_id}/messages")
 async def get_messages(channel_id: int, user: dict = Depends(auth_user)):
-    """获取消息——分身私聊仅部门管理员和当事人可查看。"""
+    """获取消息——单聊/分身私聊仅成员可见（分身私聊管理员有治理视角）。"""
     from app.models import IMChannel, IMMessage
-    from sqlalchemy import text
 
     session = get_session()
     async with session as s:
@@ -43,18 +133,14 @@ async def get_messages(channel_id: int, user: dict = Depends(auth_user)):
             select(IMChannel).where(IMChannel.id == channel_id))).scalar_one_or_none()
         if ch is None:
             raise HTTPException(404, "频道不存在")
-        members = json.loads(ch.member_ids or "[]")
-        if ch.type == "avatar_private":
-            if user["username"] not in members and user["role"] not in ("dept_admin", "sys_admin"):
-                raise HTTPException(403, "无权查看该分身私聊")
-        elif ch.type == "department" and user["department"] != ch.department \
-                and user["role"] not in ("dept_admin", "sys_admin", "leader", "chairman"):
-            raise HTTPException(403, "非本部门")
+        if not _can_read(ch, user):
+            raise HTTPException(403, "无权查看该频道")
         msgs = (await s.execute(
             select(IMMessage).where(IMMessage.channel_id == channel_id)
             .order_by(IMMessage.created_at))).scalars().all()
     return {"items": [{"id": m.id, "sender_type": m.sender_type,
                        "sender_id": m.sender_id, "content": m.content} for m in msgs]}
+
 
 class ChannelCreate(BaseModel):
     type: str  # company / department / avatar_private
@@ -70,9 +156,13 @@ class MessageSend(BaseModel):
 @router.post("/channels")
 async def create_channel(req: ChannelCreate, user: dict = Depends(auth_user)):
     from app.models import IMChannel
-    from datetime import datetime, timezone
 
-    session = get_session()
+    if req.type not in ("company", "department", "avatar_private"):
+        raise HTTPException(400, "非法频道类型（单聊请用 /im/dm/{user}）")
+    if req.type == "company" and user["role"] != "sys_admin":
+        raise HTTPException(403, "全员群仅系统管理员可创建")
+    if req.type == "department" and user["role"] != "dept_admin":
+        raise HTTPException(403, "部门群仅部门管理员可创建")
     members = [user["username"]]
     if req.type == "avatar_private":
         if not req.target_user:
@@ -80,8 +170,10 @@ async def create_channel(req: ChannelCreate, user: dict = Depends(auth_user)):
         members.append(req.target_user)
     elif req.type == "department":
         members.append(f"dept:{user['department']}")
+    session = get_session()
     async with session as s:
-        ch = IMChannel(type=req.type, name=req.name or f"对话:{user['username']}↔{req.target_user}",
+        ch = IMChannel(type=req.type,
+                       name=req.name or f"对话:{user['username']}↔{req.target_user}",
                        department=user["department"] if req.type == "department" else "",
                        member_ids=json.dumps(members))
         s.add(ch)
@@ -92,11 +184,17 @@ async def create_channel(req: ChannelCreate, user: dict = Depends(auth_user)):
 @router.post("/{channel_id}/messages")
 async def send_message(channel_id: int, req: MessageSend,
                        user: dict = Depends(auth_user)):
-    from app.models import IMMessage
-    from datetime import datetime, timezone
+    """发送消息（按频道类型校验发言权限）。"""
+    from app.models import IMChannel, IMMessage
 
     session = get_session()
     async with session as s:
+        ch = (await s.execute(
+            select(IMChannel).where(IMChannel.id == channel_id))).scalar_one_or_none()
+        if ch is None:
+            raise HTTPException(404, "频道不存在")
+        if not _can_speak(ch, user):
+            raise HTTPException(403, "无权在该频道发言")
         msg = IMMessage(channel_id=channel_id, sender_type="user",
                         sender_id=user["username"], content=req.content)
         s.add(msg)

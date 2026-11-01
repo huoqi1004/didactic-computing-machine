@@ -12,7 +12,7 @@ from app.core.database import get_session
 
 router = APIRouter(prefix="/api/v1/market", tags=["能力市场"])
 
-KINDS = {"expert", "team", "skill", "mcp"}
+KINDS = {"expert", "team", "skill", "mcp", "plugin"}
 
 
 class MarketUpload(BaseModel):

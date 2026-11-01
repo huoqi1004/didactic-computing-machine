@@ -1,0 +1,652 @@
+[
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "adam-p/markdown-here",
+  "name": "markdown-here",
+  "description": "Google Chrome, Firefox, and Thunderbird extension that lets you write email in Markdown and render it before sending.",
+  "metrics": "stars:60260",
+  "url": "https://github.com/adam-p/markdown-here",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "crimx/ext-saladict",
+  "name": "ext-saladict",
+  "description": "🥗 All-in-one professional pop-up dictionary and page translator which supports multiple search modes, page translations, new word notebook and PDF selection searching.",
+  "metrics": "stars:13406",
+  "url": "https://github.com/crimx/ext-saladict",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "obsidianmd/obsidian-clipper",
+  "name": "obsidian-clipper",
+  "description": "Highlight and capture the web in your favorite browser. The official Web Clipper extension for Obsidian.",
+  "metrics": "stars:5444",
+  "url": "https://github.com/obsidianmd/obsidian-clipper",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "AhmadHassan-BTed/JinaClip",
+  "name": "JinaClip",
+  "description": "Professional-grade, local-first browser extension that transforms any webpage into high-fidelity, LLM-friendly Markdown entirely within the browser's runtime. Zero-cloud, privacy-centric, and designed specifically for AI workflows.",
+  "metrics": "stars:4067",
+  "url": "https://github.com/AhmadHassan-BTed/JinaClip",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "tulios/json-viewer",
+  "name": "json-viewer",
+  "description": "It is a Chrome extension for printing JSON and JSONP.",
+  "metrics": "stars:3458",
+  "url": "https://github.com/tulios/json-viewer",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "schmich/marinara",
+  "name": "marinara",
+  "description": "Pomodoro® time management assistant for Chrome",
+  "metrics": "stars:2457",
+  "url": "https://github.com/schmich/marinara",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "extesy/hoverzoom",
+  "name": "hoverzoom",
+  "description": "Google Chrome extension for zooming images on mouse hover",
+  "metrics": "stars:2088",
+  "url": "https://github.com/extesy/hoverzoom",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "simov/markdown-viewer",
+  "name": "markdown-viewer",
+  "description": "Markdown Viewer / Browser Extension",
+  "metrics": "stars:1723",
+  "url": "https://github.com/simov/markdown-viewer",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "kizuna-ai-lab/sokuji",
+  "name": "sokuji",
+  "description": "Real-time two-way speech translation for bilingual meetings — auto-detects the spoken language and translates both directions, cloud or fully offline on-device. Desktop (Windows · macOS · Linux) + browser extension (Chrome · Edge) for Zoom, Meet, Teams & any app.",
+  "metrics": "stars:1462",
+  "url": "https://github.com/kizuna-ai-lab/sokuji",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "gioxx/MarvellousSuspender",
+  "name": "MarvellousSuspender",
+  "description": "A free, open-source Chrome extension - no ads, no tracking. Based on The Great Suspender, cleaned up and actively maintained.",
+  "metrics": "stars:1408",
+  "url": "https://github.com/gioxx/MarvellousSuspender",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "ttop32/MouseTooltipTranslator",
+  "name": "MouseTooltipTranslator",
+  "description": "Mouseover Translate Any Language At Once - Chrome Extension: PDF Translator, EBOOK, EPUB, OCR, TTS, NETFLIX, YOUTUBE DUAL SUBTITLES, GOOGLE DOCS, AI, VIEWER, GMAIL, WRITING, IMAGE, DUAL SUBS, MANGA, HOVER, DICTIONARY, WEBTOON, EDGE, JAPANESE, ENGLISH",
+  "metrics": "stars:1365",
+  "url": "https://github.com/ttop32/MouseTooltipTranslator",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "alexadam/save-as-ebook",
+  "name": "save-as-ebook",
+  "description": "Save a web page/selection as an eBook (.epub format) - a Chrome/Firefox/Opera Web Extension",
+  "metrics": "stars:1128",
+  "url": "https://github.com/alexadam/save-as-ebook",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "sheepzh/time-tracker-4-browser",
+  "name": "time-tracker-4-browser",
+  "description": "A browser extension that helps you track time, analyze your habits and block addictive sites",
+  "metrics": "stars:1029",
+  "url": "https://github.com/sheepzh/time-tracker-4-browser",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "felixfbecker/svg-screenshots",
+  "name": "svg-screenshots",
+  "description": "📸🧩 Browser extension to take scalable, semantic, accessible screenshots of websites in SVG format.",
+  "metrics": "stars:930",
+  "url": "https://github.com/felixfbecker/svg-screenshots",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "Stigmatoz/web-activity-time-tracker",
+  "name": "web-activity-time-tracker",
+  "description": "Chrome Extension that tracks and limits time you spent on sites",
+  "metrics": "stars:862",
+  "url": "https://github.com/Stigmatoz/web-activity-time-tracker",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "yorkxin/copy-as-markdown",
+  "name": "copy-as-markdown",
+  "description": "A browser extension to copy tabs and links as Markdown",
+  "metrics": "stars:764",
+  "url": "https://github.com/yorkxin/copy-as-markdown",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "betterRunner/context-note",
+  "name": "context-note",
+  "description": "A note-taking chrome extension: taking notes on the web with their context.",
+  "metrics": "stars:717",
+  "url": "https://github.com/betterRunner/context-note",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "cymen/show-me-the-react",
+  "name": "show-me-the-react",
+  "description": "A Google Chrome extension that highlights React components on the page.",
+  "metrics": "stars:565",
+  "url": "https://github.com/cymen/show-me-the-react",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "dedoussis/icloud-hide-my-email-browser-extension",
+  "name": "icloud-hide-my-email-browser-extension",
+  "description": "Enjoy iCloud's Hide My Email service in your favourite browser",
+  "metrics": "stars:542",
+  "url": "https://github.com/dedoussis/icloud-hide-my-email-browser-extension",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "Aminadav/webpage-screenshot",
+  "name": "webpage-screenshot",
+  "description": "Entire page Screenshot extension for Google Chrome. I'm developing open source extension for Google Chrome. All extension are free for use. Let's make Chrome great again!",
+  "metrics": "stars:519",
+  "url": "https://github.com/Aminadav/webpage-screenshot",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "md-reader/md-reader",
+  "name": "md-reader",
+  "description": "📜 The best way to read Markdown in Browser.",
+  "metrics": "stars:501",
+  "url": "https://github.com/md-reader/md-reader",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "wakatime/browser-wakatime",
+  "name": "browser-wakatime",
+  "description": "Chrome extension for automatic time tracking and metrics generated from your browsing activity.",
+  "metrics": "stars:489",
+  "url": "https://github.com/wakatime/browser-wakatime",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "jatinkrmalik/LLMFeeder",
+  "name": "LLMFeeder",
+  "description": "Browser extension to convert web pages to clean Markdown and copy to clipboard so you can feed it to your favorite LLM model as context with just 1 click!",
+  "metrics": "stars:485",
+  "url": "https://github.com/jatinkrmalik/LLMFeeder",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "InboxWhiz/gmail-declutter-extension",
+  "name": "gmail-declutter-extension",
+  "description": "Chrome extension to declutter your Gmail in seconds: unsubscribe and remove bulk emails effortlessly.",
+  "metrics": "stars:484",
+  "url": "https://github.com/InboxWhiz/gmail-declutter-extension",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "hoaianle/Instagram-Downloader",
+  "name": "Instagram-Downloader",
+  "description": "Chrome Extension, download photos, videos from Instagram post, tv, reels, stories and highlights",
+  "metrics": "stars:458",
+  "url": "https://github.com/hoaianle/Instagram-Downloader",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "jeromepl/highlighter",
+  "name": "highlighter",
+  "description": "A Chrome extension to highlight text and keep it all saved",
+  "metrics": "stars:382",
+  "url": "https://github.com/jeromepl/highlighter",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "V-IOLE-T/hotmail-register-extension",
+  "name": "hotmail-register-extension",
+  "description": "基于Outlook Email的Chrome扩展：支持OpenAI OAuth古法注册与账号标签管理",
+  "metrics": "stars:325",
+  "url": "https://github.com/V-IOLE-T/hotmail-register-extension",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "simov/screenshot-capture",
+  "name": "screenshot-capture",
+  "description": "Screenshot Capture / Browser Extension",
+  "metrics": "stars:320",
+  "url": "https://github.com/simov/screenshot-capture",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "idibidiart/AllSeeingEye",
+  "name": "AllSeeingEye",
+  "description": "Google Chrome Extension. Record All Browsing in Screenshots & Full Text. Search For Anything At Any Time. Never Forget Where You Read Something. Saves Everything To Your Machine, Not the Cloud, So Your Web History Stays With You.",
+  "metrics": "stars:308",
+  "url": "https://github.com/idibidiart/AllSeeingEye",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "saketsarin/composer-web",
+  "name": "composer-web",
+  "description": "Cursor extension that forwards frontend errors and screenshots to composer in one-click, making development seamless for you. Download here: https://marketplace.visualstudio.com/items?itemName=SaketSarin.composer-web",
+  "metrics": "stars:285",
+  "url": "https://github.com/saketsarin/composer-web",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "passbolt/passbolt_browser_extension",
+  "name": "passbolt_browser_extension",
+  "description": "Browser extensions (Firefox, Edge & Chrome) for Passbolt the open source password manager for teams",
+  "metrics": "stars:280",
+  "url": "https://github.com/passbolt/passbolt_browser_extension",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "penge/my-notes",
+  "name": "my-notes",
+  "description": "Simple and fast note-taking in Chrome. Zero setup, works offline, no account needed.",
+  "metrics": "stars:267",
+  "url": "https://github.com/penge/my-notes",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "MettiFire/elden_mail_banner",
+  "name": "elden_mail_banner",
+  "description": "An Elden Ring–inspired Chrome extension that makes sending emails more epic. When you hit Send in Gmail or Outlook Web, a dramatic banner appears with sound, just like in the Lands Between. ⚔️",
+  "metrics": "stars:257",
+  "url": "https://github.com/MettiFire/elden_mail_banner",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "izumi0uu/better-github-stars-manager",
+  "name": "better-github-stars-manager",
+  "description": "Manage your GitHub starred repos: tag, note, filter, search across thousands of stars. Chrome MV3 extension. ",
+  "metrics": "stars:248",
+  "url": "https://github.com/izumi0uu/better-github-stars-manager",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "trossr32/sonarr-radarr-lidarr-autosearch-browser-extension",
+  "name": "sonarr-radarr-lidarr-autosearch-browser-extension",
+  "description": "An extension for Chromium and Firefox browsers that automates searching on Servarr instances based on a modified URL, and adds context menus for direct searching from any selected text. Adds icons as direct search links on IMDb, TVDb, TMDb, Trakt, MusicBrainz, letterboxd, TV Calendar, Rotten Tomatoe",
+  "metrics": "stars:193",
+  "url": "https://github.com/trossr32/sonarr-radarr-lidarr-autosearch-browser-extension",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "DarkNightMode/Dark-Night-Mode-Chrome-Extension",
+  "name": "Dark-Night-Mode-Chrome-Extension",
+  "description": "Dark Night Mode is a free open source chrome extension which turns all the websites you browse into dark/night mode so that the white bright light do not strain your eyes.",
+  "metrics": "stars:192",
+  "url": "https://github.com/DarkNightMode/Dark-Night-Mode-Chrome-Extension",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "ncdai/zadark",
+  "name": "zadark",
+  "description": "ZaDark is an extension that helps you enable Dark Mode for Zalo PC and Web. ZaDark is available on Windows, macOS, Chrome, Safari, Edge and Firefox.",
+  "metrics": "stars:188",
+  "url": "https://github.com/ncdai/zadark",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "jettbrains/-L-",
+  "name": "-L-",
+  "description": "W3C Strategic Highlights  September 2019  This report was prepared for the September 2019 W3C Advisory Committee Meeting (W3C Member link). See the accompanying W3C Fact Sheet — September 2019. For the previous edition, see the April 2019 W3C Strategic Highlights. For future editions of this report,",
+  "metrics": "stars:169",
+  "url": "https://github.com/jettbrains/-L-",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "jitsi/jidesha",
+  "name": "jidesha",
+  "description": "A Chrome extension for Calendar integrations for Jitsi Meet",
+  "metrics": "stars:140",
+  "url": "https://github.com/jitsi/jidesha",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "swadhinbiswas/opengrammar",
+  "name": "opengrammar",
+  "description": "A Opensource and self hosted alternative of Grammarly",
+  "metrics": "stars:132",
+  "url": "https://github.com/swadhinbiswas/opengrammar",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "medovob/workflowy-for-coders",
+  "name": "workflowy-for-coders",
+  "description": "A Google Chrome extension for WorkFlowy to add markdown support and syntax highlighting in notes",
+  "metrics": "stars:119",
+  "url": "https://github.com/medovob/workflowy-for-coders",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "Leko/crx-gcal-url-opener",
+  "name": "crx-gcal-url-opener",
+  "description": "Chrome extension that automatically opens Zoom, Google Meet, Teams, and other meeting URLs associated with your Google Calendar shortly before the meeting starts.",
+  "metrics": "stars:116",
+  "url": "https://github.com/Leko/crx-gcal-url-opener",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "nishanthvijayan/CoderCalendar-API",
+  "name": "CoderCalendar-API",
+  "description": "API powering CoderCalendar Chrome Extension",
+  "metrics": "stars:106",
+  "url": "https://github.com/nishanthvijayan/CoderCalendar-API",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "code-charity/dark-mode",
+  "name": "dark-mode",
+  "description": "Dark Mode - Chrome extension. Relax your eyes at night and day.",
+  "metrics": "stars:103",
+  "url": "https://github.com/code-charity/dark-mode",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "LorenzoBe/LeetPlug",
+  "name": "LeetPlug",
+  "description": "This is a browser extension that is able to interact with LeetCode official site. The main goal is to be able to track the activities on each problem and all the related events: submissions, time spent coding the solution, repetitions of a problem.",
+  "metrics": "stars:101",
+  "url": "https://github.com/LorenzoBe/LeetPlug",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "zarazhangrui/reading-block",
+  "name": "reading-block",
+  "description": "Save articles with one click; every 5 saves books a reading block on your Google Calendar. A Chrome extension.",
+  "metrics": "stars:97",
+  "url": "https://github.com/zarazhangrui/reading-block",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "form-o-fill/form-o-fill-chrome-extension",
+  "name": "form-o-fill-chrome-extension",
+  "description": "The programmable form filler for developers. Powered by javascript.",
+  "metrics": "stars:93",
+  "url": "https://github.com/form-o-fill/form-o-fill-chrome-extension",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "klonnet23/helloy-word",
+  "name": "helloy-word",
+  "description": "    {   \"releases\": {     \"2.0.4\": [       \"[Fixed] Refresh for Enterprise repositories did not handle API error querying branches - #7713\",       \"[Fixed] Missing \\\"Discard all changes\\\" context menu in Changes header - #7696\",       \"[Fixed] \\\"Select all\\\" keyboard shortcut not firing on Windows -",
+  "metrics": "stars:92",
+  "url": "https://github.com/klonnet23/helloy-word",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "ademilter/Frame",
+  "name": "Frame",
+  "description": "New-tab extension for Chrome and Firefox",
+  "metrics": "stars:91",
+  "url": "https://github.com/ademilter/Frame",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ },
+ {
+  "source": "github",
+  "kind": "plugin",
+  "ref": "charliegerard/dark-mode-clap-extension",
+  "name": "dark-mode-clap-extension",
+  "description": "Chrome extension to toggle dark mode on Netlify by clapping hands 👏",
+  "metrics": "stars:90",
+  "url": "https://github.com/charliegerard/dark-mode-clap-extension",
+  "scan": {
+   "verdict": "clean",
+   "findings": []
+  }
+ }
+]

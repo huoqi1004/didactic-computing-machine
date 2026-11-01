@@ -108,6 +108,24 @@ async def seed(session) -> dict:
             model_name=settings.llm_model, enabled=True, is_default=True))
         result["models"] = 1
 
+    # --- 专家与专家团（M7：旧 33 子 Agent 改建 + 500 强通用方向） ---
+    from app.core.expert_catalog import expert_seed_rows
+    from app.models import MarketItem
+
+    have_items = set((await session.execute(
+        select(MarketItem.name).where(MarketItem.uploader == "system")
+    )).scalars().all())
+    added = 0
+    for kind, name, description, payload in expert_seed_rows():
+        if name in have_items:
+            continue
+        session.add(MarketItem(kind=kind, name=name, description=description,
+                               payload=payload, status="approved",
+                               uploader="system", reviewer="seed"))
+        added += 1
+    if added:
+        result["experts_and_teams"] = added
+
     await session.flush()
     result["seeded"] = True
     return result

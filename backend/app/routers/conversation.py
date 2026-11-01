@@ -486,6 +486,14 @@ def _wants_file(message: str) -> bool:
     return bool(re.search(r"(起草|撰写|写一份|生成一份|写个|生成.*文档|输出.*报告|导出)", message))
 
 
+def _team_members(payload: str) -> list[str]:
+    """解析专家团 payload 中的成员列表。"""
+    try:
+        return json.loads(payload or "{}").get("members", [])
+    except Exception:
+        return []
+
+
 async def _assemble_capabilities(s, user: dict, caps: dict,
                                  system_parts: list, steps: list) -> dict:
     """把知识库/资料库/市场能力/分身 persona 装配进系统提示词。"""
@@ -517,9 +525,16 @@ async def _assemble_capabilities(s, user: dict, caps: dict,
             MarketItem.id.in_(market_ids)))).scalars().all()
         kinds_cn = {"expert": "专家", "team": "专家团", "skill": "Skill", "mcp": "MCP"}
         for r in rows:
-            desc = r.description[:200]
-            system_parts.append(
-                f"请以{kinds_cn.get(r.kind, r.kind)}「{r.name}」的身份与能力执行本请求：{desc}")
+            if r.kind == "team":
+                members = _team_members(r.payload)
+                system_parts.append(
+                    f"请以专家团「{r.name}」的组织方式协同处理本请求：{r.description}"
+                    f"（成员专家：{'、'.join(members) or '见描述'}）。"
+                    "请先给出成员分工，再以各成员专业视角依次分析，最后汇总形成综合结论。")
+            else:
+                desc = r.description[:200]
+                system_parts.append(
+                    f"请以{kinds_cn.get(r.kind, r.kind)}「{r.name}」的身份与能力执行本请求：{desc}")
         if rows:
             steps.append({"kind": "capability", "status": "done",
                           "detail": "已装配市场能力：" + "、".join(

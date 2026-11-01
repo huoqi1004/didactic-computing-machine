@@ -24,7 +24,7 @@ class MarketUpload(BaseModel):
 
 @router.get("/{kind}")
 async def list_market(kind: str, user: dict = Depends(auth_user)):
-    """浏览市场（已审核通过的条目全公司可见）。"""
+    """浏览市场（已审核通过的条目全公司可见；专家/专家团附带领域与技能元数据）。"""
     if kind not in KINDS:
         raise HTTPException(400, f"不支持的能力类型: {kind}")
     from app.models import MarketItem
@@ -33,10 +33,21 @@ async def list_market(kind: str, user: dict = Depends(auth_user)):
     async with session as s:
         rows = (await s.execute(
             select(MarketItem).where(MarketItem.kind == kind,
-                                     MarketItem.status == "approved"))).scalars().all()
-    return {"items": [{"id": r.id, "name": r.name, "description": r.description,
-                       "uploader": r.uploader, "downloads": r.downloads}
-                      for r in rows]}
+                                     MarketItem.status == "approved")
+            .order_by(MarketItem.id))).scalars().all()
+    items = []
+    for r in rows:
+        try:
+            payload = json.loads(r.payload or "{}")
+        except Exception:
+            payload = {}
+        items.append({"id": r.id, "name": r.name, "description": r.description,
+                      "uploader": r.uploader, "downloads": r.downloads,
+                      "domain_label": payload.get("domain_label", ""),
+                      "department": payload.get("department", ""),
+                      "skills": payload.get("skills", []),
+                      "members": payload.get("members", [])})
+    return {"items": items}
 
 
 @router.post("/{kind}/upload")

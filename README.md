@@ -1,137 +1,140 @@
-# 企业数字化大脑（Agent-Native ERP）
+# 企业数字化大脑（Agent-Native ERP · 全面重构版）
 
-智能体原生 ERP 系统 —— 以自主 AI Agent 为基本业务单元的企业数字化大脑。
-**33 个业务 Agent 全部经 LangGraph 编排真实执行业务操作**（工具调用循环 + 治理面 + 人在环 + 可回滚），
-非演示外壳。
+智能体原生 ERP 系统 —— 以自主 AI 智能体为基本业务单元的企业数字化大脑。
+以[腾讯 Octop](https://github.com/TencentCloud/Octop) / [AgentScope](https://github.com/agentscope-ai/agentscope)
+为能力底座借鉴**全面重构**的新一代架构：五层角色 RBAC、智能体会话（三权限模式 + 工作区 +
+AI 意图自动生成文档）、42 位专家与 6 大专家团、三级权限知识库、四类 IM 会话、
+能力市场（专家/Skill/MCP/插件 + 上传安全审查）、多图表经营看板、模型接入与 token 额度治理。
 
-> 当前状态：生产化路线图 Phase A~E 全部交付（编排基座 / 批量推广 / 多 Agent 协同 / MCP 化 / 生产加固）。
-> 设计与验收基线见 `docs/roadmap-agent-production-2026-09-19.md` 与 `docs/deployment-production.md`。
+> 当前状态：**全面重构 M0~M12 全部交付**（PRD 见 `docs/prd/`，增量批次 PRD-2026-11-02-platform-enhancement v1.0）。
+> 旧架构（LangGraph 编排版）已下线，完整代码只读归档于 `legacy/` 目录。
 
 ## 核心能力
 
-### 智能体编排（LangGraph）
-- **场景图**：意图理解 → 工具调用循环 → 综合答复；子域场景图按域编译缓存
-- **MySQL Checkpointer**：人审断点持久化——审批等待中重启不丢，批准后从断点恢复执行
-- **Supervisor 跨域协同**：LLM 意图分类（规则兜底）→ 逐域委派 → 综合答复，人审透传
+### 智能体会话（WorkBuddy / Trae 式）
+- **三种权限模式**：完全权限（自主执行，工作区可增删改查）/ 审批+自主（默认，高风险需人审）/ 沙箱（产物先落 `_sandbox/`，人工批准后才写入工作区）
+- **工作区**：每个会话独立目录，承载附件与产物文件，右键删除连带清理
+- **AI 意图自动生成文件**：按对话内容自动判断是否生成产物及最优格式（docx / pdf / pptx / xlsx / csv / md），一次模型决策同时给出格式、理由与内容 spec——用户不必明说"生成文件"
+- **长期记忆**（AgentScope 式）：自动抽取偏好/事实 → 相关性+重要度+新近度召回 → 跨会话注入个性化上下文
+- **能力引用**：知识库条目 / 资料库定稿 / 专家·专家团 / Skill / MCP / 插件 / 数字分身，一键挂载进对话；专家团触发"成员分工 → 分视角分析 → 汇总"协同
+- **上网能力**：内置 Web 插件内核——消息含 URL 自动浏览正文，搜索意图自动联网检索（Bing 优先 / DuckDuckGo 兜底）
+- **思考过程可视化**：意图解析 → 能力装配 → 记忆召回 → 网络动作 → 模型调用（含 token 数）→ 文件落盘，全程时间线可折叠展示
+- **会话标题 AI 自动生成**；模式/工作区/模型内联于输入卡片，新建会话零弹窗
 
-### 工具治理面（AgentGovernor——一切工具调用的强制通道）
-- **24+ 治理面工具**：查询 15（报销/资金/薪酬/HR/CRM/销售/合同）+ 操作 9（下单/审批/薪资/调拨…）
-- 风险分级：`readonly` / `write_low`（免审+事后抽样）/ `write_high`（强制人审）
-- **可回滚才可执行**：写工具必须注册幂等补偿函数（缺失拒绝注册），全量演练进 CI
-- RBAC 权限 + 参数 schema 校验 + dry-run 预演 + 审计哈希链 + 限流 + token 预算护栏
+### 模型接入与额度治理
+- 管理台接入任意 **OpenAI 兼容 / Claude 双协议**模型（Base URL + Key + 模型 ID），启停/设默认/移除，API Key 掩码展示
+- **token 日额度**按用户分配/停用/恢复，网关计量入账、超限拒绝；用户侧额度进度条实时可见
+- 网关级 429/5xx 指数退避重试
 
-### 人在环（Human-in-the-Loop）
-- LangGraph `interrupt()` + `Command(resume)` 现行模式；审批等待跨重启恢复
-- 审批中心前端（批准/驳回/看预演）+ 频道内审批卡片，决定后自动恢复执行并广播结果
+### 专家体系（世界 500 强通用方向 · 42 专家 + 6 专家团）
+- 旧系统 33 个子 Agent 全量改建为专家角色（人设 + 职责 + 方法论 + 技能标签），覆盖财经 / 供应链与制造 / 技术与研发 / 人力与组织 / 法务与合规 / 市场与客户六大域
+- 补齐技术与研发方向（技术/研发/产品/信息安全/知识产权）、公关、培训发展、后勤保障等通用岗位
+- 跨域专家团协同：引用后按成员分工、分专业视角分析并汇总
 
-### 跨域业务工作流
-报销审批流 / 采购到支付 / 合同审批流——确定性规则节点 + 分级人审门，
-全程 Checkpointer 持久化、可中断恢复、逐节点审计。
+### 知识库（三级权限）
+- **公司库**：全员可读，仅系统管理员可维护
+- **部门库**：本部门可读，仅本部门管理员可维护
+- **个人库**：仅所有者可见可维护——**对他人与其余智能体完全不可感知**（对话装配同源过滤）
+- **共享申请流**：个人条目可申请共享至部门（部门管理员审批）或公司（系统管理员审批），批准即生效
+- 内置 20 条 AI/Agent 行业精选（白皮书/开源书籍/经典论文，含来源链接）
 
-### MCP 能力出口
-7 域 26 工具经 FastMCP 导出为标准 MCP 服务器（streamable HTTP + Bearer 鉴权），
-与本地调用**双跑一致性**测试保证；外部 MCP 工具白名单接入（治理面强制过桥）。
+### 能力市场（五类目 + 安全审查）
+- 专家 / 专家团 / Skill / MCP / **插件** 五类目，领域过滤、技能标签、官方徽章
+- **上传即安全扫描**：10 类风险模式（远程脚本执行/后门/钓鱼/凭据窃取/数据外传/挖矿/混淆执行/高危权限/系统文件访问/键盘记录），高危判恶意、中危判可疑
+- 风险条目自动推送**管理员待办告警**并向**上传者**返回命中详情与处置建议；管理台审核 Tab 批准/驳回闭环
+- 内置能力库：Skill 148+ / MCP 99+ / 办公场景插件 59（均经安全扫描，自 GitHub 与 ClawHub 爬取）
 
-### 知识库（WeKnora 模式适配）
-四路混合检索（TF-IDF + BM25 + 知识图谱 + **语义向量**）、结构化分块、
-MySQL 分块/向量持久化（**重启不归零**）、`knowledge_search/answer` 治理面工具
-（引用溯源，全部 Agent 可调用）、Embedding 可插拔（OpenAI 兼容 API / 零成本哈希兜底）。
+### IM 消息中心（四类会话）
+公司全员群 / 部门全员群 / 员工单聊（幂等建会话，仅双方可见）/ 数字分身私聊（管理员保留治理视角），发言权限按频道类型校验
 
-### 安全与治理基线
-- 写操作分级审批（write_low 免审+抽样 / write_high 强制人审）
-- 代码执行类工具默认禁用（沙箱容器四件套隔离：无网络/只读FS/非root/资源限额）
-- LLM 成本治理：per-agent 日 token 预算超限自动降级、402 欠费 0 空转（已验证）、token 消耗入审计
-- 会话/吊销/限流 Redis 共享（多实例一致）、事件/审计保留策略、审计哈希链重启续链
+### 经营看板（多图表）
+收支盈亏折线、支出构成饼图、项目预算柱状、部门预算横向柱、项目进度卡（状态徽章 + 超支警示）、部门人员分布、会话活跃趋势——分管领导与董事长全域驾驶舱分级呈现
+
+### 安全基线
+- **审计哈希链**：全部关键动作（对话/拦截/审批/共享审核）SHA-256 逐条链式留痕，防篡改可验证
+- **D-R6 数字分身恶意意图研判**：越权/套取/冒充/注入/提示词套取六类模式实时拦截 + 双管理员告警
+- 五层角色服务端强制（sys_admin / chairman / leader / dept_admin / employee），前后端权限矩阵一致
+- 真实密钥仅存 `.env`（不入库，仓库内均为占位模板）
 
 ## 技术栈
 
 | 层级 | 技术 |
 |------|------|
-| 编排 | **LangGraph 1.2 / LangChain 1.4**（StateGraph / interrupt / Checkpointer） |
-| 后端 | Python 3.11 / FastAPI / SQLAlchemy 2.0 (async) / Pydantic 2 |
-| LLM | DeepSeek（OpenAI 兼容），客户端层冷却/熔断/降级 |
-| MCP | fastmcp 4（server）/ mcp 2.2 官方客户端（streamable HTTP） |
-| 前端 | React 18 / TypeScript / Vite 5 / Tailwind CSS / Zustand |
-| 数据 | MySQL 8.0（业务+Checkpointer+审计）/ Redis 7（会话/限流/版本信号） |
-| 部署 | Docker Compose（backend/frontend/mysql/redis/mcp/sandbox profiles） |
+| 后端 | Python 3.13 / FastAPI / SQLAlchemy 2.0 (async) / SQLite（默认，零配置）/ MySQL 可选 |
+| LLM | OpenAI 兼容 + Claude 双协议网关（httpx 直连，多供应商可插拔） |
+| 文档生成 | python-docx / openpyxl / python-pptx / reportlab（CJK 字体自动注册） |
+| 前端 | React 18 / TypeScript / Vite 5 / Tailwind CSS / Zustand / Recharts / lucide-react |
+| 网络插件 | httpx + BeautifulSoup（Bing/DDG 搜索引擎适配） |
+| 部署 | 本地直跑（uvicorn + Vite）；`infra/` 与 `docker-compose.yml` 提供容器化参考 |
 
 ## 快速开始
-
-### 本地开发
 
 ```bash
 git clone https://github.com/huoqi1004/didactic-computing-machine.git
 cd didactic-computing-machine
 
-# 后端
-cp backend/.env.example backend/.env   # 填入 ERP_LLM_API_KEY 与 MySQL/JWT 配置
-cd backend && pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000   # 启动时自动建表/补列/播种/水合
+# ---- 后端（Python 3.10+）----
+cd backend
+python -m venv .venv && .venv\Scripts\activate     # Windows
+pip install -r requirements.txt
+copy .env.example .env                             # 填入 ERP_LLM_API_KEY（OpenAI 兼容）
+python -m uvicorn app.main:app --port 8000         # 启动自动建表/增量种子（用户/看板数据/专家/模型）
 
-# 前端（新终端）
-cd frontend && npm install && npm run dev   # http://localhost:5173
-
-# 默认账号 admin / admin123（生产环境种子密码随机生成，见启动日志一次性打印）
+# ---- 前端（Node 18+，新终端）----
+cd frontend
+npm install
+npm run dev                                        # http://localhost:5173
 ```
 
-### Docker 全栈
+> `.env` 最小配置：`ERP_LLM_BASE_URL` / `ERP_LLM_MODEL` / `ERP_LLM_API_KEY` / `ERP_LLM_ENABLED=true`。
+> 未配置模型时系统可运行（对话降级为意图回执），其余功能不受影响。
+
+### 种子账号（启动自动播种，五层角色）
+
+| 用户名 | 密码 | 角色 |
+|---|---|---|
+| `sysadmin` | `SysAdmin@2026` | 系统管理员 |
+| `chairman` | `Chairman@2026` | 董事长（全域驾驶舱） |
+| `ceo` / `cfo` / `cio` | `CEO@2026` / `CFO@2026` / `CIO@2026` | 主管领导（看板） |
+| `dept_admin_finance` | `DeptFin@2026` | 部门管理员 |
+| `employee_finance` / `employee_it` | `EmpFin@2026` / `EmpIT@2026` | 普通员工 |
+
+> 开发演示用途；生产环境请通过「个人设置」改密并禁用种子账号。
+
+### 测试
 
 ```bash
-cp backend/.env.example backend/.env    # 生产环境按 docs/deployment-production.md 修改
-docker compose up -d                     # 前端 3000 / API 8000
-# MCP 能力出口（可选）：docker compose --profile mcp up -d erp-mcp  （8100）
+cd backend && python -m pytest tests/ -q    # 新架构测试基线 10/10
 ```
-
-首次启动自动完成：建表/补列（models.py 唯一事实源）→ RBAC 播种 → Agent 水合 → 知识库水合。
-
-## 测试与质量门禁
-
-```bash
-cd backend && python -m pytest tests/ -q          # 全量（约 1100+ 用例）
-python -m pytest tests/drill/ -q                  # 回滚演练（全部写工具补偿一致性）
-python -m pytest tests/test_agent_evals.py -q     # 编排评测集 50 用例
-python -m pytest tests/perf/ -q -m perf           # Checkpointer 性能基准
-```
-
-- **回滚演练红线**：全部写工具"执行→补偿→一致性"必须通过，否则 CI 阻断
-- **评测集**：50 用例覆盖 7 域（意图→工具序列→落库→人审路由）；在线模式（真 LLM）
-  经 `ERP_EVAL_LLM_ENABLED=true` 开启，作提示词/模型漂移门禁
 
 ## 项目结构
 
 ```
 ├── backend/
 │   ├── app/
-│   │   ├── agents/            # 33 业务 Agent + 各域场景工具（tools.py）
-│   │   ├── api/routes/        # REST 路由（含 agent-ops 编排运维）
-│   │   ├── core/
-│   │   │   ├── agent/         # runtime/governor/supervisor/checkpoint_mysql/tools_v2
-│   │   │   ├── knowledge/     # 混合检索/embeddings/持久化/图谱/规则
-│   │   │   ├── mcp/           # MCP Server（7 域导出）
-│   │   │   └── maintenance/   # 保留策略等后台任务
-│   │   ├── db/models.py       # 全部表模型（bootstrap 差集建表/补列）
-│   │   └── main.py            # 应用入口（lifespan 编排初始化）
-│   ├── tests/                 # 单测/集成/评测/演练/性能
-│   └── requirements.txt
-├── frontend/                  # React（含审批中心/Agent对话/发票识别）
-├── docs/                      # 路线图/评估/部署/迭代日志
-├── infra/                     # k8s/沙箱/监控
-└── docker-compose.yml         # backend/frontend/mysql/redis/mcp(profile)/sandbox(profile)
+│   │   ├── main.py            # 入口（lifespan：建表/增量种子/模型关闭钩子）
+│   │   ├── models.py          # 全部表模型（用户/审计链/知识/资料/IM/会话/模型/额度/财务/项目…）
+│   │   ├── routers/           # auth·conversation·im·knowledge·records·market·dashboard·admin·admin_models·todos
+│   │   └── core/              # llm_gateway(双协议+额度)·memory(长期记忆)·office_gen(六格式文档)
+│   │                          # web_plugin(上网)·security_scan(内容安全)·expert_catalog(42专家)
+│   │                          # intent_guard(D-R6研判)·audit_chain(哈希链)·llm·jwt·rbac
+│   ├── scripts/               # fetch_capabilities.py(Skill/MCP爬取+筛查)·fetch_plugins.py·seed_knowledge.py
+│   └── tests/                 # 测试基线
+├── frontend/src/
+│   ├── components/Shell.tsx   # 布局壳（会话历史/导航/待办/额度）
+│   └── pages/                 # Chat(会话)·Knowledge·Records·IM·Market·Dashboard·AdminConsole·Settings·Login
+├── docs/
+│   ├── prd/                   # PRD 版本管理（full-rebuild + platform-enhancement + CHANGELOG）
+│   └── …                      # 部署/架构/评审归档
+├── legacy/                    # 旧架构只读归档（LangGraph 编排版，1521 例测试基线）
+└── infra/                     # k8s/沙箱/监控参考
 ```
-
-## 安全基线
-
-- 真实密钥仅存 `.env`（不入库）；compose 密码支持环境覆盖，生产必改
-- MCP 出口强制 Bearer 鉴权（`ERP_MCP_AUTH_TOKEN`）；未配置不得对外暴露
-- write_high 操作 100% 人审（审计哈希链可追溯）；种子用户首登强制改密
-- 生产部署核对清单与回滚预案：`docs/deployment-production.md`
 
 ## 文档索引
 
 | 文档 | 内容 |
 |------|------|
-| `docs/roadmap-agent-production-2026-09-19.md` | Agent 生产化路线图（A~E 决策与验收基线） |
-| `docs/deployment-production.md` | 生产部署定稿（拓扑/灰度开关/回滚预案/LiteLLM 结论） |
-| `docs/iteration-roadmap-2026-09-03.md` | 原始迭代路线图（Phase 1/2 数据与安全基线） |
-| `docs/api-reference.md` / `docs/architecture.md` | API 与架构参考 |
-| `docs/iteration-log-2026-09-13.md` | 迭代执行日志 |
+| `docs/prd/PRD-2026-10-05-full-rebuild-v0.1.md` | 全面重构 PRD v1.0（已交付：M0~M5） |
+| `docs/prd/PRD-2026-11-02-platform-enhancement-v1.0.md` | 平台化增量 PRD v1.0（已交付：M6~M12） |
+| `docs/prd/CHANGELOG.md` | PRD 版本变更总账 |
+| `docs/deployment-production.md` / `docs/architecture.md` | 旧架构生产部署与架构参考（归档） |

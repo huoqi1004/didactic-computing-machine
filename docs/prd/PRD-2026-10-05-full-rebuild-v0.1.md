@@ -2,6 +2,7 @@
 
 - **PRD 编号**：PRD-2026-10-05-full-rebuild
 - **版本**：v1.0（甲方批准基线，tag `prd/full-rebuild/v1.0`；含 D-R1 激进全弃含治理面 + D-R4 旧系统立即下线两项超建议裁决）
+- **交付状态**（2026-11-02）：**M0~M5 已全部交付验收**；其后的平台化增量见 `PRD-2026-11-02-platform-enhancement-v1.0.md`（M6~M12）
 - **作者**：乙方产品
 - **关系说明**：本 PRD 为**全面重构版**，吸收并取代《expert-team-orchestration v1.0》（其专家/专家团/A2A 网关需求全部并入本 PRD §5，原 PRD 标记 superseded）；治理面/审计/回滚等已验证内核按 §3.1 策略处置。
 - **开源调研**：[腾讯云 Octop](https://github.com/TencentCloud/Octop)（多智能体并行/模型路由/工具技能管理/私域知识库/Web 控制台+CLI+IM 网关）、[AgentScope 2.0](https://github.com/agentscope-ai/agentscope)（MsgHub/Pipeline/Studio）、[OctoTools](https://github.com/octotools/octotools)（ToolCard/Planner/Executor）、A2A/ACP（[LF A2A 项目](https://www.prnewswire.com/news-releases/linux-foundation-launches-the-agent2agent-protocol-project-to-enable-secure-intelligent-communication-between-ai-agents-302488265.html)）

@@ -50,4 +50,6 @@ docs/prd/
 
 | PRD | 版本 | 状态 |
 |-----|------|------|
-| 专家/专家团 + ACP/A2A 网关 + 企业工作流编排 | v0.1 草稿 | **待甲方审核** |
+| 专家/专家团 + ACP/A2A 网关 + 企业工作流编排（expert-team-orchestration） | v1.0 | superseded——需求并入 full-rebuild |
+| 全面重构（full-rebuild，Octop/AgentScope 底座） | v1.0 | **交付完成**（M0~M5，2026-11-02 验收） |
+| 智能体会话与平台化能力增强（platform-enhancement，M6~M12） | v1.0 | **交付完成**（2026-11-02 验收） |

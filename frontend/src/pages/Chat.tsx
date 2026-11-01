@@ -8,10 +8,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  AlertTriangle, Ban, Bot, ChevronDown, Cpu, FileText, Files, Loader2,
+  AlertTriangle, Ban, Bot, Check, ChevronDown, Cpu, FileText, Files, Loader2,
   MessageSquarePlus, Paperclip, Puzzle, Send, Shield, ShieldAlert, Sparkles,
   Target, User, Wrench, X,
 } from 'lucide-react'
+import Dropdown from '../components/Dropdown'
 import api from '../lib/api'
 import { useAppStore } from '../store'
 
@@ -68,6 +69,13 @@ export default function Chat() {
     api.get('/models/available').then(r => setModels(r.items || [])).catch(() => {})
   }, [])
 
+  const patchConv = useCallback(async (body: object) => {
+    try {
+      const r = await api.patch(`/conversation/${convId}`, body)
+      setConv((c: any) => (c ? { ...c, ...r } : c))
+    } catch {}
+  }, [convId])
+
   if (!convId) {
     // 草稿态：模式/工作区/模型在输入框周围直接选择，首条消息发送时自动创建会话
     return (
@@ -102,7 +110,9 @@ export default function Chat() {
           )}
         </div>
         {/* ===== 下方：输入区 ===== */}
-        <Composer convId={convId} conv={conv} onSent={() => { load(); bumpConv() }}
+        <Composer convId={convId} conv={conv} models={models}
+                  onPatch={patchConv}
+                  onSent={() => { load(); bumpConv() }}
                   setLoading={setLoading} />
       </div>
       {/* ===== 右侧：工作区文件栏 ===== */}
@@ -156,17 +166,15 @@ function ChatHeader({ conv, setConv, models, filesOpen, setFilesOpen, fileCount 
         <p className="text-[11px] text-slate2 truncate">📁 工作区：{conv.workspace}</p>
       </div>
       <div className="ml-auto flex items-center gap-2">
-        <select value={conv.agent_mode} onChange={e => patch({ agent_mode: e.target.value })}
-                className="text-xs border border-border rounded-lg px-2 py-1.5 bg-card text-ink">
-          {MODES.map(m => <option key={m.key} value={m.key}>{MODE_LABEL[m.key]}模式</option>)}
-        </select>
-        <select value={conv.model_id} onChange={e => patch({ model_id: Number(e.target.value) })}
-                className="text-xs border border-border rounded-lg px-2 py-1.5 bg-card text-ink max-w-44">
-          <option value={0}>系统默认模型</option>
-          {models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-        </select>
+        <Dropdown value={conv.agent_mode} width={138} up
+                  onChange={(v: any) => patch({ agent_mode: v })}
+                  options={MODES.map(m => ({ value: m.key, label: `${m.label}模式`, hint: m.desc }))}/>
+        <Dropdown value={conv.model_id} width={150} up
+                  onChange={(v: any) => patch({ model_id: Number(v) })}
+                  options={[{ value: 0, label: '系统默认模型' },
+                            ...models.map((m: any) => ({ value: m.id, label: m.name, hint: m.protocol }))]} />
         <button onClick={() => setFilesOpen(!filesOpen)}
-                className={`text-xs rounded-lg px-2.5 py-1.5 border ${filesOpen ? 'bg-navy text-white border-navy' : 'border-border text-slate2 hover:text-navy'}`}>
+                className={`text-xs rounded-lg px-2.5 py-1.5 border transition-colors ${filesOpen ? 'bg-navy text-white border-navy' : 'border-border text-slate2 hover:text-navy'}`}>
           工作区文件 ({fileCount})
         </button>
       </div>
@@ -258,7 +266,9 @@ function ApproveBtn({ convId, msgId, idx, approve, onDecided }: any) {
 }
 
 /* ============ 输入区：附件/能力/模式内提示/发送 ============ */
-function Composer({ convId, conv, models, onSent, onCreated, setLoading }: any) {
+function Composer({ convId, conv, models, onPatch, onSent, onCreated, setLoading }: any) {
+  const patchMode = (v: any) => onPatch?.({ agent_mode: v })
+  const patchModel = (v: any) => onPatch?.({ model_id: Number(v) })
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<any[]>([])
   const [caps, setCaps] = useState<{ knowledge: number[]; records: number[]; market: number[]; avatar: string }>({
@@ -355,115 +365,144 @@ function Composer({ convId, conv, models, onSent, onCreated, setLoading }: any) 
   )
 
   return (
-    <div className="shrink-0 border-t border-border bg-card px-5 py-3 space-y-2">
-      {/* 已选能力与附件 chips */}
-      {(attachments.length > 0 || pendingFiles.length > 0 || caps.knowledge.length || caps.records.length || caps.market.length || caps.avatar) && (
-        <div className="flex flex-wrap gap-1.5">
-          {attachments.map((a, i) => capChip(`📎 ${a.filename}`, () =>
-            setAttachments(list => list.filter((_, j) => j !== i))))}
-          {pendingFiles.map((f, i) => capChip(`📎 ${f.name}（待上传）`, () =>
-            setPendingFiles(pf => pf.filter((_, j) => j !== i))))}
-          {caps.knowledge.map(id => capChip(`📖 知识#${id}`, () => toggleCap('knowledge', id)))}
-          {caps.records.map(id => capChip(`🗂 资料#${id}`, () => toggleCap('records', id)))}
-          {caps.market.map(id => capChip(`🧩 能力#${id}`, () => toggleCap('market', id)))}
-          {(caps.skill || []).map(id => capChip(`⚡ Skill#${id}`, () => toggleCap('skill', id)))}
-          {(caps.mcp || []).map(id => capChip(`🔌 MCP#${id}`, () => toggleCap('mcp', id)))}
-          {(caps.plugin || []).map(id => capChip(`🌐 插件#${id}`, () => toggleCap('plugin', id)))}
-          {caps.avatar && capChip(`🤖 分身:${caps.avatar}`, () => setCaps((c: any) => ({ ...c, avatar: '' })))}
-        </div>
-      )}
-      {/* 能力选择弹层 */}
-      {capsOpen && (
-        <div className="border border-border rounded-xl bg-card shadow-lift overflow-hidden">
-          <div className="flex border-b border-border text-xs">
-            {([['knowledge', '知识库'], ['records', '资料库'], ['market', '专家/专家团'],
-               ['skill', 'Skill'], ['mcp', 'MCP'], ['plugin', '插件'], ['avatar', '数字分身']] as const).map(([k, label]) => (
-              <button key={k} onClick={() => k !== 'avatar' && openCaps(k)}
-                      onDoubleClick={() => { if (k === 'avatar') setCaps(c => ({ ...c, avatar: '通用商务分身' })); setCapsOpen(false) }}
-                      className={`px-3 py-2 ${capTab === k ? 'text-navy font-medium border-b-2 border-navy' : 'text-slate2 hover:text-ink'}`}>
-                {label}
+    <div className="shrink-0 px-4 pb-4 pt-1">
+      {/* ===== Trae 式统一输入卡片 ===== */}
+      <div className="relative bg-card border border-border rounded-2xl shadow-soft transition-shadow focus-within:shadow-lift">
+        {/* 能力引用上浮菜单 */}
+        {capsOpen && (
+          <div className="absolute bottom-full left-0 right-0 mb-2 rounded-xl bg-card shadow-lift border border-border overflow-hidden z-30">
+            <div className="flex items-center gap-1 p-2 border-b border-border/70 flex-wrap">
+              {([['knowledge', '📖 知识库'], ['records', '🗂 资料库'], ['market', '👑 专家/专家团'],
+                 ['skill', '⚡ Skill'], ['mcp', '🔌 MCP'], ['plugin', '🌐 插件'],
+                 ['avatar', '🤖 数字分身']] as const).map(([k, label]) => (
+                <button key={k} onClick={() => k !== 'avatar' && openCaps(k)}
+                        className={`px-2.5 py-1 rounded-full text-[11px] transition-colors ${
+                          capTab === k ? 'bg-gradient-pill text-white shadow-glow font-medium'
+                                       : 'bg-canvas text-slate2 hover:text-navy'}`}>
+                  {label}
+                </button>
+              ))}
+              <button onClick={() => setCapsOpen(false)}
+                      className="ml-auto w-6 h-6 rounded-full text-slate2 hover:bg-canvas hover:text-alert flex items-center justify-center">
+                <X size={13} />
               </button>
-            ))}
-            <button onClick={() => setCapsOpen(false)} className="ml-auto px-3 text-slate2 hover:text-alert"><X size={13} /></button>
+            </div>
+            <div className="max-h-56 overflow-y-auto p-1.5">
+              {capTab === 'avatar' ? (
+                <div className="flex gap-2 p-1">
+                  <input value={caps.avatar} onChange={e => setCaps((c: any) => ({ ...c, avatar: e.target.value }))}
+                         placeholder="输入数字分身名称，如：财务分身" autoFocus
+                         className="flex-1 text-xs border border-border rounded-lg px-2.5 py-1.5 focus:border-steel-light"/>
+                  <button onClick={() => setCapsOpen(false)}
+                          className="text-xs bg-gradient-brand text-white rounded-lg px-3 shadow-glow">挂载</button>
+                </div>
+              ) : (
+                <>
+                  {capItems.length === 0 && (
+                    <p className="text-xs text-slate2 p-3 text-center">暂无可选条目</p>
+                  )}
+                  {capItems.map((it: any) => {
+                    const sel = (caps as any)[capTab]?.includes(it.id)
+                    return (
+                      <button key={it.id} onClick={() => toggleCap(capTab, it.id)}
+                              className={`w-full flex items-center gap-2 text-left px-2.5 py-2 rounded-lg text-xs transition-colors ${
+                                sel ? 'bg-blue-50/70 text-navy' : 'text-ink hover:bg-canvas'}`}>
+                        <span className="flex-1 min-w-0">
+                          <span className="block truncate font-medium">{it.title || it.name}</span>
+                          {(it.department || it.scope || it.domain_label) && (
+                            <span className="block text-[10px] text-slate2 truncate">
+                              {it.domain_label || ''}{it.department || ''}{it.scope || it.status || ''}
+                            </span>
+                          )}
+                        </span>
+                        {sel && <Check size={13} className="shrink-0 text-navy" />}
+                      </button>
+                    )
+                  })}
+                </>
+              )}
+            </div>
           </div>
-          <div className="max-h-52 overflow-y-auto p-2">
-            {capTab === 'avatar' ? (
-              <div className="flex gap-2 p-1">
-                <input value={caps.avatar} onChange={e => setCaps((c: any) => ({ ...c, avatar: e.target.value }))}
-                       placeholder="输入数字分身名称，如：财务分身" className="flex-1 text-xs border border-border rounded-lg px-2.5 py-1.5"/>
-                <button onClick={() => setCapsOpen(false)}
-                        className="text-xs bg-navy text-white rounded-lg px-3">挂载</button>
-              </div>
-            ) : (
-              <>
-                {capItems.length === 0 && <p className="text-xs text-slate2 p-2">暂无可选条目</p>}
-                {capItems.map((it: any) => {
-                  const sel = (caps as any)[capTab]?.includes(it.id)
-                  return (
-                    <button key={it.id} onClick={() => toggleCap(capTab, it.id)}
-                            className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs ${sel ? 'bg-blue-50 text-navy' : 'hover:bg-canvas text-ink'}`}>
-                      {it.title || it.name}
-                      <span className="text-slate2 ml-1.5">{it.scope || it.status || ''}</span>
-                    </button>
-                  )
-                })}
-              </>
-            )}
-          </div>
-        </div>
-      )}
-      {/* 草稿态：模式/工作区/模型 内联选择（首条消息发送时创建会话） */}
-      {isDraft && (
-        <div className="flex flex-wrap items-center gap-2 text-xs bg-canvas border border-border rounded-xl px-3 py-2">
-          <span className="text-slate2">新会话配置：</span>
-          <select value={draftMode} onChange={e => setDraftMode(e.target.value)}
-                  className="border border-border rounded-lg px-2 py-1.5 bg-card text-ink">
-            {MODES.map(m => <option key={m.key} value={m.key}>{m.label}模式</option>)}
-          </select>
-          <span className="text-slate2 flex items-center gap-1">
-            <Files size={12} />
-            <input value={draftWs} onChange={e => setDraftWs(e.target.value)}
-                   placeholder="工作区名称（选填）"
-                   className="border border-border rounded-lg px-2 py-1.5 bg-card w-36"/>
+        )}
+
+        {/* 工具栏：附件 / 能力 | 工作区(草稿) / 模式 / 模型 / 生成文件 */}
+        <div className="flex items-center gap-1.5 px-3 pt-2.5 flex-wrap">
+          <input ref={fileRef} type="file" multiple hidden
+                 onChange={e => { uploadFiles(e.target.files); e.target.value = '' }} />
+          <button title="添加附件（任意格式）" onClick={() => fileRef.current?.click()}
+                  className="p-1.5 rounded-lg text-slate2 hover:text-navy hover:bg-canvas transition-colors">
+            <Paperclip size={16} />
+          </button>
+          <button title="引用能力：知识库/资料库/专家/Skill/MCP/插件/数字分身"
+                  onClick={() => capsOpen ? setCapsOpen(false) : openCaps('knowledge')}
+                  className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors ${
+                    capsOpen ? 'bg-navy text-white' : 'text-slate2 hover:text-navy hover:bg-canvas'}`}>
+            <Puzzle size={15} /> <span className="hidden sm:inline">能力</span>
+          </button>
+          {isDraft && (
+            <span className="flex items-center gap-1 rounded-lg border border-dashed border-steel-light/60 bg-blue-50/40 px-2 py-1">
+              <Files size={12} className="text-navy shrink-0" />
+              <input value={draftWs} onChange={e => setDraftWs(e.target.value)}
+                     placeholder="工作区名称（选填）" size={10}
+                     className="bg-transparent text-xs text-ink placeholder:text-slate2/70 focus:outline-none w-28"/>
+            </span>
+          )}
+          <span className="ml-auto flex items-center gap-1.5">
+            <Dropdown value={conv?.agent_mode ?? draftMode} width={132}
+                      onChange={(v: any) => conv ? patchMode(v) : setDraftMode(v)}
+                      options={MODES.map(m => ({ value: m.key, label: `${m.label}模式`, hint: m.desc }))}/>
+            <Dropdown value={conv?.model_id ?? draftModelId} width={148}
+                      onChange={(v: any) => conv ? patchModel(v) : setDraftModelId(Number(v))}
+                      options={[{ value: 0, label: '系统默认模型' },
+                                ...models.map(m => ({ value: m.id, label: m.name, hint: m.protocol }))]} />
+            <button title="AI 自动生成文件已启用；点击可强制本条回复保存为文件"
+                    onClick={() => setGenFile(v => !v)}
+                    className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors ${
+                      genFile ? 'bg-accent text-white' : 'text-slate2 hover:text-accent hover:bg-canvas'}`}>
+              <Files size={14} /><span className="hidden md:inline">生成文件</span>
+            </button>
           </span>
-          <select value={draftModelId} onChange={e => setDraftModelId(Number(e.target.value))}
-                  className="border border-border rounded-lg px-2 py-1.5 bg-card text-ink max-w-48">
-            <option value={0}>系统默认模型</option>
-            {models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
         </div>
-      )}
-      {/* 主输入行 */}
-      <div className="flex items-end gap-2">
-        <input ref={fileRef} type="file" multiple hidden
-               onChange={e => { uploadFiles(e.target.files); e.target.value = '' }} />
-        <button title="添加附件（任意格式）" onClick={() => fileRef.current?.click()}
-                className="p-2.5 rounded-lg border border-border text-slate2 hover:text-navy hover:border-navy transition-colors">
-          <Paperclip size={17} />
-        </button>
-        <button title="引用能力：知识库/资料库/专家/Skill/MCP/数字分身" onClick={() => capsOpen ? setCapsOpen(false) : openCaps('knowledge')}
-                className={`p-2.5 rounded-lg border transition-colors ${capsOpen ? 'bg-navy text-white border-navy' : 'border-border text-slate2 hover:text-navy hover:border-navy'}`}>
-          <Puzzle size={17} />
-        </button>
+
+        {/* 已选能力与附件 chips */}
+        {((attachments.length + pendingFiles.length + caps.knowledge.length + caps.records.length + caps.market.length + (caps.skill || []).length + (caps.mcp || []).length + (caps.plugin || []).length) > 0 || !!caps.avatar) && (
+          <div className="flex flex-wrap gap-1.5 px-3 pt-2">
+            {attachments.map((a, i) => capChip(`📎 ${a.filename}`, () =>
+              setAttachments(list => list.filter((_, j) => j !== i))))}
+            {pendingFiles.map((f, i) => capChip(`📎 ${f.name}（待上传）`, () =>
+              setPendingFiles(pf => pf.filter((_, j) => j !== i))))}
+            {caps.knowledge.map(id => capChip(`📖 知识#${id}`, () => toggleCap('knowledge', id)))}
+            {caps.records.map(id => capChip(`🗂 资料#${id}`, () => toggleCap('records', id)))}
+            {caps.market.map(id => capChip(`👑 能力#${id}`, () => toggleCap('market', id)))}
+            {(caps.skill || []).map(id => capChip(`⚡ Skill#${id}`, () => toggleCap('skill', id)))}
+            {(caps.mcp || []).map(id => capChip(`🔌 MCP#${id}`, () => toggleCap('mcp', id)))}
+            {(caps.plugin || []).map(id => capChip(`🌐 插件#${id}`, () => toggleCap('plugin', id)))}
+            {caps.avatar && capChip(`🤖 分身:${caps.avatar}`, () => setCaps((c: any) => ({ ...c, avatar: '' })))}
+          </div>
+        )}
+
+        {/* 文本域 */}
         <textarea value={text} onChange={e => setText(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-                  rows={2} placeholder={`以${MODE_LABEL[conv?.agent_mode || draftMode] || ''}模式与智能体对话…（Enter 发送，Shift+Enter 换行）`}
-                  className="flex-1 border border-border rounded-xl px-3.5 py-2.5 text-sm resize-none bg-white transition-shadow focus:shadow-glow focus:border-steel-light"/>
-        <button title="将回复保存为工作区文件" onClick={() => setGenFile(v => !v)}
-                className={`p-2.5 rounded-lg border transition-colors ${genFile ? 'bg-accent text-white border-accent' : 'border-border text-slate2 hover:text-accent hover:border-accent'}`}>
-          <Files size={17} />
-        </button>
-        <button onClick={send} disabled={sending || !text.trim()}
-                className="bg-gradient-brand text-white rounded-xl px-4 py-2.5 shadow-glow hover:opacity-90 disabled:opacity-50 transition-opacity">
-          <Send size={17} />
-        </button>
+                  rows={2}
+                  placeholder={`给智能体发送指令…（Enter 发送，Shift+Enter 换行；文件产物由 AI 自动判断格式）`}
+                  className="w-full px-4 pt-3 pb-1 text-sm resize-none bg-transparent border-0 focus:outline-none placeholder:text-slate2/70"/>
+
+        {/* 底行：模式提示 + 发送 */}
+        <div className="flex items-center gap-3 px-4 pb-3">
+          <p className="text-[10px] text-slate2 flex-1 min-w-0 truncate">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-steel-light mr-1 align-middle"/>
+            {MODE_LABEL[conv?.agent_mode || draftMode] || '-'} ·
+            {(conv?.agent_mode || draftMode) === 'full_auto' && ' 智能体自主执行，工作区可增删改查'}
+            {(conv?.agent_mode || draftMode) === 'approve_risky' && ' 普通写入自动执行，高风险动作需审批'}
+            {(conv?.agent_mode || draftMode) === 'sandbox' && ' 所有操作先沙箱执行，审批后落盘'}
+          </p>
+          <button onClick={send} disabled={sending || !text.trim()} title="发送"
+                  className="w-9 h-9 rounded-full bg-gradient-brand text-white shadow-glow flex items-center justify-center hover:opacity-90 disabled:opacity-40 disabled:shadow-none transition-all shrink-0">
+            <Send size={16} />
+          </button>
+        </div>
       </div>
-      <p className="text-[10px] text-slate2">
-        当前模式：{MODE_LABEL[conv?.agent_mode || draftMode] || '-'} ·
-        {(conv?.agent_mode || draftMode) === 'full_auto' && ' 智能体自主执行，工作区可增删改查'}
-        {(conv?.agent_mode || draftMode) === 'approve_risky' && ' 普通写入自动执行，高风险动作需审批'}
-        {(conv?.agent_mode || draftMode) === 'sandbox' && ' 所有操作先沙箱执行，审批后落盘'}
-      </p>
     </div>
   )
 }

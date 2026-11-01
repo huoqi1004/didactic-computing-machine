@@ -8,3 +8,4 @@
 | 2026-10-05 | full-rebuild | **v1.0** | 批准基线 | 六决策点裁决（D-R1 激进全弃含治理面/D-R4 旧系统立即下线为超建议裁决）；tag prd/full-rebuild/v1.0 |（见 git log） |
 | 2026-11-01 | platform-enhancement | v0.1 | 初稿 | M6~M12 七批甲方指示汇总成文：会话三模式+工作区/模型双协议接入与额度/42专家+6专家团/长期记忆/Skill·MCP爬取与知识库建设/三级知识权限与共享申请/上传安全审查/IM四类会话/上网能力/插件市场/AI意图自动生成文件 |（见 git log） |
 | 2026-11-02 | platform-enhancement | **v1.0** | 批准基线 | 甲方分批逐条指示即批准；全部交付并实测验收；同时标记 full-rebuild v1.0 范围（M0~M5）交付完成 |（见 git log） |
+| 2026-11-02 | platform-enhancement | v1.1 | 增量交付 | 开放问题四项落地：PDF发票识别（文本层+LLM结构化）/数字分身IM自动应答（persona+记忆+D-R6）/记忆语义向量检索（API+哈希兜底双后端）/插件运行时v1（翻译·搜索·网页·表格真实动作）；FR-O1~O4 见 platform-enhancement §6 追加节 |（见 git log） |

@@ -377,7 +377,8 @@ async def chat(conv_id: int, req: ChatRequest, user: dict = Depends(auth_user)):
                         "请用简洁专业的中文回答企业办公相关问题。"]
 
         caps = req.capabilities or {}
-        caps_used = await _assemble_capabilities(s, user, caps, system_parts, steps)
+        caps_used = await _assemble_capabilities(s, user, req.message,
+                                            caps, system_parts, steps)
 
         # 记忆召回（AgentScope 式长期记忆注入）
         from app.core.memory import memory_context, retrieve_memories, touch_memory
@@ -707,9 +708,12 @@ def _team_members(payload: str) -> list[str]:
         return []
 
 
-async def _assemble_capabilities(s, user: dict, caps: dict,
-                                 system_parts: list, steps: list) -> dict:
+async def _assemble_capabilities(s, user: dict, message: str,
+                                 caps: dict, system_parts: list,
+                                 steps: list) -> dict:
     """把知识库/资料库/市场能力/分身 persona 装配进系统提示词。"""
+    from app.core.llm_gateway import provider_chat
+
     used: dict[str, int] = {}
     kb_ids = [int(i) for i in (caps.get("knowledge") or [])][:8]
     if kb_ids:
@@ -741,7 +745,11 @@ async def _assemble_capabilities(s, user: dict, caps: dict,
             steps.append({"kind": "capability", "status": "done",
                           "detail": f"已挂接资料库定稿 {len(rows)} 份"})
             used["records"] = len(rows)
-    market_ids = [int(i) for i in (caps.get("market") or [])][:8]
+    # 市场能力：market/skill/mcp/plugin 四个引用键合并装配（M13 修复 skill/mcp/plugin 从未生效的缺口）
+    market_ids = []
+    for key in ("market", "skill", "mcp", "plugin"):
+        market_ids += [int(i) for i in (caps.get(key) or [])]
+    market_ids = market_ids[:8]
     if market_ids:
         rows = (await s.execute(select(MarketItem).where(
             MarketItem.id.in_(market_ids)))).scalars().all()
@@ -754,6 +762,30 @@ async def _assemble_capabilities(s, user: dict, caps: dict,
                     f"请以专家团「{r.name}」的组织方式协同处理本请求：{r.description}"
                     f"（成员专家：{'、'.join(members) or '见描述'}）。"
                     "请先给出成员分工，再以各成员专业视角依次分析，最后汇总形成综合结论。")
+            elif r.kind == "plugin":
+                # 插件运行时（M13）：按类别执行真实动作并注入结果
+                from app.core.plugin_runtime import execute_plugin
+
+                async def _llm_translate(text: str, target: str) -> str:
+                    from app.core.llm_gateway import get_default_provider
+
+                    prov = await get_default_provider(s)
+                    if prov is None:
+                        return ""
+                    t, _tk = await provider_chat(
+                        s, prov,
+                        [{"role": "user",
+                          "content": f"将以下内容翻译为{target}，只输出译文：\n{text}"}],
+                        system="你是翻译引擎。", username=user["username"])
+                    return t
+
+                ctx, plugin_steps = await execute_plugin(
+                    r.name, r.description, message, _llm_translate)
+                if ctx:
+                    system_parts.append(ctx)
+                steps.extend(plugin_steps)
+                system_parts.append(
+                    f"用户引用了插件「{r.name}」：{r.description[:150]}")
             else:
                 desc = r.description[:200]
                 system_parts.append(

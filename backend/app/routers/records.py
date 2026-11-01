@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from fastapi import Depends, APIRouter, HTTPException
+from fastapi import Depends, APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -37,6 +37,57 @@ async def list_records(user: dict = Depends(auth_user)):
     return {"items": [{"id": r.id, "doc_type": r.doc_type, "title": r.title,
                        "status": r.status, "department": r.department}
                       for r in rows]}
+
+
+@router.post("/upload-invoice")
+async def upload_invoice(file: UploadFile = File(...),
+                         user: dict = Depends(auth_user)):
+    """PDF 发票上传识别（M13）：文本层提取 → LLM 结构化 → 自动创建发票资料。"""
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(400, "仅支持 PDF 发票")
+    from app.core import invoice_ocr
+    from app.core.llm_gateway import get_default_provider, provider_chat
+    from datetime import datetime, timezone
+
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(400, "文件不能超过 10MB")
+    text = invoice_ocr.extract_pdf_text(data)
+    if not text.strip():
+        raise HTTPException(422, "该 PDF 无文本层（疑似扫描件），"
+                                 "请使用数电票/电子发票 PDF，或等待 OCR 服务接入")
+
+    session = get_session()
+    async with session as s:
+        provider = await get_default_provider(s)
+        if provider is None:
+            raise HTTPException(503, "系统未接入可用模型，无法结构化识别")
+        fields = await invoice_ocr.structure_invoice(
+            text,
+            lambda messages, system: provider_chat(
+                s, provider, messages, system=system,
+                username=user["username"]))
+        if fields is None:
+            raise HTTPException(422, "未能从 PDF 中识别出发票要素，请确认文件为发票")
+        from app.models import BusinessDocument
+
+        title = f"发票识别·{fields.get('销售方名称') or fields.get('购买方名称') or file.filename}"
+        doc = BusinessDocument(
+            doc_type="invoice", title=title[:120],
+            owner_id=user["username"], department=user.get("department", ""),
+            payload=json.dumps({"识别要素": fields, "来源文件": file.filename,
+                                "识别方式": "PDF文本层+LLM结构化"}, ensure_ascii=False),
+            status="draft")
+        s.add(doc)
+        from app.core.audit_chain import append as _audit
+        await _audit(s, actor=user["username"],
+                                 action="records.invoice_ocr",
+                                 resource=f"record:{doc.title[:30]}",
+                                 result="ok",
+                                 details={"fields": fields})
+        await s.commit()
+        return {"id": doc.id, "title": doc.title, "fields": fields,
+                "message": "识别成功并已创建发票资料（草稿）"}
 
 
 @router.post("")

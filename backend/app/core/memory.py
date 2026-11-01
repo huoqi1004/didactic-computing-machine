@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -74,9 +75,16 @@ async def extract_memories(session, username: str, message: str,
         .order_by(AgentMemory.id.desc()).limit(200))).scalars().all()
     if any(m.content == text for m in existing):
         return []
+    from app.core.embeddings import embed
+
     stored = AgentMemory(username=username, kind=kind, content=text,
                          importance=importance, source_conv_id=conv_id)
     session.add(stored)
+    await session.flush()
+    try:
+        stored.embedding = json.dumps(await embed(text))
+    except Exception as e:
+        logger.warning("memory.embed_failed", error=str(e))
     await session.flush()
     result = [{"id": stored.id, "kind": kind, "importance": importance,
                "content": text[:80]}]
@@ -93,20 +101,36 @@ async def retrieve_memories(session, username: str, query: str,
         .limit(100))).scalars().all()
     if not rows:
         return []
+    from app.core.embeddings import cosine, embed
+
     q_tokens = _tokens(query)
+    q_vec = await embed(query)
     now = datetime.now(timezone.utc)
     scored = []
     for m in rows:
         m_tokens = _tokens(m.content)
         overlap = len(q_tokens & m_tokens)
-        score = overlap * 2 + m.importance
+        # 语义相似度（M13）：记忆无向量时懒补并回写
+        if m.embedding:
+            try:
+                m_vec = json.loads(m.embedding)
+            except Exception:
+                m_vec = None
+        else:
+            try:
+                m_vec = await embed(m.content)
+                m.embedding = json.dumps(m_vec)
+            except Exception:
+                m_vec = None
+        sem = cosine(q_vec, m_vec) if m_vec else 0.0
+        score = overlap * 2 + m.importance + round(sem * 6, 2)
         try:
             created = m.created_at if m.created_at.tzinfo else m.created_at.replace(tzinfo=timezone.utc)
         except Exception:
             created = m.created_at
         if (now - created) < timedelta(days=30):
             score += 1
-        if score >= 4:  # 最低相关门槛：重要度3 + 1项匹配，或重要度5
+        if score >= 4 or sem >= 0.55:  # 词面门槛 或 语义高相似直接命中
             scored.append((score, m))
     scored.sort(key=lambda x: (-x[0], -x[1].importance))
     return [m for _, m in scored[:limit]]

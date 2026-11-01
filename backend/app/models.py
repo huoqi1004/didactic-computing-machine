@@ -276,5 +276,6 @@ class AgentMemory(Base):
     importance: Mapped[int] = mapped_column(Integer, default=3)     # 1-5
     source_conv_id: Mapped[int] = mapped_column(Integer, default=0)
     use_count: Mapped[int] = mapped_column(Integer, default=0)
+    embedding: Mapped[str] = mapped_column(Text, default="")  # 语义向量 JSON（M13）
     last_used_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

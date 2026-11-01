@@ -8,13 +8,17 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 
+import structlog
 from fastapi import Depends, APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.core.deps import auth_user
+
+logger = structlog.get_logger()
 from app.core.database import get_session
 
 router = APIRouter(prefix="/api/v1/im", tags=["IM"])
@@ -199,4 +203,91 @@ async def send_message(channel_id: int, req: MessageSend,
                         sender_id=user["username"], content=req.content)
         s.add(msg)
         await s.commit()
-        return {"id": msg.id, "status": "sent"}
+
+    # 数字分身自动应答（M13）：分身私聊消息触发后台 LLM 回复
+    if ch.type == "avatar_private":
+        avatar_name = next((m for m in _members(ch) if m != user["username"]),
+                           "数字分身")
+        task = asyncio.create_task(
+            _avatar_reply(channel_id, user["username"], req.content,
+                          avatar_name))
+        _avatar_tasks.add(task)
+        task.add_done_callback(_avatar_tasks.discard)
+    return {"id": msg.id, "status": "sent"}
+
+
+# 后台任务句柄集（防 GC）
+_avatar_tasks: set = set()
+
+
+async def _avatar_reply(channel_id: int, username: str, message: str,
+                        avatar_name: str) -> None:
+    """数字分身后台自动应答：D-R6 研判 → 记忆召回 → 专家 persona → LLM。"""
+    from app.core.audit_chain import append as audit_append
+    from app.core.llm_gateway import (QuotaError, get_default_provider,
+                                      provider_chat)
+    from app.core.memory import memory_context, retrieve_memories
+    from app.models import IMMessage
+
+    await asyncio.sleep(0.2)
+    session = get_session()
+    try:
+        async with session as s:
+            history = (await s.execute(
+                select(IMMessage).where(IMMessage.channel_id == channel_id)
+                .order_by(IMMessage.created_at.desc()).limit(8))).scalars().all()
+            # persona：优先能力市场同名专家
+            from app.models import MarketItem
+
+            expert = (await s.execute(
+                select(MarketItem).where(MarketItem.name == avatar_name,
+                                         MarketItem.status == "approved"))).scalars().first()
+            persona = (expert.description if expert
+                       else f"你是数字分身「{avatar_name}」，"
+                            "以专业、严谨、友好的方式协助用户处理工作事务。")
+            system_parts = [persona,
+                            f"当前对话用户：{username}。请用简洁专业的中文回复 IM 消息。"]
+
+            # D-R6 恶意研判：命中则不调用模型，安全回复 + 留痕
+            from app.core.intent_guard import detect_threats
+
+            threats = detect_threats(message)
+            reply_text = None
+            sender_id = avatar_name
+            sender_type = "avatar"
+            if threats:
+                kinds = [t["kind"] for t in threats]
+                await audit_append(s, actor=username,
+                                   action="avatar.im_threat_blocked",
+                                   resource=f"im_channel:{channel_id}",
+                                   result="blocked",
+                                   details={"threats": kinds,
+                                            "preview": message[:150]})
+                reply_text = "您的消息包含疑似越权或恶意内容，已按安全策略中断本次应答并记录。"
+                sender_id = "security"
+                sender_type = "system"
+            else:
+                memories = await retrieve_memories(s, username, message)
+                if memories:
+                    system_parts.append(memory_context(memories))
+                msgs = [{"role": "user" if m.sender_type == "user" else "assistant",
+                         "content": m.content}
+                        for m in reversed(history)]
+                provider = await get_default_provider(s)
+                if provider is None:
+                    return
+                try:
+                    reply_text, _tokens = await provider_chat(
+                        s, provider, msgs,
+                        system="\n".join(system_parts), username=username)
+                except (QuotaError, RuntimeError):
+                    return  # 静默：额度/服务异常不打扰用户
+                await s.flush()
+
+            if reply_text:
+                s.add(IMMessage(channel_id=channel_id,
+                                sender_type=sender_type,
+                                sender_id=sender_id, content=reply_text))
+                await s.commit()
+    except Exception as e:
+        logger.warning("avatar.reply_failed", channel=channel_id, error=str(e))
